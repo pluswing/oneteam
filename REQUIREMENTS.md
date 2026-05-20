@@ -909,13 +909,13 @@ packages/git    git operation wrapper
 16. QA エージェント
 17. Playwright による UI QA
 
-## 19. 次に作るとよい資料
+## 19. 詳細資料
 
-- 画面一覧・ワイヤーフレーム
-- DB schema 詳細
-- Agent prompt template
-- Agent Job state machine 図
-- API request / response schema
-- MVP タスク分解
-- command auto-detection 仕様
-- i18n リソース設計
+- [画面一覧・ワイヤーフレーム](./docs/01-screens-wireframes.md)
+- [DB schema 詳細](./docs/02-db-schema.md)
+- [Agent prompt template](./docs/03-agent-prompt-templates.md)
+- [Agent Job state machine](./docs/04-agent-job-state-machine.md)
+- [API request / response schema](./docs/05-api-schemas.md)
+- [MVP タスク分解](./docs/06-mvp-task-breakdown.md)
+- [command auto-detection 仕様](./docs/07-command-auto-detection.md)
+- [i18n リソース設計](./docs/08-i18n-resource-design.md)
