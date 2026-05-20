@@ -20,6 +20,7 @@ import { systemLabels } from "./system-labels";
 import {
   agentActivities,
   agentJobs,
+  appSettings,
   comments,
   issueLabels,
   issues,
@@ -115,6 +116,7 @@ function mapActivity(row: ActivityRow): ActivityDto {
 function mapAgentJob(row: AgentJobRow): AgentJobDto {
   return {
     id: row.id,
+    projectId: row.projectId,
     agentType: row.agentType,
     targetType: row.targetType,
     targetId: row.targetId,
@@ -349,6 +351,33 @@ export function createRepositories(db: Database) {
           .where(and(eq(labels.projectId, projectId), eq(labels.name, name), isNull(labels.deletedAt)))
           .limit(1);
         return rows[0] ? mapLabel(rows[0]) : null;
+      }
+    },
+
+    settings: {
+      async get(key: string): Promise<Record<string, unknown> | null> {
+        const rows = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
+        return rows[0] ? parseJsonObject(rows[0].valueJson) : null;
+      },
+
+      async set(key: string, value: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const timestamp = now();
+        await db
+          .insert(appSettings)
+          .values({
+            key,
+            valueJson: JSON.stringify(value),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .onConflictDoUpdate({
+            target: appSettings.key,
+            set: {
+              valueJson: JSON.stringify(value),
+              updatedAt: timestamp
+            }
+          });
+        return value;
       }
     },
 
@@ -706,6 +735,7 @@ export function createRepositories(db: Database) {
         targetType: "issue" | "pull_request";
         targetId: number;
         authorType: "user" | "agent" | "system";
+        agentType?: AgentType | null;
         body: string;
         metadata?: Record<string, unknown>;
       }): Promise<CommentDto> {
@@ -717,6 +747,7 @@ export function createRepositories(db: Database) {
             targetType: input.targetType,
             targetId: input.targetId,
             authorType: input.authorType,
+            agentType: input.agentType,
             body: input.body,
             metadataJson: stringifyJson(input.metadata),
             createdAt: timestamp,
@@ -772,6 +803,16 @@ export function createRepositories(db: Database) {
     },
 
     agentJobs: {
+      async nextQueued(projectId?: string): Promise<AgentJobDto | null> {
+        const filters: SQL[] = [eq(agentJobs.status, "queued")];
+        if (projectId) {
+          filters.push(eq(agentJobs.projectId, projectId));
+        }
+
+        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(agentJobs.createdAt).limit(1);
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
       async list(input: {
         projectId: string;
         targetType?: "issue" | "pull_request" | "project";

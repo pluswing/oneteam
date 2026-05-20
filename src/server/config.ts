@@ -9,6 +9,12 @@ export type AppConfig = {
   database: {
     url: string;
   };
+  agents: {
+    workerEnabled: boolean;
+    pollIntervalMs: number;
+    codexCommand: string;
+    codexModel?: string;
+  };
 };
 
 export function loadConfig(): AppConfig {
@@ -19,6 +25,12 @@ export function loadConfig(): AppConfig {
     },
     database: {
       url: process.env.ONETEAM_DATABASE_URL ?? "file:./data/oneteam.db"
+    },
+    agents: {
+      workerEnabled: process.env.ONETEAM_AGENT_WORKER !== "false",
+      pollIntervalMs: Number(process.env.ONETEAM_AGENT_POLL_INTERVAL_MS ?? "3000"),
+      codexCommand: process.env.ONETEAM_CODEX_COMMAND ?? "codex",
+      codexModel: process.env.ONETEAM_CODEX_MODEL || undefined
     }
   };
 }

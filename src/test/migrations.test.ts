@@ -15,6 +15,12 @@ describe("database migrations", () => {
     await runMigrations(context.client);
 
     const repos = createRepositories(context.db);
+    await repos.settings.set("ai", {
+      provider: "codex-cli",
+      codexCommand: "codex",
+      fullAccess: true
+    });
+    const aiSettings = await repos.settings.get("ai");
     const project = await repos.projects.create({
       name: "Example",
       repoPath: join(dir, "repo"),
@@ -46,6 +52,7 @@ describe("database migrations", () => {
       title: "Review queued"
     });
 
+    expect(aiSettings?.codexCommand).toBe("codex");
     expect(project.id).toMatch(/^project_/);
     expect(labels.map((label) => label.name)).toContain("要件定義中");
     expect(labels.map((label) => label.name)).toContain("完了");

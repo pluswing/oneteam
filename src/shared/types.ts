@@ -114,6 +114,7 @@ export type ActivityDto = {
 
 export type AgentJobDto = {
   id: number;
+  projectId: string;
   agentType: AgentType;
   targetType: "issue" | "pull_request" | "project";
   targetId: number;

@@ -145,6 +145,17 @@ async function detectAndPersistCommands(
         body: issue.body,
         labelIds: requirementsLabel ? [requirementsLabel.id] : []
       });
+      await repos.agentJobs.create({
+        projectId,
+        agentType: "requirements",
+        targetType: "issue",
+        targetId: createdIssue.id,
+        triggerType: "repository_imported",
+        input: {
+          reason: "missing_command",
+          commandType: command.commandType
+        }
+      });
       createdIssueIds.push(createdIssue.id);
     }
   }
@@ -201,6 +212,14 @@ export function createApp({ repos }: AppDependencies): Hono {
     const input = c.req.valid("json");
     await ensureRepository(input);
     const project = await repos.projects.create(input);
+    if (input.codex) {
+      await repos.settings.set("ai", {
+        provider: "codex-cli",
+        codexCommand: input.codex.command,
+        model: input.codex.model,
+        fullAccess: input.codex.fullAccess
+      });
+    }
     const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, true);
     return c.json(
       {
@@ -315,14 +334,23 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.post("/api/projects/:projectId/issues/:issueId/comments", zValidator("json", createCommentSchema), async (c) => {
+    const projectId = c.req.param("projectId");
+    const issueId = Number(c.req.param("issueId"));
     const comment = await repos.comments.create({
-      projectId: c.req.param("projectId"),
+      projectId,
       targetType: "issue",
-      targetId: Number(c.req.param("issueId")),
+      targetId: issueId,
       authorType: "user",
       body: c.req.valid("json").body
     });
-    return c.json({ comment, autoResumedJobId: null }, 201);
+    const waitingJobs = await repos.agentJobs.list({
+      projectId,
+      targetType: "issue",
+      targetId: issueId,
+      status: "waiting_human"
+    });
+    const autoResumedJob = waitingJobs[0] ? await repos.agentJobs.retry(projectId, waitingJobs[0].id) : null;
+    return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
   });
 
   app.get("/api/projects/:projectId/issues/:issueId/activities", async (c) => {
@@ -409,14 +437,23 @@ export function createApp({ repos }: AppDependencies): Hono {
     "/api/projects/:projectId/pull-requests/:pullRequestId/comments",
     zValidator("json", createCommentSchema),
     async (c) => {
+      const projectId = c.req.param("projectId");
+      const pullRequestId = Number(c.req.param("pullRequestId"));
       const comment = await repos.comments.create({
-        projectId: c.req.param("projectId"),
+        projectId,
         targetType: "pull_request",
-        targetId: Number(c.req.param("pullRequestId")),
+        targetId: pullRequestId,
         authorType: "user",
         body: c.req.valid("json").body
       });
-      return c.json({ comment }, 201);
+      const waitingJobs = await repos.agentJobs.list({
+        projectId,
+        targetType: "pull_request",
+        targetId: pullRequestId,
+        status: "waiting_human"
+      });
+      const autoResumedJob = waitingJobs[0] ? await repos.agentJobs.retry(projectId, waitingJobs[0].id) : null;
+      return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
     }
   );
 
