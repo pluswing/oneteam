@@ -6,9 +6,17 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import type { IssueStatus } from "../shared/types";
+import type { AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
 import type { Repositories } from "./db/repositories";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
+import {
+  detectMergeConflicts,
+  getBranches,
+  getCommits,
+  getDiffFiles,
+  getDiffWithPatches,
+  getRepositoryStatus
+} from "./services/git-service";
 
 const execFileAsync = promisify(execFile);
 
@@ -48,6 +56,29 @@ const createCommentSchema = z.object({
   body: z.string().min(1)
 });
 
+const createPullRequestSchema = z.object({
+  issueId: z.number().nullable().optional(),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  labelIds: z.array(z.number()).optional()
+});
+
+const updatePullRequestSchema = createPullRequestSchema
+  .partial()
+  .extend({
+    status: z.enum(["open", "closed"]).optional()
+  });
+
+const createAgentJobSchema = z.object({
+  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "command_detection"]),
+  targetType: z.enum(["issue", "pull_request", "project"]),
+  targetId: z.number(),
+  triggerType: z.string().default("manual"),
+  input: z.record(z.string(), z.unknown()).optional()
+});
+
 const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
 });
@@ -60,6 +91,14 @@ function pageParams(url: URL): { limit: number; offset: number } {
   const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 100);
   const offset = Math.max(Number(url.searchParams.get("offset") ?? "0"), 0);
   return { limit, offset };
+}
+
+async function getProjectOr404(repos: Repositories, projectId: string) {
+  const project = await repos.projects.get(projectId);
+  if (!project) {
+    notFound("Project was not found.");
+  }
+  return project;
 }
 
 async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
@@ -199,10 +238,7 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.post("/api/projects/:projectId/commands/detect", zValidator("json", detectCommandsSchema), async (c) => {
-    const project = await repos.projects.get(c.req.param("projectId"));
-    if (!project) {
-      notFound("Project was not found.");
-    }
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
 
     const input = c.req.valid("json");
     const detection = await detectAndPersistCommands(
@@ -294,23 +330,249 @@ export function createApp({ repos }: AppDependencies): Hono {
     return c.json({ items });
   });
 
-  app.get("/api/projects/:projectId/repository/status", (c) =>
-    c.json({
-      branch: "main",
-      clean: true,
-      changedFiles: [],
-      ahead: 0,
-      behind: 0,
-      projectId: c.req.param("projectId")
-    })
+  app.get("/api/projects/:projectId/pull-requests", async (c) => {
+    const url = new URL(c.req.url);
+    const { limit, offset } = pageParams(url);
+    const status = url.searchParams.get("status") as PullRequestStatus | null;
+    const result = await repos.pullRequests.list({
+      projectId: c.req.param("projectId"),
+      status: status ?? undefined,
+      limit,
+      offset
+    });
+
+    return c.json({
+      items: result.items,
+      page: {
+        limit,
+        offset,
+        total: result.total
+      }
+    });
+  });
+
+  app.post("/api/projects/:projectId/pull-requests", zValidator("json", createPullRequestSchema), async (c) => {
+    const reviewLabel = await repos.labels.findByName(c.req.param("projectId"), "レビュー中");
+    const pullRequest = await repos.pullRequests.create({
+      projectId: c.req.param("projectId"),
+      ...c.req.valid("json"),
+      labelIds: c.req.valid("json").labelIds ?? (reviewLabel ? [reviewLabel.id] : [])
+    });
+    return c.json({ pullRequest }, 201);
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId", async (c) => {
+    const pullRequest = await repos.pullRequests.get(c.req.param("projectId"), Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    return c.json({ pullRequest });
+  });
+
+  app.patch(
+    "/api/projects/:projectId/pull-requests/:pullRequestId",
+    zValidator("json", updatePullRequestSchema),
+    async (c) => {
+      const pullRequest = await repos.pullRequests.update(
+        c.req.param("projectId"),
+        Number(c.req.param("pullRequestId")),
+        c.req.valid("json")
+      );
+      if (!pullRequest) {
+        notFound("Pull request was not found.");
+      }
+      return c.json({ pullRequest });
+    }
   );
 
-  app.get("/api/projects/:projectId/repository/merge-conflicts", (c) =>
-    c.json({
-      hasConflicts: false,
-      files: []
-    })
+  app.delete("/api/projects/:projectId/pull-requests/:pullRequestId", async (c) => {
+    const deleted = await repos.pullRequests.softDelete(
+      c.req.param("projectId"),
+      Number(c.req.param("pullRequestId"))
+    );
+    if (!deleted) {
+      notFound("Pull request was not found.");
+    }
+    return c.json({ deleted });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/comments", async (c) => {
+    const items = await repos.comments.list(
+      c.req.param("projectId"),
+      "pull_request",
+      Number(c.req.param("pullRequestId"))
+    );
+    return c.json({ items });
+  });
+
+  app.post(
+    "/api/projects/:projectId/pull-requests/:pullRequestId/comments",
+    zValidator("json", createCommentSchema),
+    async (c) => {
+      const comment = await repos.comments.create({
+        projectId: c.req.param("projectId"),
+        targetType: "pull_request",
+        targetId: Number(c.req.param("pullRequestId")),
+        authorType: "user",
+        body: c.req.valid("json").body
+      });
+      return c.json({ comment }, 201);
+    }
   );
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/activities", async (c) => {
+    const items = await repos.activities.list(
+      c.req.param("projectId"),
+      "pull_request",
+      Number(c.req.param("pullRequestId"))
+    );
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/commits", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const items = await getCommits(project.repoPath, `${pullRequest.targetBranch}..${pullRequest.sourceBranch}`);
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/files", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const files = await getDiffFiles(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    return c.json({ files });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/diff", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const files = await getDiffWithPatches(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    return c.json({ files });
+  });
+
+  app.post("/api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts", async (c) => {
+    const projectId = c.req.param("projectId");
+    const pullRequestId = Number(c.req.param("pullRequestId"));
+    const conflictLabel = await repos.labels.findByName(projectId, "コンフリクト修正中");
+    if (conflictLabel) {
+      await repos.pullRequests.update(projectId, pullRequestId, { labelIds: [conflictLabel.id] });
+    }
+    const job = await repos.agentJobs.create({
+      projectId,
+      agentType: "fix",
+      targetType: "pull_request",
+      targetId: pullRequestId,
+      triggerType: "conflict_detected"
+    });
+    await repos.activities.create({
+      projectId,
+      agentJobId: job.id,
+      targetType: "pull_request",
+      targetId: pullRequestId,
+      activityType: "system",
+      title: "Conflict resolution queued",
+      body: "Queued a fix agent job to resolve merge conflicts."
+    });
+    return c.json({ jobId: job.id, label: "コンフリクト修正中" });
+  });
+
+  app.get("/api/projects/:projectId/agent-jobs", async (c) => {
+    const url = new URL(c.req.url);
+    const targetType = url.searchParams.get("targetType") as "issue" | "pull_request" | "project" | null;
+    const targetIdParam = url.searchParams.get("targetId");
+    const status = url.searchParams.get("status") as AgentJobStatus | null;
+    const items = await repos.agentJobs.list({
+      projectId: c.req.param("projectId"),
+      targetType: targetType ?? undefined,
+      targetId: targetIdParam ? Number(targetIdParam) : undefined,
+      status: status ?? undefined
+    });
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/agent-jobs", zValidator("json", createAgentJobSchema), async (c) => {
+    const input = c.req.valid("json");
+    const job = await repos.agentJobs.create({
+      projectId: c.req.param("projectId"),
+      agentType: input.agentType as AgentType,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      triggerType: input.triggerType,
+      input: input.input
+    });
+    return c.json({ job }, 201);
+  });
+
+  app.get("/api/projects/:projectId/agent-jobs/:jobId", async (c) => {
+    const job = await repos.agentJobs.get(c.req.param("projectId"), Number(c.req.param("jobId")));
+    if (!job) {
+      notFound("Agent job was not found.");
+    }
+    return c.json({ job });
+  });
+
+  app.post("/api/projects/:projectId/agent-jobs/:jobId/cancel", async (c) => {
+    const job = await repos.agentJobs.updateStatus(c.req.param("projectId"), Number(c.req.param("jobId")), "canceled");
+    if (!job) {
+      notFound("Agent job was not found.");
+    }
+    return c.json({ canceled: true });
+  });
+
+  app.post("/api/projects/:projectId/agent-jobs/:jobId/retry", async (c) => {
+    const job = await repos.agentJobs.retry(c.req.param("projectId"), Number(c.req.param("jobId")));
+    if (!job) {
+      notFound("Agent job was not found.");
+    }
+    return c.json({ jobId: job.id });
+  });
+
+  app.get("/api/projects/:projectId/agent-jobs/:jobId/activities", async (c) => {
+    const job = await repos.agentJobs.get(c.req.param("projectId"), Number(c.req.param("jobId")));
+    if (!job || job.targetType === "project") {
+      return c.json({ items: [] });
+    }
+    const items = await repos.activities.list(c.req.param("projectId"), job.targetType, job.targetId);
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/repository/status", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    return c.json(await getRepositoryStatus(project.repoPath));
+  });
+
+  app.get("/api/projects/:projectId/repository/branches", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    return c.json({ items: await getBranches(project.repoPath) });
+  });
+
+  app.get("/api/projects/:projectId/repository/commits", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    return c.json({ items: await getCommits(project.repoPath) });
+  });
+
+  app.get("/api/projects/:projectId/repository/files", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const status = await getRepositoryStatus(project.repoPath);
+    return c.json({ items: status.changedFiles });
+  });
+
+  app.get("/api/projects/:projectId/repository/merge-conflicts", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const url = new URL(c.req.url);
+    const sourceBranch = url.searchParams.get("sourceBranch") ?? project.defaultBranch;
+    const targetBranch = url.searchParams.get("targetBranch") ?? project.defaultBranch;
+    return c.json(await detectMergeConflicts(project.repoPath, sourceBranch, targetBranch));
+  });
 
   app.use("/*", serveStatic({ root: "./dist/client" }));
   app.get("*", serveStatic({ path: "./dist/client/index.html" }));

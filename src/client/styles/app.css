@@ -238,6 +238,10 @@ textarea {
   margin-bottom: 18px;
 }
 
+.section-header.compact {
+  margin-bottom: 12px;
+}
+
 .issue-list {
   display: grid;
 }
@@ -298,6 +302,30 @@ textarea {
   display: grid;
   gap: 14px;
   margin-top: 16px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.job-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.job-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 13px;
+}
+
+.job-row span {
+  color: #57606a;
 }
 
 .empty-state {

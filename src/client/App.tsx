@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleAlert, GitPullRequest, ListTodo, RefreshCw, Save, Settings, Terminal } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { IssueDto, LabelDto, ProjectCommandDto, ProjectDto } from "../shared/types";
+import type { AgentJobDto, IssueDto, LabelDto, ProjectCommandDto, ProjectDto, PullRequestDto, RepositoryStatusDto } from "../shared/types";
 import { api } from "./api";
 import { t } from "./i18n";
 
@@ -230,12 +230,67 @@ function IssuesView(props: { project: ProjectDto }) {
   );
 }
 
-function RepositoryView(props: { project: ProjectDto }) {
-  const [commands, setCommands] = useState<ProjectCommandDto[]>([]);
+function AgentJobsPanel(props: { project: ProjectDto }) {
+  const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    setCommands(await api.listCommands(props.project.id));
+    setJobs(await api.listAgentJobs(props.project.id));
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
+  }, [props.project.id]);
+
+  async function queueRequirementsJob() {
+    await api.createAgentJob(props.project.id, {
+      agentType: "requirements",
+      targetType: "project",
+      targetId: 0,
+      triggerType: "manual"
+    });
+    await load();
+  }
+
+  return (
+    <aside className="side-panel">
+      <div className="section-header compact">
+        <h2>{t("agents.title")}</h2>
+        <button className="icon-button" onClick={() => void load()} title={t("actions.refresh")} type="button">
+          <RefreshCw size={16} />
+        </button>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <button className="secondary-button full-width" onClick={() => void queueRequirementsJob()} type="button">
+        <ListTodo size={16} />
+        {t("agents.queueRequirements")}
+      </button>
+      <div className="job-list">
+        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
+        {jobs.map((job) => (
+          <article className="job-row" key={job.id}>
+            <strong>#{job.id} {job.agentType}</strong>
+            <span>{job.status}</span>
+            <span>{job.targetType} #{job.targetId}</span>
+          </article>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function RepositoryView(props: { project: ProjectDto }) {
+  const [commands, setCommands] = useState<ProjectCommandDto[]>([]);
+  const [status, setStatus] = useState<RepositoryStatusDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const [commandResponse, statusResponse] = await Promise.all([
+      api.listCommands(props.project.id),
+      api.getRepositoryStatus(props.project.id)
+    ]);
+    setCommands(commandResponse);
+    setStatus(statusResponse);
   }
 
   useEffect(() => {
@@ -266,6 +321,14 @@ function RepositoryView(props: { project: ProjectDto }) {
           <dt>{t("repository.branch")}</dt>
           <dd>{props.project.defaultBranch}</dd>
         </div>
+        <div>
+          <dt>{t("repository.currentBranch")}</dt>
+          <dd>{status?.branch ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("repository.workingTree")}</dt>
+          <dd>{status ? (status.clean ? t("repository.clean") : `${status.changedFiles.length} ${t("repository.dirty")}`) : "-"}</dd>
+        </div>
       </dl>
       <h2>{t("repository.commands")}</h2>
       <table className="command-table">
@@ -295,12 +358,104 @@ function RepositoryView(props: { project: ProjectDto }) {
   );
 }
 
-function PullRequestsView() {
+function PullRequestsView(props: { project: ProjectDto }) {
+  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sourceBranch, setSourceBranch] = useState("");
+  const [targetBranch, setTargetBranch] = useState(props.project.defaultBranch);
+  const [issueId, setIssueId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const response = await api.listPullRequests(props.project.id);
+    setPullRequests(response.items);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull requests."));
+  }, [props.project.id]);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const pullRequest = await api.createPullRequest(props.project.id, {
+      issueId: issueId ? Number(issueId) : null,
+      title,
+      body,
+      sourceBranch,
+      targetBranch
+    });
+    setPullRequests((current) => [pullRequest, ...current]);
+    setTitle("");
+    setBody("");
+    setSourceBranch("");
+    setIssueId("");
+  }
+
   return (
-    <section className="page-section">
-      <h1>{t("pullRequests.title")}</h1>
-      <div className="empty-state">{t("pullRequests.noPullRequests")}</div>
-    </section>
+    <div className="page-grid">
+      <section className="page-section">
+        <div className="section-header">
+          <h1>{t("pullRequests.title")}</h1>
+          <button className="icon-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
+            <RefreshCw size={16} />
+          </button>
+        </div>
+        {error ? <div className="error-banner">{error}</div> : null}
+        <div className="issue-list">
+          {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
+          {pullRequests.map((pullRequest) => (
+            <article className="issue-row" key={pullRequest.id}>
+              <div>
+                <h2>#{pullRequest.id} {pullRequest.title}</h2>
+                <p>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</p>
+                <div className="label-row">
+                  {pullRequest.labels.map((label) => (
+                    <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
+                      {label.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="row-meta">
+                <span>{pullRequest.status}</span>
+                <span>{pullRequest.commentCount} {t("issues.comments")}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <aside className="side-panel">
+        <h2>{t("pullRequests.newPullRequest")}</h2>
+        <form onSubmit={handleCreate}>
+          <label>
+            {t("issues.titleField")}
+            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+          </label>
+          <label>
+            {t("issues.bodyField")}
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={6} />
+          </label>
+          <label>
+            {t("pullRequests.sourceBranch")}
+            <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
+          </label>
+          <label>
+            {t("pullRequests.targetBranch")}
+            <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
+          </label>
+          <label>
+            {t("pullRequests.linkedIssue")}
+            <input value={issueId} onChange={(event) => setIssueId(event.target.value)} type="number" />
+          </label>
+          <button className="primary-button" type="submit">
+            <Save size={16} />
+            {t("actions.create")}
+          </button>
+        </form>
+      </aside>
+    </div>
   );
 }
 
@@ -346,9 +501,10 @@ export function App() {
   return (
     <AppShell project={project} view={view} onViewChange={setView}>
       {view === "issues" ? <IssuesView project={project} /> : null}
-      {view === "pullRequests" ? <PullRequestsView /> : null}
+      {view === "pullRequests" ? <PullRequestsView project={project} /> : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
       {view === "settings" ? <SettingsView project={project} /> : null}
+      {view === "issues" ? <AgentJobsPanel project={project} /> : null}
     </AppShell>
   );
 }

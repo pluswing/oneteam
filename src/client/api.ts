@@ -1,10 +1,26 @@
-import type { IssueDto, LabelDto, ProjectCommandDto, ProjectDto } from "../shared/types";
+import type {
+  AgentJobDto,
+  IssueDto,
+  LabelDto,
+  ProjectCommandDto,
+  ProjectDto,
+  PullRequestDto,
+  RepositoryStatusDto
+} from "../shared/types";
 
 type ListResponse<T> = {
   items: T[];
 };
 
 type IssueListResponse = ListResponse<IssueDto> & {
+  page: {
+    limit: number;
+    offset: number;
+    total: number;
+  };
+};
+
+type PullRequestListResponse = ListResponse<PullRequestDto> & {
   page: {
     limit: number;
     offset: number;
@@ -81,5 +97,51 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ createIssuesForMissingCommands: true })
     });
+  },
+
+  async listPullRequests(projectId: string): Promise<PullRequestListResponse> {
+    return request<PullRequestListResponse>(`/api/projects/${projectId}/pull-requests?status=open`);
+  },
+
+  async createPullRequest(
+    projectId: string,
+    input: {
+      issueId?: number | null;
+      title: string;
+      body: string;
+      sourceBranch: string;
+      targetBranch: string;
+    }
+  ): Promise<PullRequestDto> {
+    const response = await request<{ pullRequest: PullRequestDto }>(`/api/projects/${projectId}/pull-requests`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return response.pullRequest;
+  },
+
+  async getRepositoryStatus(projectId: string): Promise<RepositoryStatusDto> {
+    return request<RepositoryStatusDto>(`/api/projects/${projectId}/repository/status`);
+  },
+
+  async listAgentJobs(projectId: string): Promise<AgentJobDto[]> {
+    const response = await request<ListResponse<AgentJobDto>>(`/api/projects/${projectId}/agent-jobs`);
+    return response.items;
+  },
+
+  async createAgentJob(
+    projectId: string,
+    input: {
+      agentType: AgentJobDto["agentType"];
+      targetType: AgentJobDto["targetType"];
+      targetId: number;
+      triggerType?: string;
+    }
+  ): Promise<AgentJobDto> {
+    const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return response.job;
   }
 };

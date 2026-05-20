@@ -44,12 +44,20 @@ export const en = {
   },
   pullRequests: {
     title: "Pull Requests",
-    noPullRequests: "No pull requests"
+    noPullRequests: "No pull requests",
+    newPullRequest: "New pull request",
+    sourceBranch: "Source branch",
+    targetBranch: "Target branch",
+    linkedIssue: "Linked issue"
   },
   repository: {
     title: "Repository",
     path: "Path",
     branch: "Default branch",
+    currentBranch: "Current branch",
+    workingTree: "Working tree",
+    clean: "Clean",
+    dirty: "Changed files",
     commands: "Commands",
     command: "Command",
     source: "Source",
@@ -61,6 +69,11 @@ export const en = {
     server: "Server",
     database: "Database",
     locale: "Locale"
+  },
+  agents: {
+    title: "Agent Jobs",
+    noJobs: "No agent jobs",
+    queueRequirements: "Queue requirements job"
   },
   status: {
     open: "Open",
