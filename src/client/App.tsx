@@ -241,6 +241,16 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     setComments((current) => [...current, comment]);
   }
 
+  async function queueAgent(agentType: "requirements" | "implementation") {
+    await api.createAgentJob(props.project.id, {
+      agentType,
+      targetType: "issue",
+      targetId: props.issueId,
+      triggerType: "manual"
+    });
+    await load();
+  }
+
   return (
     <aside className="detail-panel">
       <div className="section-header">
@@ -251,6 +261,16 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       {issue ? <p className="detail-body">{issue.body}</p> : null}
+      <div className="action-row">
+        <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
+          <ListTodo size={16} />
+          {t("agents.queueRequirements")}
+        </button>
+        <button className="secondary-button" onClick={() => void queueAgent("implementation")} type="button">
+          <Terminal size={16} />
+          {t("agents.queueImplementation")}
+        </button>
+      </div>
       <div className="subtabs">
         <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
           {t("issues.conversation")}
@@ -521,6 +541,16 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     setComments((current) => [...current, comment]);
   }
 
+  async function queueAgent(agentType: "review" | "fix" | "qa") {
+    await api.createAgentJob(props.project.id, {
+      agentType,
+      targetType: "pull_request",
+      targetId: props.pullRequestId,
+      triggerType: "manual"
+    });
+    await load();
+  }
+
   return (
     <aside className="detail-panel">
       <div className="section-header">
@@ -535,6 +565,20 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
           {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
         </p>
       ) : null}
+      <div className="action-row">
+        <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
+          <GitPullRequest size={16} />
+          {t("agents.queueReview")}
+        </button>
+        <button className="secondary-button" onClick={() => void queueAgent("fix")} type="button">
+          <CircleAlert size={16} />
+          {t("agents.queueFix")}
+        </button>
+        <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
+          <CheckCircle2 size={16} />
+          {t("agents.queueQa")}
+        </button>
+      </div>
       <div className="subtabs">
         <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
           {t("issues.conversation")}

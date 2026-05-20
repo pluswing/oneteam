@@ -80,7 +80,11 @@ export const en = {
   agents: {
     title: "Agent Jobs",
     noJobs: "No agent jobs",
-    queueRequirements: "Queue requirements job"
+    queueRequirements: "Queue requirements job",
+    queueImplementation: "Queue implementation job",
+    queueReview: "Queue review job",
+    queueFix: "Queue fix job",
+    queueQa: "Queue QA job"
   },
   status: {
     open: "Open",

@@ -367,6 +367,13 @@ textarea {
   margin-bottom: 16px;
 }
 
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 .subtabs button {
   border: 0;
   border-bottom: 2px solid transparent;
