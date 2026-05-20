@@ -1,6 +1,17 @@
 import { CheckCircle2, CircleAlert, GitPullRequest, ListTodo, RefreshCw, Save, Settings, Terminal } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { AgentJobDto, IssueDto, LabelDto, ProjectCommandDto, ProjectDto, PullRequestDto, RepositoryStatusDto } from "../shared/types";
+import type {
+  ActivityDto,
+  AgentJobDto,
+  CommentDto,
+  IssueDto,
+  LabelDto,
+  ProjectCommandDto,
+  ProjectDto,
+  PullRequestDto,
+  RepositoryFileChangeDto,
+  RepositoryStatusDto
+} from "../shared/types";
 import { api } from "./api";
 import { t } from "./i18n";
 
@@ -142,9 +153,128 @@ function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
   );
 }
 
+function Timeline(props: { comments: CommentDto[] }) {
+  if (props.comments.length === 0) {
+    return <div className="empty-state">{t("issues.noComments")}</div>;
+  }
+
+  return (
+    <div className="timeline">
+      {props.comments.map((comment) => (
+        <article className="timeline-item" key={comment.id}>
+          <header>
+            <strong>{comment.authorType}</strong>
+            <span>{new Date(comment.createdAt).toLocaleString()}</span>
+          </header>
+          <p>{comment.body}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ActivityLog(props: { activities: ActivityDto[] }) {
+  if (props.activities.length === 0) {
+    return <div className="empty-state">{t("issues.noActivity")}</div>;
+  }
+
+  return (
+    <div className="timeline">
+      {props.activities.map((activity) => (
+        <article className="timeline-item activity-item" key={activity.id}>
+          <header>
+            <strong>{activity.activityType}</strong>
+            <span>{new Date(activity.createdAt).toLocaleString()}</span>
+          </header>
+          <h3>{activity.title}</h3>
+          {activity.body ? <p>{activity.body}</p> : null}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
+  const [body, setBody] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await props.onSubmit(body);
+    setBody("");
+  }
+
+  return (
+    <form className="comment-form" onSubmit={handleSubmit}>
+      <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={4} required />
+      <button className="primary-button" type="submit">
+        <Save size={16} />
+        {t("issues.addComment")}
+      </button>
+    </form>
+  );
+}
+
+function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose: () => void }) {
+  const [issue, setIssue] = useState<IssueDto | null>(null);
+  const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
+  const [tab, setTab] = useState<"conversation" | "activity">("conversation");
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const [issueResponse, commentsResponse, activitiesResponse] = await Promise.all([
+      api.getIssue(props.project.id, props.issueId),
+      api.listIssueComments(props.project.id, props.issueId),
+      api.listIssueActivities(props.project.id, props.issueId)
+    ]);
+    setIssue(issueResponse);
+    setComments(commentsResponse);
+    setActivities(activitiesResponse);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+  }, [props.project.id, props.issueId]);
+
+  async function addComment(body: string) {
+    const comment = await api.createIssueComment(props.project.id, props.issueId, body);
+    setComments((current) => [...current, comment]);
+  }
+
+  return (
+    <aside className="detail-panel">
+      <div className="section-header">
+        <h2>{issue ? `#${issue.id} ${issue.title}` : "Issue"}</h2>
+        <button className="secondary-button" onClick={props.onClose} type="button">
+          {t("actions.close")}
+        </button>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      {issue ? <p className="detail-body">{issue.body}</p> : null}
+      <div className="subtabs">
+        <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
+          {t("issues.conversation")}
+        </button>
+        <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")} type="button">
+          {t("issues.activity")}
+        </button>
+      </div>
+      {tab === "conversation" ? (
+        <>
+          <Timeline comments={comments} />
+          <CommentForm onSubmit={addComment} />
+        </>
+      ) : (
+        <ActivityLog activities={activities} />
+      )}
+    </aside>
+  );
+}
+
 function IssuesView(props: { project: ProjectDto }) {
   const [issues, setIssues] = useState<IssueDto[]>([]);
   const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +318,7 @@ function IssuesView(props: { project: ProjectDto }) {
         <div className="issue-list">
           {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
           {issues.map((issue) => (
-            <article className="issue-row" key={issue.id}>
+            <article className="issue-row clickable" key={issue.id} onClick={() => setSelectedIssueId(issue.id)}>
               <div>
                 <h2>#{issue.id} {issue.title}</h2>
                 <p>{issue.body || "\u00a0"}</p>
@@ -226,6 +356,9 @@ function IssuesView(props: { project: ProjectDto }) {
           </button>
         </form>
       </aside>
+      {selectedIssueId ? (
+        <IssueDetailPanel project={props.project} issueId={selectedIssueId} onClose={() => setSelectedIssueId(null)} />
+      ) : null}
     </div>
   );
 }
@@ -358,8 +491,91 @@ function RepositoryView(props: { project: ProjectDto }) {
   );
 }
 
+function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: number; onClose: () => void }) {
+  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
+  const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
+  const [tab, setTab] = useState<"conversation" | "activity" | "files">("conversation");
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const [pullRequestResponse, commentsResponse, activitiesResponse, filesResponse] = await Promise.all([
+      api.getPullRequest(props.project.id, props.pullRequestId),
+      api.listPullRequestComments(props.project.id, props.pullRequestId),
+      api.listPullRequestActivities(props.project.id, props.pullRequestId),
+      api.listPullRequestFiles(props.project.id, props.pullRequestId)
+    ]);
+    setPullRequest(pullRequestResponse);
+    setComments(commentsResponse);
+    setActivities(activitiesResponse);
+    setFiles(filesResponse);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+  }, [props.project.id, props.pullRequestId]);
+
+  async function addComment(body: string) {
+    const comment = await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
+    setComments((current) => [...current, comment]);
+  }
+
+  return (
+    <aside className="detail-panel">
+      <div className="section-header">
+        <h2>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : "Pull request"}</h2>
+        <button className="secondary-button" onClick={props.onClose} type="button">
+          {t("actions.close")}
+        </button>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      {pullRequest ? (
+        <p className="detail-body">
+          {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
+        </p>
+      ) : null}
+      <div className="subtabs">
+        <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
+          {t("issues.conversation")}
+        </button>
+        <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")} type="button">
+          {t("issues.activity")}
+        </button>
+        <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
+          {t("pullRequests.filesChanged")}
+        </button>
+      </div>
+      {tab === "conversation" ? (
+        <>
+          <Timeline comments={comments} />
+          <CommentForm onSubmit={addComment} />
+        </>
+      ) : null}
+      {tab === "activity" ? <ActivityLog activities={activities} /> : null}
+      {tab === "files" ? (
+        <div className="file-list">
+          {files.length === 0 ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
+          {files.map((file) => (
+            <article className="file-row" key={file.path}>
+              <header>
+                <strong>{file.path}</strong>
+                <span>
+                  +{file.additions} -{file.deletions}
+                </span>
+              </header>
+              {file.patch ? <pre>{file.patch}</pre> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
 function PullRequestsView(props: { project: ProjectDto }) {
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
+  const [selectedPullRequestId, setSelectedPullRequestId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [sourceBranch, setSourceBranch] = useState("");
@@ -405,7 +621,11 @@ function PullRequestsView(props: { project: ProjectDto }) {
         <div className="issue-list">
           {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
           {pullRequests.map((pullRequest) => (
-            <article className="issue-row" key={pullRequest.id}>
+            <article
+              className="issue-row clickable"
+              key={pullRequest.id}
+              onClick={() => setSelectedPullRequestId(pullRequest.id)}
+            >
               <div>
                 <h2>#{pullRequest.id} {pullRequest.title}</h2>
                 <p>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</p>
@@ -455,6 +675,13 @@ function PullRequestsView(props: { project: ProjectDto }) {
           </button>
         </form>
       </aside>
+      {selectedPullRequestId ? (
+        <PullRequestDetailPanel
+          project={props.project}
+          pullRequestId={selectedPullRequestId}
+          onClose={() => setSelectedPullRequestId(null)}
+        />
+      ) : null}
     </div>
   );
 }

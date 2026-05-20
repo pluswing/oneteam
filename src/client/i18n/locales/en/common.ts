@@ -40,7 +40,12 @@ export const en = {
     open: "Open",
     closed: "Closed",
     noIssues: "No issues",
-    comments: "comments"
+    comments: "comments",
+    conversation: "Conversation",
+    activity: "Activity",
+    addComment: "Add comment",
+    noComments: "No comments yet",
+    noActivity: "No activity yet"
   },
   pullRequests: {
     title: "Pull Requests",
@@ -48,7 +53,9 @@ export const en = {
     newPullRequest: "New pull request",
     sourceBranch: "Source branch",
     targetBranch: "Target branch",
-    linkedIssue: "Linked issue"
+    linkedIssue: "Linked issue",
+    filesChanged: "Files changed",
+    noFiles: "No changed files"
   },
   repository: {
     title: "Repository",

@@ -1,10 +1,13 @@
 import type {
   AgentJobDto,
+  ActivityDto,
+  CommentDto,
   IssueDto,
   LabelDto,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
+  RepositoryFileChangeDto,
   RepositoryStatusDto
 } from "../shared/types";
 
@@ -79,12 +82,35 @@ export const api = {
     return request<IssueListResponse>(`/api/projects/${projectId}/issues?status=open`);
   },
 
+  async getIssue(projectId: string, issueId: number): Promise<IssueDto> {
+    const response = await request<{ issue: IssueDto }>(`/api/projects/${projectId}/issues/${issueId}`);
+    return response.issue;
+  },
+
   async createIssue(projectId: string, input: { title: string; body: string; labelIds: number[] }): Promise<IssueDto> {
     const response = await request<{ issue: IssueDto }>(`/api/projects/${projectId}/issues`, {
       method: "POST",
       body: JSON.stringify(input)
     });
     return response.issue;
+  },
+
+  async listIssueComments(projectId: string, issueId: number): Promise<CommentDto[]> {
+    const response = await request<ListResponse<CommentDto>>(`/api/projects/${projectId}/issues/${issueId}/comments`);
+    return response.items;
+  },
+
+  async createIssueComment(projectId: string, issueId: number, body: string): Promise<CommentDto> {
+    const response = await request<{ comment: CommentDto }>(`/api/projects/${projectId}/issues/${issueId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body })
+    });
+    return response.comment;
+  },
+
+  async listIssueActivities(projectId: string, issueId: number): Promise<ActivityDto[]> {
+    const response = await request<ListResponse<ActivityDto>>(`/api/projects/${projectId}/issues/${issueId}/activities`);
+    return response.items;
   },
 
   async listCommands(projectId: string): Promise<ProjectCommandDto[]> {
@@ -103,6 +129,13 @@ export const api = {
     return request<PullRequestListResponse>(`/api/projects/${projectId}/pull-requests?status=open`);
   },
 
+  async getPullRequest(projectId: string, pullRequestId: number): Promise<PullRequestDto> {
+    const response = await request<{ pullRequest: PullRequestDto }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}`
+    );
+    return response.pullRequest;
+  },
+
   async createPullRequest(
     projectId: string,
     input: {
@@ -118,6 +151,38 @@ export const api = {
       body: JSON.stringify(input)
     });
     return response.pullRequest;
+  },
+
+  async listPullRequestComments(projectId: string, pullRequestId: number): Promise<CommentDto[]> {
+    const response = await request<ListResponse<CommentDto>>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/comments`
+    );
+    return response.items;
+  },
+
+  async createPullRequestComment(projectId: string, pullRequestId: number, body: string): Promise<CommentDto> {
+    const response = await request<{ comment: CommentDto }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/comments`,
+      {
+        method: "POST",
+        body: JSON.stringify({ body })
+      }
+    );
+    return response.comment;
+  },
+
+  async listPullRequestActivities(projectId: string, pullRequestId: number): Promise<ActivityDto[]> {
+    const response = await request<ListResponse<ActivityDto>>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/activities`
+    );
+    return response.items;
+  },
+
+  async listPullRequestFiles(projectId: string, pullRequestId: number): Promise<RepositoryFileChangeDto[]> {
+    const response = await request<{ files: RepositoryFileChangeDto[] }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/diff`
+    );
+    return response.files;
   },
 
   async getRepositoryStatus(projectId: string): Promise<RepositoryStatusDto> {

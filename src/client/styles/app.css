@@ -258,6 +258,14 @@ textarea {
   border-top: 0;
 }
 
+.issue-row.clickable {
+  cursor: pointer;
+}
+
+.issue-row.clickable:hover {
+  background: #f6f8fa;
+}
+
 .issue-row h2 {
   margin: 0;
   font-size: 16px;
@@ -331,6 +339,111 @@ textarea {
 .empty-state {
   padding: 24px 0;
   color: #57606a;
+}
+
+.detail-panel {
+  grid-column: 1 / -1;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 20px;
+  background: #ffffff;
+}
+
+.detail-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.detail-body {
+  margin: 0 0 16px;
+  color: #57606a;
+  white-space: pre-wrap;
+}
+
+.subtabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid #d8dee4;
+  margin-bottom: 16px;
+}
+
+.subtabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 10px;
+  background: transparent;
+  color: #57606a;
+}
+
+.subtabs button.active {
+  border-bottom-color: #fd8c73;
+  color: #24292f;
+  font-weight: 600;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-item {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.timeline-item header,
+.file-row header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #57606a;
+  font-size: 13px;
+}
+
+.timeline-item p,
+.timeline-item h3 {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.timeline-item h3 {
+  color: #24292f;
+  font-size: 15px;
+}
+
+.activity-item {
+  background: #f6f8fa;
+}
+
+.comment-form {
+  display: grid;
+  margin-top: 16px;
+}
+
+.file-list {
+  display: grid;
+  gap: 12px;
+}
+
+.file-row {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.file-row header {
+  padding: 10px 12px;
+  background: #f6f8fa;
+}
+
+.file-row pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .repository-facts {
