@@ -1,0 +1,319 @@
+import { mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { zValidator } from "@hono/zod-validator";
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
+import type { IssueStatus } from "../shared/types";
+import type { Repositories } from "./db/repositories";
+import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
+
+const execFileAsync = promisify(execFile);
+
+export type AppDependencies = {
+  repos: Repositories;
+};
+
+const createProjectSchema = z.object({
+  mode: z.enum(["import", "create"]).default("import"),
+  name: z.string().min(1),
+  repoPath: z.string().min(1),
+  defaultBranch: z.string().min(1).default("main"),
+  locale: z.string().min(2).default("en"),
+  codex: z
+    .object({
+      command: z.string().min(1).default("codex"),
+      model: z.string().optional(),
+      fullAccess: z.boolean().default(true)
+    })
+    .optional()
+});
+
+const createIssueSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().optional(),
+  labelIds: z.array(z.number()).optional()
+});
+
+const updateIssueSchema = z.object({
+  title: z.string().min(1).optional(),
+  body: z.string().optional(),
+  status: z.enum(["open", "closed"]).optional(),
+  labelIds: z.array(z.number()).optional()
+});
+
+const createCommentSchema = z.object({
+  body: z.string().min(1)
+});
+
+const detectCommandsSchema = z.object({
+  createIssuesForMissingCommands: z.boolean().default(true)
+});
+
+function notFound(message: string): never {
+  throw new HTTPException(404, { message });
+}
+
+function pageParams(url: URL): { limit: number; offset: number } {
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 100);
+  const offset = Math.max(Number(url.searchParams.get("offset") ?? "0"), 0);
+  return { limit, offset };
+}
+
+async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
+  if (input.mode === "import") {
+    return;
+  }
+
+  await mkdir(input.repoPath, { recursive: true });
+  await execFileAsync("git", ["init", "-b", input.defaultBranch], { cwd: input.repoPath });
+}
+
+async function detectAndPersistCommands(
+  repos: Repositories,
+  projectId: string,
+  repoPath: string,
+  createIssuesForMissingCommands: boolean
+) {
+  const detection = await detectRepositoryCommands(repoPath);
+  const commands = await repos.commands.upsertMany(
+    projectId,
+    detection.commands.map((command) => ({
+      commandType: command.commandType,
+      command: command.command,
+      detectionSource: command.detectionSource,
+      detectionDetails: command.detectionDetails,
+      isRequired: command.isRequired,
+      isAvailable: command.isAvailable
+    }))
+  );
+
+  const createdIssueIds: number[] = [];
+  if (createIssuesForMissingCommands) {
+    const requirementsLabel = await repos.labels.findByName(projectId, "要件定義中");
+    for (const command of detection.commands.filter((item) => !item.isAvailable)) {
+      const issue = buildMissingCommandIssue({
+        commandType: command.commandType,
+        packageManager: command.detectionDetails.packageManager,
+        signals: command.detectionDetails.signals,
+        recommendation: command.detectionDetails.recommendation
+      });
+      const createdIssue = await repos.issues.create({
+        projectId,
+        title: issue.title,
+        body: issue.body,
+        labelIds: requirementsLabel ? [requirementsLabel.id] : []
+      });
+      createdIssueIds.push(createdIssue.id);
+    }
+  }
+
+  return {
+    packageManager: detection.packageManager,
+    commands,
+    missing: detection.missingCommands,
+    createdIssueIds
+  };
+}
+
+export function createApp({ repos }: AppDependencies): Hono {
+  const app = new Hono();
+
+  app.onError((error, c) => {
+    if (error instanceof HTTPException) {
+      return c.json(
+        {
+          error: {
+            code: error.status === 404 ? "NOT_FOUND" : "HTTP_ERROR",
+            message: error.message
+          }
+        },
+        error.status
+      );
+    }
+
+    console.error(error);
+    return c.json(
+      {
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unexpected server error."
+        }
+      },
+      500
+    );
+  });
+
+  app.get("/api/health", (c) =>
+    c.json({
+      status: "ok",
+      name: "one team"
+    })
+  );
+
+  app.get("/api/projects", async (c) => {
+    const items = await repos.projects.list();
+    return c.json({ items });
+  });
+
+  app.post("/api/projects", zValidator("json", createProjectSchema), async (c) => {
+    const input = c.req.valid("json");
+    await ensureRepository(input);
+    const project = await repos.projects.create(input);
+    const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, true);
+    return c.json(
+      {
+        project,
+        commandDetection: detection
+      },
+      201
+    );
+  });
+
+  app.get("/api/projects/:projectId", async (c) => {
+    const project = await repos.projects.get(c.req.param("projectId"));
+    if (!project) {
+      notFound("Project was not found.");
+    }
+    return c.json({ project });
+  });
+
+  app.patch("/api/projects/:projectId", zValidator("json", createProjectSchema.partial()), async (c) => {
+    const project = await repos.projects.update(c.req.param("projectId"), c.req.valid("json"));
+    if (!project) {
+      notFound("Project was not found.");
+    }
+    return c.json({ project });
+  });
+
+  app.get("/api/projects/:projectId/labels", async (c) => {
+    const items = await repos.labels.list(c.req.param("projectId"));
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/commands", async (c) => {
+    const items = await repos.commands.list(c.req.param("projectId"));
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/commands/detect", zValidator("json", detectCommandsSchema), async (c) => {
+    const project = await repos.projects.get(c.req.param("projectId"));
+    if (!project) {
+      notFound("Project was not found.");
+    }
+
+    const input = c.req.valid("json");
+    const detection = await detectAndPersistCommands(
+      repos,
+      project.id,
+      project.repoPath,
+      input.createIssuesForMissingCommands
+    );
+    return c.json(detection);
+  });
+
+  app.get("/api/projects/:projectId/issues", async (c) => {
+    const url = new URL(c.req.url);
+    const { limit, offset } = pageParams(url);
+    const status = url.searchParams.get("status") as IssueStatus | null;
+    const q = url.searchParams.get("q") ?? undefined;
+    const result = await repos.issues.list({
+      projectId: c.req.param("projectId"),
+      status: status ?? undefined,
+      q,
+      limit,
+      offset
+    });
+
+    return c.json({
+      items: result.items,
+      page: {
+        limit,
+        offset,
+        total: result.total
+      }
+    });
+  });
+
+  app.post("/api/projects/:projectId/issues", zValidator("json", createIssueSchema), async (c) => {
+    const issue = await repos.issues.create({
+      projectId: c.req.param("projectId"),
+      ...c.req.valid("json")
+    });
+    return c.json({ issue }, 201);
+  });
+
+  app.get("/api/projects/:projectId/issues/:issueId", async (c) => {
+    const issue = await repos.issues.get(c.req.param("projectId"), Number(c.req.param("issueId")));
+    if (!issue) {
+      notFound("Issue was not found.");
+    }
+    return c.json({ issue });
+  });
+
+  app.patch("/api/projects/:projectId/issues/:issueId", zValidator("json", updateIssueSchema), async (c) => {
+    const issue = await repos.issues.update(
+      c.req.param("projectId"),
+      Number(c.req.param("issueId")),
+      c.req.valid("json")
+    );
+    if (!issue) {
+      notFound("Issue was not found.");
+    }
+    return c.json({ issue });
+  });
+
+  app.delete("/api/projects/:projectId/issues/:issueId", async (c) => {
+    const deleted = await repos.issues.softDelete(c.req.param("projectId"), Number(c.req.param("issueId")));
+    if (!deleted) {
+      notFound("Issue was not found.");
+    }
+    return c.json({ deleted });
+  });
+
+  app.get("/api/projects/:projectId/issues/:issueId/comments", async (c) => {
+    const items = await repos.comments.list(c.req.param("projectId"), "issue", Number(c.req.param("issueId")));
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/issues/:issueId/comments", zValidator("json", createCommentSchema), async (c) => {
+    const comment = await repos.comments.create({
+      projectId: c.req.param("projectId"),
+      targetType: "issue",
+      targetId: Number(c.req.param("issueId")),
+      authorType: "user",
+      body: c.req.valid("json").body
+    });
+    return c.json({ comment, autoResumedJobId: null }, 201);
+  });
+
+  app.get("/api/projects/:projectId/issues/:issueId/activities", async (c) => {
+    const items = await repos.activities.list(c.req.param("projectId"), "issue", Number(c.req.param("issueId")));
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/repository/status", (c) =>
+    c.json({
+      branch: "main",
+      clean: true,
+      changedFiles: [],
+      ahead: 0,
+      behind: 0,
+      projectId: c.req.param("projectId")
+    })
+  );
+
+  app.get("/api/projects/:projectId/repository/merge-conflicts", (c) =>
+    c.json({
+      hasConflicts: false,
+      files: []
+    })
+  );
+
+  app.use("/*", serveStatic({ root: "./dist/client" }));
+  app.get("*", serveStatic({ path: "./dist/client/index.html" }));
+
+  return app;
+}
