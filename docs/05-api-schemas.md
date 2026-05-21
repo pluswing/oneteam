@@ -459,7 +459,35 @@ Response:
 }
 ```
 
-### 8.2 GET /api/projects/:projectId/agent-jobs/:jobId
+### 8.2 GET /api/projects/:projectId/agent-jobs
+
+Query:
+
+| Name | Type | Example |
+| --- | --- | --- |
+| `targetType` | string | `issue` |
+| `targetId` | number | `24` |
+| `status` | string | `running` |
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": 55,
+      "agentType": "requirements",
+      "targetType": "issue",
+      "targetId": 24,
+      "status": "running",
+      "attempt": 1,
+      "createdAt": "2026-05-20T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+### 8.3 GET /api/projects/:projectId/agent-jobs/:jobId
 
 Response:
 
@@ -479,17 +507,25 @@ Response:
 }
 ```
 
-### 8.3 POST /api/projects/:projectId/agent-jobs/:jobId/cancel
+### 8.4 POST /api/projects/:projectId/agent-jobs/:jobId/cancel
+
+`queued` / `running` / `waiting_human` jobs can be canceled. For running Codex
+jobs, the worker observes the canceled state and terminates the process.
 
 Response:
 
 ```json
 {
-  "canceled": true
+  "canceled": true,
+  "job": {
+    "id": 55,
+    "status": "canceled",
+    "error": "Cancellation requested."
+  }
 }
 ```
 
-### 8.4 POST /api/projects/:projectId/agent-jobs/:jobId/retry
+### 8.5 POST /api/projects/:projectId/agent-jobs/:jobId/retry
 
 Response:
 

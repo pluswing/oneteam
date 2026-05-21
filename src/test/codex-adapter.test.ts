@@ -76,6 +76,35 @@ writeFileSync(outputPath, JSON.stringify({
     expect(activities.find((activity) => activity.title === "Codex command completed")?.body).toContain("npm test");
     expect(activities.find((activity) => activity.title === "Codex CLI completed")?.body).toContain("Non-fatal CLI warnings");
   });
+
+  it("terminates the Codex CLI when cancellation is requested", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-cancel-"));
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-cancel" }) + "\\n");
+setInterval(() => {}, 1000);
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+
+    let cancellationChecks = 0;
+    const adapter = new CodexAdapter({ command: fakeCodexPath });
+    const result = await adapter.run({
+      job: fakeJob,
+      repoPath: dir,
+      prompt: "Keep running.",
+      isCanceled: () => {
+        cancellationChecks += 1;
+        return cancellationChecks >= 2;
+      }
+    });
+
+    expect(result.status).toBe("canceled");
+    expect(result.activities?.map((activity) => activity.title)).toContain("Codex CLI canceled");
+  });
 });
 
 const fakeJob: AgentJobDto = {

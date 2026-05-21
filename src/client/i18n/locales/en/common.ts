@@ -84,7 +84,10 @@ export const en = {
     queueImplementation: "Queue implementation job",
     queueReview: "Queue review job",
     queueFix: "Queue fix job",
-    queueQa: "Queue QA job"
+    queueQa: "Queue QA job",
+    cancelJob: "Cancel job",
+    retryJob: "Retry",
+    attempt: "Attempt"
   },
   status: {
     open: "Open",

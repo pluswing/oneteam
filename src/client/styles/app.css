@@ -57,7 +57,8 @@ button {
 .nav-tab,
 .icon-button,
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -198,11 +199,25 @@ textarea {
 }
 
 .secondary-button,
-.icon-button {
+.icon-button,
+.danger-button {
   padding: 7px 10px;
   border-color: #d0d7de;
   background: #f6f8fa;
   color: #24292f;
+}
+
+.secondary-button:disabled,
+.icon-button:disabled,
+.danger-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.danger-button {
+  border-color: #ff8182;
+  color: #82071e;
+  background: #ffebe9;
 }
 
 .icon-button {
@@ -324,7 +339,7 @@ textarea {
 
 .job-row {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   padding: 10px;
   border: 1px solid #d8dee4;
   border-radius: 6px;
@@ -332,8 +347,86 @@ textarea {
   font-size: 13px;
 }
 
-.job-row span {
+.job-row-header,
+.job-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.job-row-header {
+  justify-content: space-between;
+}
+
+.job-row-header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.job-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.job-row span,
+.job-meta {
   color: #57606a;
+}
+
+.job-actions {
+  flex-wrap: wrap;
+}
+
+.job-actions .secondary-button,
+.job-actions .danger-button {
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.job-error {
+  margin: 0;
+  color: #82071e;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  color: #57606a;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-queued,
+.status-running {
+  border-color: #bf8700;
+  color: #7d4e00;
+  background: #fff8c5;
+}
+
+.status-succeeded {
+  border-color: #1a7f37;
+  color: #116329;
+  background: #dafbe1;
+}
+
+.status-failed,
+.status-canceled {
+  border-color: #cf222e;
+  color: #82071e;
+  background: #ffebe9;
+}
+
+.status-waiting_human {
+  border-color: #8250df;
+  color: #6639ba;
+  background: #fbefff;
 }
 
 .empty-state {

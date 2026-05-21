@@ -85,4 +85,59 @@ describe("agent worker", () => {
 
     context.client.close();
   });
+
+  it("does not apply an agent result after the job has been canceled", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-cancel-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "requirements",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        expect(await input.isCanceled?.()).toBe(false);
+        await repos.agentJobs.updateStatus(project.id, job.id, "canceled", { error: "Cancellation requested." });
+        expect(await input.isCanceled?.()).toBe(true);
+        return {
+          status: "succeeded",
+          message: "This result should not be applied.",
+          comment: {
+            targetType: "issue",
+            targetId: issue.id,
+            body: "Do not save this."
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const comments = await repos.comments.list(project.id, "issue", issue.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+
+    expect(updatedJob?.status).toBe("canceled");
+    expect(comments).toHaveLength(0);
+    expect(activities.map((activity) => activity.title)).toContain("Agent job canceled");
+
+    context.client.close();
+  });
 });

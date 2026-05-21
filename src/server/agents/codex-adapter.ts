@@ -86,17 +86,32 @@ export class CodexAdapter implements AgentAdapter {
         });
       };
 
-      const { stdout, stderr, exitCode } = await runProcess(command, args, input.prompt, {
+      const { stdout, stderr, exitCode, canceled } = await runProcess(command, args, input.prompt, {
         onStdoutLine: (line) => {
           const activity = parseCodexJsonLine(line);
           if (activity) {
             enqueueActivity(activity);
           }
-        }
+        },
+        isCanceled: input.isCanceled
       });
       await activityQueue;
       if (activityError) {
         throw activityError;
+      }
+
+      if (canceled) {
+        return {
+          status: "canceled",
+          message: "Codex CLI execution was canceled.",
+          activities: [
+            {
+              type: "system",
+              title: "Codex CLI canceled",
+              body: "The running Codex process was terminated after the job was canceled."
+            }
+          ]
+        };
       }
 
       await input.onActivity?.({
@@ -520,11 +535,13 @@ async function runProcess(
   stdin: string,
   callbacks: {
     onStdoutLine?: (line: string) => void;
+    isCanceled?: () => Promise<boolean> | boolean;
   } = {}
 ): Promise<{
   stdout: string;
   stderr: string;
   exitCode: number;
+  canceled: boolean;
 }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -533,6 +550,42 @@ async function runProcess(
     let stdout = "";
     let stderr = "";
     let stdoutBuffer = "";
+    let canceled = false;
+    let closed = false;
+    let killTimer: NodeJS.Timeout | null = null;
+
+    const cancelTimer = callbacks.isCanceled
+      ? setInterval(() => {
+          void checkCancellation().catch(recordCancellationError);
+        }, 1000)
+      : null;
+    cancelTimer?.unref();
+
+    async function checkCancellation() {
+      if (closed || canceled || !callbacks.isCanceled) {
+        return;
+      }
+
+      if (await callbacks.isCanceled()) {
+        if (closed || canceled) {
+          return;
+        }
+        canceled = true;
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => {
+          if (!closed) {
+            child.kill("SIGKILL");
+          }
+        }, 5000);
+        killTimer.unref();
+      }
+    }
+
+    function recordCancellationError(error: unknown) {
+      stderr += `\nCancellation check failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+
+    void checkCancellation().catch(recordCancellationError);
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -547,15 +600,32 @@ async function runProcess(
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      closed = true;
+      if (cancelTimer) {
+        clearInterval(cancelTimer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+      reject(error);
+    });
     child.on("close", (exitCode) => {
+      closed = true;
+      if (cancelTimer) {
+        clearInterval(cancelTimer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
       if (stdoutBuffer) {
         callbacks.onStdoutLine?.(stdoutBuffer);
       }
       resolve({
         stdout,
         stderr,
-        exitCode: exitCode ?? 1
+        exitCode: exitCode ?? 1,
+        canceled
       });
     });
 

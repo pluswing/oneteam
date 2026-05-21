@@ -1,4 +1,15 @@
-import { CheckCircle2, CircleAlert, GitPullRequest, ListTodo, RefreshCw, Save, Settings, Terminal } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  GitPullRequest,
+  ListTodo,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Settings,
+  Square,
+  Terminal
+} from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
   ActivityDto,
@@ -17,6 +28,20 @@ import { api } from "./api";
 import { t } from "./i18n";
 
 type View = "issues" | "pullRequests" | "repository" | "settings";
+const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running"]);
+const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
+
+function isActiveAgentJob(job: AgentJobDto): boolean {
+  return activeAgentStatuses.has(job.status);
+}
+
+function canRetryAgentJob(job: AgentJobDto): boolean {
+  return retryableAgentStatuses.has(job.status);
+}
+
+function formatJobTarget(job: AgentJobDto): string {
+  return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
+}
 
 function AppShell(props: {
   project: ProjectDto;
@@ -235,11 +260,15 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+    const interval = window.setInterval(() => {
+      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+    }, 4000);
+    return () => window.clearInterval(interval);
   }, [props.project.id, props.issueId]);
 
   async function addComment(body: string) {
-    const comment = await api.createIssueComment(props.project.id, props.issueId, body);
-    setComments((current) => [...current, comment]);
+    await api.createIssueComment(props.project.id, props.issueId, body);
+    await load();
   }
 
   async function queueAgent(agentType: "requirements" | "implementation") {
@@ -249,6 +278,7 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       targetId: props.issueId,
       triggerType: "manual"
     });
+    setTab("activity");
     await load();
   }
 
@@ -387,6 +417,7 @@ function IssuesView(props: { project: ProjectDto }) {
 function AgentJobsPanel(props: { project: ProjectDto }) {
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [busyJobId, setBusyJobId] = useState<number | null>(null);
 
   async function load() {
     setJobs(await api.listAgentJobs(props.project.id));
@@ -396,6 +427,17 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
   }, [props.project.id]);
 
+  const hasActiveJobs = jobs.some(isActiveAgentJob);
+  useEffect(() => {
+    if (!hasActiveJobs) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [hasActiveJobs, props.project.id]);
+
   async function queueRequirementsJob() {
     await api.createAgentJob(props.project.id, {
       agentType: "requirements",
@@ -404,6 +446,32 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
       triggerType: "manual"
     });
     await load();
+  }
+
+  async function cancelJob(jobId: number) {
+    setBusyJobId(jobId);
+    setError(null);
+    try {
+      await api.cancelAgentJob(props.project.id, jobId);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to cancel agent job.");
+    } finally {
+      setBusyJobId(null);
+    }
+  }
+
+  async function retryJob(jobId: number) {
+    setBusyJobId(jobId);
+    setError(null);
+    try {
+      await api.retryAgentJob(props.project.id, jobId);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to retry agent job.");
+    } finally {
+      setBusyJobId(null);
+    }
   }
 
   return (
@@ -423,9 +491,42 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
         {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
         {jobs.map((job) => (
           <article className="job-row" key={job.id}>
-            <strong>#{job.id} {job.agentType}</strong>
-            <span>{job.status}</span>
-            <span>{job.targetType} #{job.targetId}</span>
+            <header className="job-row-header">
+              <strong>#{job.id} {job.agentType}</strong>
+              <span className={`status-pill status-${job.status}`}>{job.status}</span>
+            </header>
+            <div className="job-meta">
+              <span>{formatJobTarget(job)}</span>
+              <span>{t("agents.attempt")} {job.attempt}</span>
+              <span>{new Date(job.createdAt).toLocaleString()}</span>
+            </div>
+            {job.error ? <p className="job-error">{job.error}</p> : null}
+            <div className="job-actions">
+              {isActiveAgentJob(job) ? (
+                <button
+                  className="danger-button"
+                  disabled={busyJobId === job.id}
+                  onClick={() => void cancelJob(job.id)}
+                  title={t("agents.cancelJob")}
+                  type="button"
+                >
+                  <Square size={14} />
+                  {t("actions.cancel")}
+                </button>
+              ) : null}
+              {canRetryAgentJob(job) ? (
+                <button
+                  className="secondary-button"
+                  disabled={busyJobId === job.id}
+                  onClick={() => void retryJob(job.id)}
+                  title={t("agents.retryJob")}
+                  type="button"
+                >
+                  <RotateCcw size={14} />
+                  {t("agents.retryJob")}
+                </button>
+              ) : null}
+            </div>
           </article>
         ))}
       </div>
@@ -535,11 +636,15 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+    const interval = window.setInterval(() => {
+      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+    }, 4000);
+    return () => window.clearInterval(interval);
   }, [props.project.id, props.pullRequestId]);
 
   async function addComment(body: string) {
-    const comment = await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
-    setComments((current) => [...current, comment]);
+    await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
+    await load();
   }
 
   async function queueAgent(agentType: "review" | "fix" | "qa") {
@@ -549,6 +654,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       targetId: props.pullRequestId,
       triggerType: "manual"
     });
+    setTab("activity");
     await load();
   }
 

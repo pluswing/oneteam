@@ -559,11 +559,38 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.post("/api/projects/:projectId/agent-jobs/:jobId/cancel", async (c) => {
-    const job = await repos.agentJobs.updateStatus(c.req.param("projectId"), Number(c.req.param("jobId")), "canceled");
+    const projectId = c.req.param("projectId");
+    const job = await repos.agentJobs.get(projectId, Number(c.req.param("jobId")));
     if (!job) {
       notFound("Agent job was not found.");
     }
-    return c.json({ canceled: true });
+    if (["succeeded", "failed", "canceled"].includes(job.status)) {
+      return c.json({ canceled: false, job });
+    }
+
+    const canceledJob = await repos.agentJobs.updateStatus(projectId, job.id, "canceled", {
+      error: job.status === "running" ? "Cancellation requested." : null
+    });
+    if (!canceledJob) {
+      notFound("Agent job was not found.");
+    }
+
+    if (job.targetType !== "project") {
+      await repos.activities.create({
+        projectId,
+        agentJobId: job.id,
+        targetType: job.targetType,
+        targetId: job.targetId,
+        activityType: "system",
+        title: "Agent job cancellation requested",
+        body:
+          job.status === "running"
+            ? "The running agent job will stop at the next cancellation check."
+            : "The queued agent job was canceled before it started."
+      });
+    }
+
+    return c.json({ canceled: true, job: canceledJob });
   });
 
   app.post("/api/projects/:projectId/agent-jobs/:jobId/retry", async (c) => {

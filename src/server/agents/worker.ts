@@ -77,6 +77,10 @@ export class AgentWorker {
         job: runningJob,
         repoPath: project.repoPath,
         prompt,
+        isCanceled: async () => {
+          const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
+          return current?.status === "canceled";
+        },
         onActivity: async (activity) => {
           const target = normalizeActivityTarget(runningJob);
           if (!target) {
@@ -94,6 +98,23 @@ export class AgentWorker {
           });
         }
       });
+
+      const currentJob = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
+      if (currentJob?.status === "canceled" && result.status !== "canceled") {
+        const target = normalizeActivityTarget(runningJob);
+        if (target) {
+          await this.repos.activities.create({
+            projectId: runningJob.projectId,
+            agentJobId: runningJob.id,
+            targetType: target.targetType,
+            targetId: target.targetId,
+            activityType: "system",
+            title: "Agent job canceled",
+            body: "The job was canceled before its result was applied."
+          });
+        }
+        return;
+      }
 
       await this.applyResult(runningJob, result);
     } catch (error) {
@@ -131,6 +152,14 @@ export class AgentWorker {
         body: activity.body ?? undefined,
         payload: activity.payload ?? undefined
       });
+    }
+
+    if (result.status === "canceled") {
+      await this.repos.agentJobs.updateStatus(job.projectId, job.id, "canceled", {
+        output: result as unknown as Record<string, unknown>,
+        error: null
+      });
+      return;
     }
 
     if (result.comment) {

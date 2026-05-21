@@ -8,7 +8,7 @@ export type AgentActivityResult = {
 };
 
 export type AgentRunResult = {
-  status: Extract<AgentJobStatus, "succeeded" | "waiting_human" | "failed">;
+  status: Extract<AgentJobStatus, "succeeded" | "waiting_human" | "failed" | "canceled">;
   message: string;
   comment?: {
     targetType: "issue" | "pull_request";
@@ -38,5 +38,6 @@ export type AgentAdapter = {
     repoPath: string;
     prompt: string;
     onActivity?: (activity: AgentActivityResult) => Promise<void> | void;
+    isCanceled?: () => Promise<boolean> | boolean;
   }): Promise<AgentRunResult>;
 };

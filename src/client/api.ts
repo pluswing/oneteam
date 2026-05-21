@@ -189,8 +189,28 @@ export const api = {
     return request<RepositoryStatusDto>(`/api/projects/${projectId}/repository/status`);
   },
 
-  async listAgentJobs(projectId: string): Promise<AgentJobDto[]> {
-    const response = await request<ListResponse<AgentJobDto>>(`/api/projects/${projectId}/agent-jobs`);
+  async listAgentJobs(
+    projectId: string,
+    filters: {
+      targetType?: AgentJobDto["targetType"];
+      targetId?: number;
+      status?: AgentJobDto["status"];
+    } = {}
+  ): Promise<AgentJobDto[]> {
+    const params = new URLSearchParams();
+    if (filters.targetType) {
+      params.set("targetType", filters.targetType);
+    }
+    if (typeof filters.targetId === "number") {
+      params.set("targetId", String(filters.targetId));
+    }
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+    const query = params.toString();
+    const response = await request<ListResponse<AgentJobDto>>(
+      `/api/projects/${projectId}/agent-jobs${query ? `?${query}` : ""}`
+    );
     return response.items;
   },
 
@@ -208,5 +228,19 @@ export const api = {
       body: JSON.stringify(input)
     });
     return response.job;
+  },
+
+  async cancelAgentJob(projectId: string, jobId: number): Promise<AgentJobDto> {
+    const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs/${jobId}/cancel`, {
+      method: "POST"
+    });
+    return response.job;
+  },
+
+  async retryAgentJob(projectId: string, jobId: number): Promise<number> {
+    const response = await request<{ jobId: number }>(`/api/projects/${projectId}/agent-jobs/${jobId}/retry`, {
+      method: "POST"
+    });
+    return response.jobId;
   }
 };
