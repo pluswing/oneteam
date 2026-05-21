@@ -1,5 +1,6 @@
 import type { AgentJobDto, LabelDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
+import { prepareImplementationBranch } from "../services/implementation-preflight";
 import { runLabelAutomation } from "../services/label-automation";
 import type { AgentAdapter, AgentRunResult } from "./types";
 import { buildPromptForJob } from "./context";
@@ -73,6 +74,12 @@ export class AgentWorker {
     }
 
     try {
+      const preflightResult = await this.prepareImplementationJob(runningJob);
+      if (preflightResult) {
+        await this.applyResult(runningJob, preflightResult);
+        return;
+      }
+
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
       const result = await this.adapter.run({
         job: runningJob,
@@ -134,6 +141,72 @@ export class AgentWorker {
       }
       await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", { error: message });
     }
+  }
+
+  private async prepareImplementationJob(job: AgentJobDto): Promise<AgentRunResult | null> {
+    if (job.agentType !== "implementation" || job.targetType !== "issue") {
+      return null;
+    }
+
+    const project = await this.repos.projects.get(job.projectId);
+    if (!project) {
+      throw new Error(`Project was not found: ${job.projectId}`);
+    }
+
+    const issue = await this.repos.issues.get(project.id, job.targetId);
+    if (!issue) {
+      throw new Error(`Issue was not found: ${job.targetId}`);
+    }
+
+    const result = await prepareImplementationBranch(project, issue);
+    if (result.status === "ready") {
+      await this.repos.activities.create({
+        projectId: job.projectId,
+        agentJobId: job.id,
+        targetType: "issue",
+        targetId: issue.id,
+        activityType: "progress",
+        title: "Implementation branch ready",
+        body: formatImplementationBranchAction(result.action, result.branchName),
+        payload: {
+          branchName: result.branchName,
+          action: result.action,
+          previousBranch: result.repositoryStatus.branch
+        }
+      });
+      return null;
+    }
+
+    const changedFiles = result.repositoryStatus.changedFiles;
+    const changedFilesBody = changedFiles.length ? `\n\nChanged files:\n${changedFiles.map((file) => `- ${file}`).join("\n")}` : "";
+
+    return {
+      status: "waiting_human",
+      message: "Implementation is blocked because the repository has uncommitted changes.",
+      questions: [
+        `Please commit, stash, or discard the uncommitted changes on ${result.repositoryStatus.branch}, then comment to resume. Target branch: ${result.branchName}.`
+      ],
+      activities: [
+        {
+          type: "error",
+          title: "Implementation branch blocked",
+          body: `Cannot switch to ${result.branchName} while ${result.repositoryStatus.branch} has uncommitted changes.${changedFilesBody}`,
+          payload: {
+            branchName: result.branchName,
+            currentBranch: result.repositoryStatus.branch,
+            changedFiles
+          }
+        }
+      ],
+      metadata: {
+        implementationBranch: {
+          branchName: result.branchName,
+          currentBranch: result.repositoryStatus.branch,
+          changedFiles,
+          reason: result.reason
+        }
+      }
+    };
   }
 
   private async applyResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
@@ -320,6 +393,16 @@ export class AgentWorker {
       }
     }
   }
+}
+
+function formatImplementationBranchAction(action: string, branchName: string): string {
+  if (action === "already_on_branch") {
+    return `Already on ${branchName}.`;
+  }
+  if (action === "checked_out") {
+    return `Checked out existing branch ${branchName}.`;
+  }
+  return `Created and checked out ${branchName}.`;
 }
 
 function normalizeActivityTarget(job: AgentJobDto): { targetType: "issue" | "pull_request"; targetId: number } | null {

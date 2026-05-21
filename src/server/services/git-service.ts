@@ -61,6 +61,32 @@ export async function getBranches(repoPath: string): Promise<RepositoryBranchDto
     });
 }
 
+function getGitExitCode(error: unknown): number | null {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "number"
+    ? error.code
+    : null;
+}
+
+export async function branchExists(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    await git(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`]);
+    return true;
+  } catch (error) {
+    if (getGitExitCode(error) === 1) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function checkoutBranch(repoPath: string, branchName: string): Promise<void> {
+  await git(repoPath, ["checkout", branchName]);
+}
+
+export async function createAndCheckoutBranch(repoPath: string, branchName: string, startPoint: string): Promise<void> {
+  await git(repoPath, ["checkout", "-b", branchName, startPoint]);
+}
+
 export async function getCommits(repoPath: string, revision = "HEAD", limit = 20): Promise<RepositoryCommitDto[]> {
   const output = await git(repoPath, [
     "log",

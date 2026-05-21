@@ -1,6 +1,8 @@
-import { mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { AgentWorker } from "../server/agents/worker";
 import type { AgentAdapter } from "../server/agents/types";
@@ -8,6 +10,24 @@ import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
 import { resolveAgentJobLockKey } from "../server/services/agent-job-locks";
+
+const execFileAsync = promisify(execFile);
+
+async function git(repo: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd: repo });
+  return stdout.trim();
+}
+
+async function createGitRepo(prefix: string): Promise<string> {
+  const repo = await mkdtemp(join(tmpdir(), prefix));
+  await git(repo, ["init", "-b", "main"]);
+  await git(repo, ["config", "user.name", "Test User"]);
+  await git(repo, ["config", "user.email", "test@example.com"]);
+  await writeFile(join(repo, "README.md"), "# Example\n");
+  await git(repo, ["add", "README.md"]);
+  await git(repo, ["commit", "-m", "initial"]);
+  return repo;
+}
 
 describe("agent worker", () => {
   it("runs a queued job and persists comments, activities, and label transitions", async () => {
@@ -267,6 +287,64 @@ describe("agent worker", () => {
 
     expect(lockedJobAfterTick?.status).toBe("queued");
     expect(unlockedJobAfterTick?.status).toBe("succeeded");
+
+    context.client.close();
+  });
+
+  it("pauses implementation jobs before Codex when the working tree is dirty", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-dirty-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-dirty-repo-");
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const implementationLabel = await repos.labels.findByName(project.id, "実装待ち");
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard.",
+      labelIds: implementationLabel ? [implementationLabel.id] : []
+    });
+    await writeFile(join(repoPath, "README.md"), "# Example\n\nDirty change\n");
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id
+    });
+    let adapterCalled = false;
+
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        adapterCalled = true;
+        return {
+          status: "succeeded",
+          message: "Should not run."
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const updatedIssue = await repos.issues.get(project.id, issue.id);
+    const comments = await repos.comments.list(project.id, "issue", issue.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const currentBranch = await git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+
+    expect(adapterCalled).toBe(false);
+    expect(updatedJob?.status).toBe("waiting_human");
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["確認待ち"]);
+    expect(comments[0].body).toContain("commit, stash, or discard");
+    expect(activities.map((activity) => activity.title)).toContain("Implementation branch blocked");
+    expect(currentBranch).toBe("main");
 
     context.client.close();
   });

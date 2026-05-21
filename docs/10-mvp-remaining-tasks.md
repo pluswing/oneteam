@@ -2,8 +2,6 @@
 
 ## P1. Implementation Agent hardening
 
-- Create or reuse `oneteam/issue-{issueId}-{slug}` branches.
-- Handle dirty working tree state before writing.
 - Run detected build / test / lint commands and persist results.
 - Persist changed files and command summaries as Activity.
 - Create a local pull request from structured agent output.
@@ -40,3 +38,4 @@
 ## Completed in current pass
 
 - Human Gate completion: `waiting_human` now moves the target to `確認待ち`, stores previous labels, restores them when the user comments, and requeues the same waiting job.
+- Implementation branch preflight: implementation jobs now create or reuse `oneteam/issue-{issueId}-{slug}` branches before Codex runs, and pause in Human Gate when another branch has uncommitted changes.

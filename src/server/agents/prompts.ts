@@ -68,7 +68,7 @@ Implement the accepted requirements for the issue and prepare a local pull reque
 
 Tasks:
 1. Ensure repository state is safe to work on.
-2. Create or use branch: oneteam/issue-{issueId}-{slug}.
+2. Use the prepared branch if already checked out; otherwise create or use branch: oneteam/issue-{issueId}-{slug}.
 3. Make focused code changes that satisfy the requirements.
 4. Add or update tests when appropriate.
 5. Run available lint/test/build commands.
