@@ -2,9 +2,7 @@
 
 ## P1. Implementation Agent hardening
 
-- Run detected build / test / lint commands and persist results.
-- Persist changed files and command summaries as Activity.
-- Create a local pull request from structured agent output.
+- No open MVP tasks after the current pass.
 
 ## P1. Review / Fix / QA flow
 
@@ -39,3 +37,5 @@
 
 - Human Gate completion: `waiting_human` now moves the target to `確認待ち`, stores previous labels, restores them when the user comments, and requeues the same waiting job.
 - Implementation branch preflight: implementation jobs now create or reuse `oneteam/issue-{issueId}-{slug}` branches before Codex runs, and pause in Human Gate when another branch has uncommitted changes.
+- Implementation verification: successful implementation jobs now run configured lint/test/build commands, save command summaries and changed files to Activity, and fail before pull request creation when verification fails.
+- Local pull request creation from structured implementation output is covered by the worker flow and verification tests.

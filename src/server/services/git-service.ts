@@ -87,6 +87,14 @@ export async function createAndCheckoutBranch(repoPath: string, branchName: stri
   await git(repoPath, ["checkout", "-b", branchName, startPoint]);
 }
 
+export async function getChangedFilesSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<string[]> {
+  const [diffOutput, status] = await Promise.all([
+    git(repoPath, ["diff", "--name-only", `${baseBranch}...${revision}`]),
+    getRepositoryStatus(repoPath)
+  ]);
+  return Array.from(new Set([...diffOutput.split("\n").filter(Boolean), ...status.changedFiles]));
+}
+
 export async function getCommits(repoPath: string, revision = "HEAD", limit = 20): Promise<RepositoryCommitDto[]> {
   const output = await git(repoPath, [
     "log",

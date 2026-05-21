@@ -1,8 +1,10 @@
-import type { AgentJobDto, LabelDto } from "../../shared/types";
+import type { AgentJobDto, LabelDto, ProjectDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
+import { getChangedFilesSince } from "../services/git-service";
 import { prepareImplementationBranch } from "../services/implementation-preflight";
 import { runLabelAutomation } from "../services/label-automation";
-import type { AgentAdapter, AgentRunResult } from "./types";
+import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
+import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
 import { buildPromptForJob } from "./context";
 
 export type AgentWorkerOptions = {
@@ -124,7 +126,8 @@ export class AgentWorker {
         return;
       }
 
-      await this.applyResult(runningJob, result);
+      const finalizedResult = await this.finalizeImplementationResult(runningJob, project, result);
+      await this.applyResult(runningJob, finalizedResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
       const target = normalizeActivityTarget(runningJob);
@@ -141,6 +144,58 @@ export class AgentWorker {
       }
       await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", { error: message });
     }
+  }
+
+  private async finalizeImplementationResult(
+    job: AgentJobDto,
+    project: ProjectDto,
+    result: AgentRunResult
+  ): Promise<AgentRunResult> {
+    if (job.agentType !== "implementation" || job.targetType !== "issue" || result.status !== "succeeded") {
+      return result;
+    }
+
+    const commands = await this.repos.commands.list(project.id);
+    const commandResults = await runVerificationCommands(project.repoPath, commands);
+    const changedFiles = uniqueStrings([
+      ...(result.changedFiles ?? []),
+      ...(await getChangedFilesSince(project.repoPath, project.defaultBranch))
+    ]);
+    const activities = [
+      ...(result.activities ?? []),
+      ...changedFileActivities(changedFiles),
+      ...verificationActivities(commandResults)
+    ];
+    const testResults: Array<Record<string, unknown>> = [
+      ...(result.testResults ?? []),
+      ...commandResults.map((commandResult) => ({ ...commandResult }))
+    ];
+    const failedCommands = commandResults.filter((commandResult) => commandResult.status === "failed");
+
+    if (failedCommands.length) {
+      return {
+        ...result,
+        status: "failed",
+        message: `${result.message}\n\nVerification failed: ${failedCommands
+          .map((commandResult) => commandResult.command)
+          .join(", ")}`,
+        activities,
+        changedFiles,
+        testResults,
+        metadata: {
+          ...(result.metadata ?? {}),
+          nextLabel: null,
+          pullRequest: null
+        }
+      };
+    }
+
+    return {
+      ...result,
+      activities,
+      changedFiles,
+      testResults
+    };
   }
 
   private async prepareImplementationJob(job: AgentJobDto): Promise<AgentRunResult | null> {
@@ -273,7 +328,7 @@ export class AgentWorker {
       });
     }
 
-    if (output.status !== "waiting_human") {
+    if (output.status === "succeeded") {
       await this.applyMetadata(job, output);
     }
     await this.repos.agentJobs.updateStatus(job.projectId, job.id, output.status, {
@@ -403,6 +458,60 @@ function formatImplementationBranchAction(action: string, branchName: string): s
     return `Checked out existing branch ${branchName}.`;
   }
   return `Created and checked out ${branchName}.`;
+}
+
+function changedFileActivities(changedFiles: string[]): AgentActivityResult[] {
+  if (!changedFiles.length) {
+    return [];
+  }
+
+  return [
+    {
+      type: "file_change",
+      title: "Changed files captured",
+      body: changedFiles.map((file) => `- ${file}`).join("\n"),
+      payload: {
+        changedFiles
+      }
+    }
+  ];
+}
+
+function verificationActivities(results: VerificationCommandResult[]): AgentActivityResult[] {
+  return results.map((result) => ({
+    type: result.status === "passed" ? (result.commandType === "test" ? "test" : "command") : "error",
+    title: `${result.commandType} command ${result.status}`,
+    body: commandResultBody(result),
+    payload: {
+      commandType: result.commandType,
+      command: result.command,
+      status: result.status,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      durationMs: result.durationMs,
+      timedOut: result.timedOut
+    }
+  }));
+}
+
+function commandResultBody(result: VerificationCommandResult): string {
+  const lines = [
+    result.command,
+    `status: ${result.status}`,
+    `exit code: ${result.exitCode ?? "none"}`,
+    `duration: ${result.durationMs}ms`
+  ];
+  if (result.timedOut) {
+    lines.push("timed out: true");
+  }
+  if (result.output) {
+    lines.push("", result.output);
+  }
+  return lines.join("\n");
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return Array.from(new Set(items));
 }
 
 function normalizeActivityTarget(job: AgentJobDto): { targetType: "issue" | "pull_request"; targetId: number } | null {

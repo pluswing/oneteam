@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { AgentWorker } from "../server/agents/worker";
-import type { AgentAdapter } from "../server/agents/types";
+import type { AgentAdapter, AgentRunResult } from "../server/agents/types";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
@@ -27,6 +27,10 @@ async function createGitRepo(prefix: string): Promise<string> {
   await git(repo, ["add", "README.md"]);
   await git(repo, ["commit", "-m", "initial"]);
   return repo;
+}
+
+function nodeCommand(source: string): string {
+  return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(source)}`;
 }
 
 describe("agent worker", () => {
@@ -287,6 +291,158 @@ describe("agent worker", () => {
 
     expect(lockedJobAfterTick?.status).toBe("queued");
     expect(unlockedJobAfterTick?.status).toBe("succeeded");
+
+    context.client.close();
+  });
+
+  it("records implementation changed files and verification command results", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-verify-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-verify-repo-");
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    await repos.commands.upsertMany(project.id, [
+      {
+        commandType: "lint",
+        command: nodeCommand("console.log('lint ok')"),
+        detectionSource: "manual",
+        isRequired: true,
+        isAvailable: true
+      },
+      {
+        commandType: "test",
+        command: nodeCommand("console.log('test ok')"),
+        detectionSource: "manual",
+        isRequired: true,
+        isAvailable: true
+      }
+    ]);
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        await writeFile(join(input.repoPath, "feature.txt"), "implemented\n");
+        const sourceBranch = await git(input.repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        return {
+          status: "succeeded",
+          message: "Implemented setup.",
+          metadata: {
+            pullRequest: {
+              title: "Add setup",
+              body: "Implements setup.",
+              sourceBranch,
+              targetBranch: "main",
+              issueId: issue.id
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
+    const output = updatedJob?.output as AgentRunResult | null | undefined;
+
+    expect(updatedJob?.status).toBe("succeeded");
+    expect(output?.changedFiles).toContain("feature.txt");
+    expect(output?.testResults?.map((result) => result.command)).toEqual(
+      expect.arrayContaining([expect.stringContaining("lint ok"), expect.stringContaining("test ok")])
+    );
+    expect(activities.map((activity) => activity.title)).toEqual(
+      expect.arrayContaining(["Changed files captured", "lint command passed", "test command passed"])
+    );
+    expect(pullRequests.total).toBe(1);
+    expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
+
+    context.client.close();
+  });
+
+  it("fails implementation jobs when verification commands fail", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-verify-fail-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-verify-fail-repo-");
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    await repos.commands.upsertMany(project.id, [
+      {
+        commandType: "test",
+        command: nodeCommand("console.error('test failed'); process.exit(7)"),
+        detectionSource: "manual",
+        isRequired: true,
+        isAvailable: true
+      }
+    ]);
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        const sourceBranch = await git(input.repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        return {
+          status: "succeeded",
+          message: "Implemented setup.",
+          metadata: {
+            pullRequest: {
+              title: "Add setup",
+              sourceBranch,
+              targetBranch: "main",
+              issueId: issue.id
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
+    const output = updatedJob?.output as AgentRunResult | null | undefined;
+
+    expect(updatedJob?.status).toBe("failed");
+    expect(output?.testResults?.[0].status).toBe("failed");
+    expect(output?.testResults?.[0].exitCode).toBe(7);
+    expect(activities.map((activity) => activity.title)).toContain("test command failed");
+    expect(pullRequests.total).toBe(0);
 
     context.client.close();
   });
