@@ -24,7 +24,10 @@ const outputSchema = `Return only JSON with this shape:
       "sourceBranch": "branch",
       "targetBranch": "branch",
       "issueId": 1 | null
-    } | null
+    } | null,
+    "review": { "verdict": "approved | changes_requested", "findings": [], "checked": [] } | null,
+    "fix": { "resolvedFindings": [], "conflictVerification": {} } | null,
+    "qa": { "verdict": "passed | defects_found", "defects": [], "observations": [] } | null
   } | null
 }
 Use null or empty arrays for fields that are not relevant.`;
@@ -81,14 +84,17 @@ Review the local pull request for correctness, requirement coverage,
 maintainability, and test adequacy.
 
 If fixes are required, set metadata.nextLabel to "修正中".
-If no blocking issues exist, set metadata.nextLabel to "テスト中".`,
+If no blocking issues exist, set metadata.nextLabel to "テスト中".
+Return metadata.review with verdict, findings, and checked items.
+Each finding should include severity, path, line, title, and body when available.`,
 
   fix: `You are the Fix Agent.
 
 Goal:
 Resolve review findings, QA findings, or merge conflicts for the pull request.
 
-After fixes are complete, set metadata.nextLabel to "レビュー中".`,
+After fixes are complete, set metadata.nextLabel to "レビュー中".
+Return metadata.fix with resolvedFindings and conflictVerification when relevant.`,
 
   qa: `You are the QA Agent.
 
@@ -96,7 +102,8 @@ Goal:
 Validate the pull request from the user's perspective.
 
 If a defect is found, set metadata.nextLabel to "修正中".
-If no defect is found, set metadata.nextLabel to "完了".`,
+If no defect is found, set metadata.nextLabel to "完了".
+Return metadata.qa with verdict, defects, and observations.`,
 
   command_detection: `You are the Command Detection Agent.
 

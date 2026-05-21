@@ -6,11 +6,7 @@
 
 ## P1. Review / Fix / QA flow
 
-- Make review findings structured and easy to act on.
-- Route review findings to `修正中`, approvals to `テスト中`.
-- Route fix completion back to `レビュー中`.
-- Route QA defects to `修正中`, and pass results to `完了`.
-- Add conflict fix verification.
+- No open MVP tasks after the current pass.
 
 ## P2. Pull request and Git UI polish
 
@@ -39,3 +35,4 @@
 - Implementation branch preflight: implementation jobs now create or reuse `oneteam/issue-{issueId}-{slug}` branches before Codex runs, and pause in Human Gate when another branch has uncommitted changes.
 - Implementation verification: successful implementation jobs now run configured lint/test/build commands, save command summaries and changed files to Activity, and fail before pull request creation when verification fails.
 - Local pull request creation from structured implementation output is covered by the worker flow and verification tests.
+- Review / Fix / QA flow: structured review findings, fix summaries, and QA verdicts now create actionable Activity entries and drive label transitions; conflict fix jobs fail when merge conflicts remain.

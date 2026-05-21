@@ -92,7 +92,13 @@ Return structured JSON that matches the requested output schema.
   ],
   "changedFiles": [],
   "testResults": [],
-  "metadata": {}
+  "metadata": {
+    "nextLabel": null,
+    "pullRequest": null,
+    "review": null,
+    "fix": null,
+    "qa": null
+  }
 }
 ```
 
@@ -240,9 +246,13 @@ Tasks:
 2. Look for bugs, regressions, missing tests, unsafe behavior, and style issues.
 3. Prioritize concrete findings with file paths and line references when available.
 4. If fixes are required, return succeeded with a review comment whose verdict is
-   "changes_requested" and metadata.nextLabel = "修正中".
+   "changes_requested", metadata.nextLabel = "修正中", and metadata.review.findings.
 5. If no blocking issues exist, return succeeded with verdict "approved" and
    metadata.nextLabel = "テスト中".
+6. Return metadata.review:
+   - verdict: "approved" or "changes_requested"
+   - findings: array of severity/path/line/title/body objects
+   - checked: array of checked areas
 
 Return JSON using the common output schema.
 ```
@@ -290,6 +300,7 @@ Tasks:
 6. Run relevant lint/test/build commands.
 7. Return a fix summary and test results.
 8. Set metadata.nextLabel = "レビュー中" when complete.
+9. Return metadata.fix.resolvedFindings and metadata.fix.conflictVerification when relevant.
 
 Return JSON using the common output schema.
 ```
@@ -321,6 +332,10 @@ Tasks:
 4. Record commands, observations, screenshots or trace paths if available.
 5. If a defect is found, return succeeded with metadata.nextLabel = "修正中".
 6. If no defect is found, return succeeded with metadata.nextLabel = "完了".
+7. Return metadata.qa:
+   - verdict: "passed" or "defects_found"
+   - defects: array of severity/path/title/body objects
+   - observations: array of user-visible observations
 
 Return JSON using the common output schema.
 ```

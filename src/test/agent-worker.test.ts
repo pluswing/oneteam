@@ -447,6 +447,277 @@ describe("agent worker", () => {
     context.client.close();
   });
 
+  it("routes structured review outcomes to fix or QA", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-review-flow-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const changesRequestedPr = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Needs fix",
+      sourceBranch: "feature/fix",
+      targetBranch: "main"
+    });
+    const approvedPr = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Looks good",
+      sourceBranch: "feature/good",
+      targetBranch: "main"
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "review",
+      targetType: "pull_request",
+      targetId: changesRequestedPr.id
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "review",
+      targetType: "pull_request",
+      targetId: approvedPr.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        if (input.job.targetId === changesRequestedPr.id) {
+          return {
+            status: "succeeded",
+            message: "Review found one issue.",
+            metadata: {
+              review: {
+                verdict: "changes_requested",
+                findings: [
+                  {
+                    severity: "high",
+                    path: "src/app.ts",
+                    line: 10,
+                    title: "Missing validation",
+                    body: "Handle empty input before saving."
+                  }
+                ],
+                checked: ["requirements", "tests"]
+              }
+            }
+          };
+        }
+        return {
+          status: "succeeded",
+          message: "Review approved.",
+          metadata: {
+            review: {
+              verdict: "approved",
+              findings: [],
+              checked: ["requirements", "tests"]
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+    await worker.tick();
+
+    const changesRequestedAfter = await repos.pullRequests.get(project.id, changesRequestedPr.id);
+    const approvedAfter = await repos.pullRequests.get(project.id, approvedPr.id);
+    const changesRequestedActivities = await repos.activities.list(project.id, "pull_request", changesRequestedPr.id);
+    const approvedActivities = await repos.activities.list(project.id, "pull_request", approvedPr.id);
+    const jobs = await repos.agentJobs.list({ projectId: project.id });
+
+    expect(changesRequestedAfter?.labels.map((label) => label.name)).toContain("修正中");
+    expect(approvedAfter?.labels.map((label) => label.name)).toContain("テスト中");
+    expect(changesRequestedActivities.map((activity) => activity.title)).toContain("Review findings captured");
+    expect(approvedActivities.map((activity) => activity.title)).toContain("Review approval captured");
+    expect(jobs.some((job) => job.agentType === "fix" && job.targetId === changesRequestedPr.id)).toBe(true);
+    expect(jobs.some((job) => job.agentType === "qa" && job.targetId === approvedPr.id)).toBe(true);
+
+    context.client.close();
+  });
+
+  it("routes fix completion and QA outcomes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-fix-qa-flow-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const fixPr = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Fix this",
+      sourceBranch: "feature/fix",
+      targetBranch: "main"
+    });
+    const defectPr = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "QA defect",
+      sourceBranch: "feature/defect",
+      targetBranch: "main"
+    });
+    const passedPr = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "QA pass",
+      sourceBranch: "feature/pass",
+      targetBranch: "main"
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "fix",
+      targetType: "pull_request",
+      targetId: fixPr.id
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "qa",
+      targetType: "pull_request",
+      targetId: defectPr.id
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "qa",
+      targetType: "pull_request",
+      targetId: passedPr.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        if (input.job.agentType === "fix") {
+          return {
+            status: "succeeded",
+            message: "Fix completed.",
+            metadata: {
+              fix: {
+                resolvedFindings: ["Handled empty input."],
+                conflictVerification: null
+              }
+            }
+          };
+        }
+        if (input.job.targetId === defectPr.id) {
+          return {
+            status: "succeeded",
+            message: "QA found a defect.",
+            metadata: {
+              qa: {
+                verdict: "defects_found",
+                defects: [{ severity: "medium", title: "Button does not submit", body: "Clicking submit has no effect." }],
+                observations: ["Manual smoke failed."]
+              }
+            }
+          };
+        }
+        return {
+          status: "succeeded",
+          message: "QA passed.",
+          metadata: {
+            qa: {
+              verdict: "passed",
+              defects: [],
+              observations: ["Manual smoke passed."]
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+    await worker.tick();
+    await worker.tick();
+
+    const fixAfter = await repos.pullRequests.get(project.id, fixPr.id);
+    const defectAfter = await repos.pullRequests.get(project.id, defectPr.id);
+    const passedAfter = await repos.pullRequests.get(project.id, passedPr.id);
+    const fixActivities = await repos.activities.list(project.id, "pull_request", fixPr.id);
+    const defectActivities = await repos.activities.list(project.id, "pull_request", defectPr.id);
+    const passedActivities = await repos.activities.list(project.id, "pull_request", passedPr.id);
+
+    expect(fixAfter?.labels.map((label) => label.name)).toContain("レビュー中");
+    expect(defectAfter?.labels.map((label) => label.name)).toContain("修正中");
+    expect(passedAfter?.labels.map((label) => label.name)).toContain("完了");
+    expect(fixActivities.map((activity) => activity.title)).toContain("Fix summary captured");
+    expect(defectActivities.map((activity) => activity.title)).toContain("QA defects captured");
+    expect(passedActivities.map((activity) => activity.title)).toContain("QA pass captured");
+
+    context.client.close();
+  });
+
+  it("fails conflict fix jobs when merge conflicts remain", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-conflict-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-conflict-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/conflict"]);
+    await writeFile(join(repoPath, "README.md"), "# Feature\n");
+    await git(repoPath, ["commit", "-am", "feature change"]);
+    await git(repoPath, ["checkout", "main"]);
+    await writeFile(join(repoPath, "README.md"), "# Main\n");
+    await git(repoPath, ["commit", "-am", "main change"]);
+
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const conflictLabel = await repos.labels.findByName(project.id, "コンフリクト修正中");
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Resolve conflict",
+      sourceBranch: "feature/conflict",
+      targetBranch: "main",
+      labelIds: conflictLabel ? [conflictLabel.id] : []
+    });
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "fix",
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        return {
+          status: "succeeded",
+          message: "Conflict fix completed.",
+          metadata: {
+            nextLabel: "レビュー中",
+            fix: {
+              resolvedFindings: ["Attempted conflict resolution."],
+              conflictVerification: null
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const updatedPullRequest = await repos.pullRequests.get(project.id, pullRequest.id);
+    const activities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
+
+    expect(updatedJob?.status).toBe("failed");
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toEqual(["コンフリクト修正中"]);
+    expect(activities.map((activity) => activity.title)).toContain("Merge conflicts remain");
+
+    context.client.close();
+  });
+
   it("pauses implementation jobs before Codex when the working tree is dirty", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-dirty-db-"));
     const repoPath = await createGitRepo("oneteam-worker-dirty-repo-");

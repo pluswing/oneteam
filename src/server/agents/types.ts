@@ -28,6 +28,20 @@ export type AgentRunResult = {
       targetBranch: string;
       issueId?: number | null;
     } | null;
+    review?: {
+      verdict?: string | null;
+      findings?: Array<Record<string, unknown>> | null;
+      checked?: string[] | null;
+    } | null;
+    fix?: {
+      resolvedFindings?: string[] | null;
+      conflictVerification?: Record<string, unknown> | null;
+    } | null;
+    qa?: {
+      verdict?: string | null;
+      defects?: Array<Record<string, unknown>> | null;
+      observations?: string[] | null;
+    } | null;
     [key: string]: unknown;
   } | null;
 };

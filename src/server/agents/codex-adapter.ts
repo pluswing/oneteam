@@ -316,6 +316,166 @@ const agentOutputSchema = {
                   type: "null"
                 }
               ]
+            },
+            review: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    verdict: {
+                      type: ["string", "null"]
+                    },
+                    findings: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              severity: {
+                                type: ["string", "null"]
+                              },
+                              path: {
+                                type: ["string", "null"]
+                              },
+                              line: {
+                                type: ["number", "null"]
+                              },
+                              title: {
+                                type: ["string", "null"]
+                              },
+                              body: {
+                                type: ["string", "null"]
+                              }
+                            },
+                            required: [],
+                            additionalProperties: false
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    },
+                    checked: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["verdict", "findings", "checked"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
+            },
+            fix: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    resolvedFindings: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    },
+                    conflictVerification: {
+                      anyOf: [
+                        {
+                          type: "object",
+                          properties: {},
+                          additionalProperties: true
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["resolvedFindings", "conflictVerification"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
+            },
+            qa: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    verdict: {
+                      type: ["string", "null"]
+                    },
+                    defects: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              severity: {
+                                type: ["string", "null"]
+                              },
+                              path: {
+                                type: ["string", "null"]
+                              },
+                              title: {
+                                type: ["string", "null"]
+                              },
+                              body: {
+                                type: ["string", "null"]
+                              }
+                            },
+                            required: [],
+                            additionalProperties: false
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    },
+                    observations: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["verdict", "defects", "observations"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
             }
           },
           required: ["nextLabel", "pullRequest"],

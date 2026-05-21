@@ -1,6 +1,6 @@
 import type { AgentJobDto, LabelDto, ProjectDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
-import { getChangedFilesSince } from "../services/git-service";
+import { detectMergeConflicts, getChangedFilesSince } from "../services/git-service";
 import { prepareImplementationBranch } from "../services/implementation-preflight";
 import { runLabelAutomation } from "../services/label-automation";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
@@ -126,7 +126,8 @@ export class AgentWorker {
         return;
       }
 
-      const finalizedResult = await this.finalizeImplementationResult(runningJob, project, result);
+      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, result);
+      finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, finalizedResult);
       await this.applyResult(runningJob, finalizedResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
@@ -195,6 +196,59 @@ export class AgentWorker {
       activities,
       changedFiles,
       testResults
+    };
+  }
+
+  private async finalizePullRequestWorkflowResult(
+    job: AgentJobDto,
+    project: ProjectDto,
+    result: AgentRunResult
+  ): Promise<AgentRunResult> {
+    if (
+      job.targetType !== "pull_request" ||
+      result.status !== "succeeded" ||
+      !["review", "fix", "qa"].includes(job.agentType)
+    ) {
+      return result;
+    }
+
+    const pullRequest = await this.repos.pullRequests.get(project.id, job.targetId);
+    if (!pullRequest) {
+      throw new Error(`Pull request was not found: ${job.targetId}`);
+    }
+
+    const metadata: NonNullable<AgentRunResult["metadata"]> = { ...(result.metadata ?? {}) };
+    if (job.agentType === "fix" && pullRequest.labels.some((label) => label.name === "コンフリクト修正中")) {
+      const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+      if (conflicts.hasConflicts) {
+        return {
+          ...result,
+          status: "failed",
+          message: `${result.message}\n\nMerge conflicts remain: ${conflicts.files.map((file) => file.path).join(", ")}`,
+          activities: [
+            ...(result.activities ?? []),
+            {
+              type: "error",
+              title: "Merge conflicts remain",
+              body: conflicts.files.map((file) => `- ${file.path}: ${file.reason}`).join("\n"),
+              payload: {
+                conflicts
+              }
+            }
+          ],
+          metadata: {
+            ...metadata,
+            nextLabel: null
+          }
+        };
+      }
+    }
+
+    metadata.nextLabel = metadata.nextLabel ?? derivePullRequestNextLabel(job.agentType, metadata) ?? null;
+    return {
+      ...result,
+      activities: [...(result.activities ?? []), ...pullRequestWorkflowActivities(job.agentType, metadata)],
+      metadata
     };
   }
 
@@ -512,6 +566,144 @@ function commandResultBody(result: VerificationCommandResult): string {
 
 function uniqueStrings(items: string[]): string[] {
   return Array.from(new Set(items));
+}
+
+function derivePullRequestNextLabel(
+  agentType: AgentJobDto["agentType"],
+  metadata: NonNullable<AgentRunResult["metadata"]>
+): string | null {
+  if (agentType === "review") {
+    const verdict = stringValue(objectValue(metadata.review)?.verdict);
+    if (verdict === "changes_requested") {
+      return "修正中";
+    }
+    if (verdict === "approved") {
+      return "テスト中";
+    }
+  }
+
+  if (agentType === "fix") {
+    return "レビュー中";
+  }
+
+  if (agentType === "qa") {
+    const verdict = stringValue(objectValue(metadata.qa)?.verdict);
+    if (verdict === "defects_found") {
+      return "修正中";
+    }
+    if (verdict === "passed") {
+      return "完了";
+    }
+  }
+
+  return null;
+}
+
+function pullRequestWorkflowActivities(
+  agentType: AgentJobDto["agentType"],
+  metadata: NonNullable<AgentRunResult["metadata"]>
+): AgentActivityResult[] {
+  if (agentType === "review") {
+    const review = objectValue(metadata.review);
+    if (!review) {
+      return [];
+    }
+    const findings = arrayValue(review.findings);
+    const verdict = stringValue(review.verdict) ?? "unknown";
+    return [
+      {
+        type: findings.length ? "error" : "progress",
+        title: findings.length ? "Review findings captured" : "Review approval captured",
+        body: structuredActivityBody(`verdict: ${verdict}`, findings),
+        payload: {
+          review
+        }
+      }
+    ];
+  }
+
+  if (agentType === "fix") {
+    const fix = objectValue(metadata.fix);
+    if (!fix) {
+      return [];
+    }
+    const resolvedFindings = stringArrayValue(fix.resolvedFindings);
+    return [
+      {
+        type: "progress",
+        title: "Fix summary captured",
+        body: resolvedFindings.length ? resolvedFindings.map((item) => `- ${item}`).join("\n") : "Fix completed.",
+        payload: {
+          fix
+        }
+      }
+    ];
+  }
+
+  if (agentType === "qa") {
+    const qa = objectValue(metadata.qa);
+    if (!qa) {
+      return [];
+    }
+    const defects = arrayValue(qa.defects);
+    const verdict = stringValue(qa.verdict) ?? "unknown";
+    return [
+      {
+        type: defects.length ? "error" : "test",
+        title: defects.length ? "QA defects captured" : "QA pass captured",
+        body: structuredActivityBody(`verdict: ${verdict}`, defects),
+        payload: {
+          qa
+        }
+      }
+    ];
+  }
+
+  return [];
+}
+
+function structuredActivityBody(header: string, items: unknown[]): string {
+  if (!items.length) {
+    return header;
+  }
+  return [header, "", ...items.map(formatStructuredItem)].join("\n");
+}
+
+function formatStructuredItem(item: unknown): string {
+  const object = objectValue(item);
+  if (!object) {
+    return `- ${String(item)}`;
+  }
+
+  const severity = stringValue(object.severity);
+  const path = stringValue(object.path);
+  const line = numberValue(object.line);
+  const title = stringValue(object.title) ?? "Untitled";
+  const body = stringValue(object.body);
+  const location = path ? `${path}${line ? `:${line}` : ""}` : null;
+  const prefix = [severity ? `[${severity}]` : null, location].filter(Boolean).join(" ");
+  const detail = body && body !== title ? ` - ${body}` : "";
+  return `- ${prefix ? `${prefix} ` : ""}${title}${detail}`;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
 }
 
 function normalizeActivityTarget(job: AgentJobDto): { targetType: "issue" | "pull_request"; targetId: number } | null {
