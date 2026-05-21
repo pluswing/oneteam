@@ -487,7 +487,7 @@ MVP では次のどちらかで repository を登録できる。
   },
   "ai": {
     "provider": "codex-cli",
-    "codexCommand": "codex",
+    "codexCommand": "node_modules/.bin/codex",
     "model": "model-name",
     "fullAccess": true
   },
@@ -919,3 +919,4 @@ packages/git    git operation wrapper
 - [MVP タスク分解](./docs/06-mvp-task-breakdown.md)
 - [command auto-detection 仕様](./docs/07-command-auto-detection.md)
 - [i18n リソース設計](./docs/08-i18n-resource-design.md)
+- [Local Codex CLI setup](./docs/09-local-codex-setup.md)

@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { normalizeCodexCommand } from "../shared/codex";
 import { loadConfig } from "./config";
 import { createApp } from "./app";
 import { createDatabaseContext } from "./db/client";
@@ -25,7 +26,7 @@ if (config.agents.workerEnabled) {
       loadOptions: async () => {
         const ai = await repos.settings.get("ai");
         return {
-          command: typeof ai?.codexCommand === "string" ? ai.codexCommand : undefined,
+          command: normalizeCodexCommand(typeof ai?.codexCommand === "string" ? ai.codexCommand : undefined),
           model: typeof ai?.model === "string" ? ai.model : undefined
         };
       }

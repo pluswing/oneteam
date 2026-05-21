@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
-    "db:migrate": "tsx src/server/db/migrate.ts"
+    "db:migrate": "tsx src/server/db/migrate.ts",
+    "codex:version": "codex --version",
+    "codex:login": "codex login",
+    "codex:exec": "codex exec --sandbox danger-full-access --ask-for-approval never"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.6",
@@ -27,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@openai/codex": "^0.132.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

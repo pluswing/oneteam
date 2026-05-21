@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { AgentAdapter, AgentRunResult } from "./types";
 
 export type CodexAdapterOptions = {
@@ -37,6 +37,7 @@ export class CodexAdapter implements AgentAdapter {
 
   async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentRunResult> {
     const options = await this.resolveOptions();
+    const command = resolveCommand(options.command);
     const tempDir = await mkdtemp(join(tmpdir(), "oneteam-codex-"));
     const lastMessagePath = join(tempDir, "last-message.txt");
     const args = [
@@ -61,16 +62,16 @@ export class CodexAdapter implements AgentAdapter {
     await input.onActivity?.({
       type: "command",
       title: "Started Codex CLI",
-      body: `${options.command} ${args.join(" ")}`,
+      body: `${command} ${args.join(" ")}`,
       payload: {
-        command: options.command,
+        command,
         args,
         cwd: input.repoPath
       }
     });
 
     try {
-      const { stdout, stderr, exitCode } = await runProcess(options.command, args, input.prompt);
+      const { stdout, stderr, exitCode } = await runProcess(command, args, input.prompt);
       await input.onActivity?.({
         type: exitCode === 0 ? "progress" : "error",
         title: exitCode === 0 ? "Codex CLI completed" : "Codex CLI failed",
@@ -104,6 +105,13 @@ export class CodexAdapter implements AgentAdapter {
       model: loaded?.model ?? this.options.model
     };
   }
+}
+
+function resolveCommand(command: string): string {
+  if (command.includes("/") || command.includes("\\")) {
+    return isAbsolute(command) ? command : resolve(process.cwd(), command);
+  }
+  return command;
 }
 
 async function runProcess(command: string, args: string[], stdin: string): Promise<{

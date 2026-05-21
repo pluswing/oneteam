@@ -130,7 +130,7 @@ Request:
   "defaultBranch": "main",
   "locale": "en",
   "codex": {
-    "command": "codex",
+    "command": "node_modules/.bin/codex",
     "model": "model-name",
     "fullAccess": true
   }

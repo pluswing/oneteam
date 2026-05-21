@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
 
 export type AppConfig = {
   server: {
@@ -29,7 +30,7 @@ export function loadConfig(): AppConfig {
     agents: {
       workerEnabled: process.env.ONETEAM_AGENT_WORKER !== "false",
       pollIntervalMs: Number(process.env.ONETEAM_AGENT_POLL_INTERVAL_MS ?? "3000"),
-      codexCommand: process.env.ONETEAM_CODEX_COMMAND ?? "codex",
+      codexCommand: normalizeCodexCommand(process.env.ONETEAM_CODEX_COMMAND ?? defaultCodexCommand),
       codexModel: process.env.ONETEAM_CODEX_MODEL || undefined
     }
   };

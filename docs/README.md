@@ -12,6 +12,7 @@
 6. [MVP タスク分解](./06-mvp-task-breakdown.md)
 7. [command auto-detection 仕様](./07-command-auto-detection.md)
 8. [i18n リソース設計](./08-i18n-resource-design.md)
+9. [Local Codex CLI setup](./09-local-codex-setup.md)
 
 ## 前提
 

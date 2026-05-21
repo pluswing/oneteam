@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
+import { defaultCodexCommand } from "../shared/codex";
 
 describe("database migrations", () => {
   it("can run repeatedly and seed labels for a project", async () => {
@@ -17,7 +18,7 @@ describe("database migrations", () => {
     const repos = createRepositories(context.db);
     await repos.settings.set("ai", {
       provider: "codex-cli",
-      codexCommand: "codex",
+      codexCommand: defaultCodexCommand,
       fullAccess: true
     });
     const aiSettings = await repos.settings.get("ai");
@@ -52,7 +53,7 @@ describe("database migrations", () => {
       title: "Review queued"
     });
 
-    expect(aiSettings?.codexCommand).toBe("codex");
+    expect(aiSettings?.codexCommand).toBe(defaultCodexCommand);
     expect(project.id).toMatch(/^project_/);
     expect(labels.map((label) => label.name)).toContain("要件定義中");
     expect(labels.map((label) => label.name)).toContain("完了");

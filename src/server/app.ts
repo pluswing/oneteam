@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
+import { defaultCodexCommand } from "../shared/codex";
 import type { Repositories } from "./db/repositories";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
@@ -32,7 +33,7 @@ const createProjectSchema = z.object({
   locale: z.string().min(2).default("en"),
   codex: z
     .object({
-      command: z.string().min(1).default("codex"),
+      command: z.string().min(1).default(defaultCodexCommand),
       model: z.string().optional(),
       fullAccess: z.boolean().default(true)
     })

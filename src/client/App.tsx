@@ -12,6 +12,7 @@ import type {
   RepositoryFileChangeDto,
   RepositoryStatusDto
 } from "../shared/types";
+import { defaultCodexCommand } from "../shared/codex";
 import { api } from "./api";
 import { t } from "./i18n";
 
@@ -70,7 +71,7 @@ function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
   const [name, setName] = useState("one team");
   const [repoPath, setRepoPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
-  const [codexCommand, setCodexCommand] = useState("codex");
+  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
   const [codexModel, setCodexModel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setSubmitting] = useState(false);
