@@ -10,7 +10,7 @@
 
 ## P2. Pull request and Git UI polish
 
-- Improve diff rendering for larger patches.
+- No open MVP tasks after the current pass.
 
 ## P2. Settings and validation
 
@@ -34,3 +34,4 @@
 - Local pull request creation from structured implementation output is covered by the worker flow and verification tests.
 - Review / Fix / QA flow: structured review findings, fix summaries, and QA verdicts now create actionable Activity entries and drive label transitions; conflict fix jobs fail when merge conflicts remain.
 - Pull request Git polish: pull request list/detail now include Git-derived file and commit counts; detail view adds a commits tab and a visible conflict resolution action.
+- Diff polish: large patches now render as a bounded preview with an explicit expand/collapse action.

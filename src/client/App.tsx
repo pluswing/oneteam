@@ -275,6 +275,27 @@ function LabelEditor(props: {
   );
 }
 
+function DiffPreview(props: { patch: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = props.patch.split("\n");
+  const isLarge = lines.length > 120;
+  const visiblePatch = isLarge && !expanded ? lines.slice(0, 120).join("\n") : props.patch;
+
+  return (
+    <>
+      <pre>{visiblePatch}</pre>
+      {isLarge ? (
+        <div className="diff-actions">
+          <span>{lines.length} {t("pullRequests.diffLines")}</span>
+          <button className="secondary-button" onClick={() => setExpanded((current) => !current)} type="button">
+            {expanded ? t("pullRequests.collapseDiff") : t("pullRequests.showFullDiff")}
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
   const [body, setBody] = useState("");
 
@@ -905,7 +926,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
                   +{file.additions} -{file.deletions}
                 </span>
               </header>
-              {file.patch ? <pre>{file.patch}</pre> : null}
+              {file.patch ? <DiffPreview patch={file.patch} /> : null}
             </article>
           ))}
         </div>

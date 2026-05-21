@@ -633,6 +633,22 @@ textarea {
   line-height: 1.5;
 }
 
+.diff-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid #d8dee4;
+  color: #57606a;
+  font-size: 13px;
+}
+
+.diff-actions .secondary-button {
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
 .commit-row p {
   margin: 0;
   padding: 0 12px 10px;

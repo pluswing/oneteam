@@ -65,7 +65,10 @@ export const en = {
     noFiles: "No changed files",
     noCommits: "No commits",
     conflictsDetected: "Merge conflicts detected",
-    resolveConflicts: "Resolve conflicts"
+    resolveConflicts: "Resolve conflicts",
+    diffLines: "diff lines",
+    showFullDiff: "Show full diff",
+    collapseDiff: "Collapse diff"
   },
   repository: {
     title: "Repository",
