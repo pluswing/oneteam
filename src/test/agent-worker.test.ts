@@ -142,6 +142,69 @@ describe("agent worker", () => {
     context.client.close();
   });
 
+  it("moves the target into human gate when an agent asks questions", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-human-gate-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const requirementsLabel = await repos.labels.findByName(project.id, "要件定義中");
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard.",
+      labelIds: requirementsLabel ? [requirementsLabel.id] : []
+    });
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "requirements",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        return {
+          status: "waiting_human",
+          message: "Need more detail.",
+          questions: ["Which users should see the setup wizard?"]
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const updatedIssue = await repos.issues.get(project.id, issue.id);
+    const comments = await repos.comments.list(project.id, "issue", issue.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const output = updatedJob?.output as
+      | {
+          metadata?: {
+            humanGate?: {
+              previousLabelNames?: string[];
+            };
+          };
+        }
+      | null
+      | undefined;
+
+    expect(updatedJob?.status).toBe("waiting_human");
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["確認待ち"]);
+    expect(comments[0].body).toContain("Which users");
+    expect(output?.metadata?.humanGate?.previousLabelNames).toContain("要件定義中");
+    expect(activities.map((activity) => activity.title)).toContain("Waiting for human input");
+
+    context.client.close();
+  });
+
   it("skips queued jobs whose lock key is already running", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-lock-"));
     const context = createDatabaseContext(`file:${join(dir, "test.db")}`);

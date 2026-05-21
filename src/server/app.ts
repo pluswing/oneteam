@@ -6,7 +6,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import type { AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
+import type { AgentJobDto, AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
 import { defaultCodexCommand } from "../shared/codex";
 import type { Repositories } from "./db/repositories";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
@@ -169,6 +169,82 @@ async function detectAndPersistCommands(
     missing: detection.missingCommands,
     createdIssueIds
   };
+}
+
+const humanGateFallbackLabels: Partial<Record<AgentType, string>> = {
+  requirements: "要件定義中",
+  implementation: "実装中",
+  review: "レビュー中",
+  fix: "修正中",
+  qa: "テスト中"
+};
+
+function readPreviousLabelIds(job: { output: Record<string, unknown> | null }): number[] | null {
+  const metadata = job.output?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  const humanGate = (metadata as Record<string, unknown>).humanGate;
+  if (!humanGate || typeof humanGate !== "object" || Array.isArray(humanGate)) {
+    return null;
+  }
+  const previousLabelIds = (humanGate as Record<string, unknown>).previousLabelIds;
+  if (!Array.isArray(previousLabelIds)) {
+    return null;
+  }
+  return previousLabelIds.filter((labelId): labelId is number => typeof labelId === "number");
+}
+
+async function restoreHumanGateLabels(repos: Repositories, job: AgentJobDto | null) {
+  if (!job || job.targetType === "project") {
+    return;
+  }
+
+  let labelIds = readPreviousLabelIds(job);
+  if (!labelIds) {
+    const fallbackLabelName = humanGateFallbackLabels[job.agentType];
+    const fallbackLabel = fallbackLabelName ? await repos.labels.findByName(job.projectId, fallbackLabelName) : null;
+    labelIds = fallbackLabel ? [fallbackLabel.id] : [];
+  }
+
+  if (job.targetType === "issue") {
+    await repos.issues.update(job.projectId, job.targetId, { labelIds });
+  } else {
+    await repos.pullRequests.update(job.projectId, job.targetId, { labelIds });
+  }
+
+  await repos.activities.create({
+    projectId: job.projectId,
+    agentJobId: job.id,
+    targetType: job.targetType,
+    targetId: job.targetId,
+    activityType: "system",
+    title: "Human answer received",
+    body: "Restored the previous workflow labels and requeued the waiting agent job."
+  });
+}
+
+async function resumeWaitingJobForComment(
+  repos: Repositories,
+  input: {
+    projectId: string;
+    targetType: "issue" | "pull_request";
+    targetId: number;
+  }
+) {
+  const waitingJobs = await repos.agentJobs.list({
+    projectId: input.projectId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    status: "waiting_human"
+  });
+  const waitingJob = waitingJobs[0];
+  if (!waitingJob) {
+    return null;
+  }
+
+  await restoreHumanGateLabels(repos, waitingJob);
+  return repos.agentJobs.resume(input.projectId, waitingJob.id);
 }
 
 export function createApp({ repos }: AppDependencies): Hono {
@@ -361,13 +437,11 @@ export function createApp({ repos }: AppDependencies): Hono {
       authorType: "user",
       body: c.req.valid("json").body
     });
-    const waitingJobs = await repos.agentJobs.list({
+    const autoResumedJob = await resumeWaitingJobForComment(repos, {
       projectId,
       targetType: "issue",
-      targetId: issueId,
-      status: "waiting_human"
+      targetId: issueId
     });
-    const autoResumedJob = waitingJobs[0] ? await repos.agentJobs.retry(projectId, waitingJobs[0].id) : null;
     return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
   });
 
@@ -479,13 +553,11 @@ export function createApp({ repos }: AppDependencies): Hono {
         authorType: "user",
         body: c.req.valid("json").body
       });
-      const waitingJobs = await repos.agentJobs.list({
+      const autoResumedJob = await resumeWaitingJobForComment(repos, {
         projectId,
         targetType: "pull_request",
-        targetId: pullRequestId,
-        status: "waiting_human"
+        targetId: pullRequestId
       });
-      const autoResumedJob = waitingJobs[0] ? await repos.agentJobs.retry(projectId, waitingJobs[0].id) : null;
       return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
     }
   );

@@ -1,4 +1,4 @@
-import type { AgentJobDto } from "../../shared/types";
+import type { AgentJobDto, LabelDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
 import { runLabelAutomation } from "../services/label-automation";
 import type { AgentAdapter, AgentRunResult } from "./types";
@@ -138,6 +138,7 @@ export class AgentWorker {
 
   private async applyResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
     const target = normalizeActivityTarget(job);
+    let output = result;
 
     for (const activity of result.activities ?? []) {
       if (!target) {
@@ -155,51 +156,104 @@ export class AgentWorker {
       });
     }
 
-    if (result.status === "canceled") {
+    if (output.status === "canceled") {
       await this.repos.agentJobs.updateStatus(job.projectId, job.id, "canceled", {
-        output: result as unknown as Record<string, unknown>,
+        output: output as unknown as Record<string, unknown>,
         error: null
       });
       return;
     }
 
-    if (result.comment) {
+    if (output.status === "waiting_human" && target) {
+      output = await this.enterHumanGate(job, output, target);
+    }
+
+    if (output.comment) {
       await this.repos.comments.create({
         projectId: job.projectId,
-        targetType: result.comment.targetType,
-        targetId: result.comment.targetId,
+        targetType: output.comment.targetType,
+        targetId: output.comment.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: result.comment.body,
-        metadata: result.metadata ?? undefined
+        body: output.comment.body,
+        metadata: output.metadata ?? undefined
       });
-    } else if (result.questions?.length && target) {
+    } else if (output.questions?.length && target) {
       await this.repos.comments.create({
         projectId: job.projectId,
         targetType: target.targetType,
         targetId: target.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: result.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
-        metadata: result.metadata ?? undefined
+        body: output.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
+        metadata: output.metadata ?? undefined
       });
-    } else if (result.message && target) {
+    } else if (output.message && target) {
       await this.repos.comments.create({
         projectId: job.projectId,
         targetType: target.targetType,
         targetId: target.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: result.message,
-        metadata: result.metadata ?? undefined
+        body: output.message,
+        metadata: output.metadata ?? undefined
       });
     }
 
-    await this.applyMetadata(job, result);
-    await this.repos.agentJobs.updateStatus(job.projectId, job.id, result.status, {
-      output: result as unknown as Record<string, unknown>,
-      error: result.status === "failed" ? result.message : null
+    if (output.status !== "waiting_human") {
+      await this.applyMetadata(job, output);
+    }
+    await this.repos.agentJobs.updateStatus(job.projectId, job.id, output.status, {
+      output: output as unknown as Record<string, unknown>,
+      error: output.status === "failed" ? output.message : null
     });
+  }
+
+  private async enterHumanGate(
+    job: AgentJobDto,
+    result: AgentRunResult,
+    target: { targetType: "issue" | "pull_request"; targetId: number }
+  ): Promise<AgentRunResult> {
+    const previousLabels = await this.getTargetLabels(job);
+    const confirmationLabel = await this.repos.labels.findByName(job.projectId, "確認待ち");
+    if (confirmationLabel) {
+      if (target.targetType === "issue") {
+        await this.repos.issues.update(job.projectId, target.targetId, { labelIds: [confirmationLabel.id] });
+      } else {
+        await this.repos.pullRequests.update(job.projectId, target.targetId, { labelIds: [confirmationLabel.id] });
+      }
+    }
+
+    await this.repos.activities.create({
+      projectId: job.projectId,
+      agentJobId: job.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      activityType: "progress",
+      title: "Waiting for human input",
+      body: "The agent paused and is waiting for a user reply."
+    });
+
+    return {
+      ...result,
+      metadata: {
+        ...(result.metadata ?? {}),
+        humanGate: {
+          previousLabelIds: previousLabels.map((label) => label.id),
+          previousLabelNames: previousLabels.map((label) => label.name)
+        }
+      }
+    };
+  }
+
+  private async getTargetLabels(job: AgentJobDto): Promise<LabelDto[]> {
+    if (job.targetType === "issue") {
+      return (await this.repos.issues.get(job.projectId, job.targetId))?.labels ?? [];
+    }
+    if (job.targetType === "pull_request") {
+      return (await this.repos.pullRequests.get(job.projectId, job.targetId))?.labels ?? [];
+    }
+    return [];
   }
 
   private async applyMetadata(job: AgentJobDto, result: AgentRunResult): Promise<void> {

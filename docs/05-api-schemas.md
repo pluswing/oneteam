@@ -354,6 +354,7 @@ Response:
 ```
 
 `autoResumedJobId` は、`waiting_human` job が自動再開された場合に返す。
+再開時は同じ job を `queued` に戻し、`attempt` を increment する。
 
 ### 6.7 Activities
 

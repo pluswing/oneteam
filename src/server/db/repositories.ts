@@ -929,6 +929,21 @@ export function createRepositories(db: Database) {
           })
           .returning();
         return mapAgentJob(rows[0]);
+      },
+
+      async resume(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "waiting_human")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
       }
     },
 
