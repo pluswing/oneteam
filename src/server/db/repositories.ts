@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type {
   ActivityDto,
@@ -809,8 +809,20 @@ export function createRepositories(db: Database) {
           filters.push(eq(agentJobs.projectId, projectId));
         }
 
-        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(agentJobs.createdAt).limit(1);
-        return rows[0] ? mapAgentJob(rows[0]) : null;
+        const runningLockFilters: SQL[] = [eq(agentJobs.status, "running"), isNotNull(agentJobs.lockKey)];
+        if (projectId) {
+          runningLockFilters.push(eq(agentJobs.projectId, projectId));
+        }
+
+        const runningLockRows = await db
+          .select({ lockKey: agentJobs.lockKey })
+          .from(agentJobs)
+          .where(and(...runningLockFilters));
+        const runningLocks = new Set(runningLockRows.map((row) => row.lockKey).filter((lockKey): lockKey is string => Boolean(lockKey)));
+
+        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(agentJobs.createdAt).limit(50);
+        const nextJob = rows.find((row) => !row.lockKey || !runningLocks.has(row.lockKey));
+        return nextJob ? mapAgentJob(nextJob) : null;
       },
 
       async list(input: {

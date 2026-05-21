@@ -6,6 +6,7 @@ import { createApp } from "../server/app";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
+import { resolveAgentJobLockKey } from "../server/services/agent-job-locks";
 import { runLabelAutomation } from "../server/services/label-automation";
 
 describe("label automation", () => {
@@ -65,6 +66,14 @@ describe("label automation", () => {
     expect(duplicateJobs).toHaveLength(0);
     expect(implementationJobs).toHaveLength(1);
     expect(implementationJobs[0].agentType).toBe("implementation");
+    expect(implementationJobs[0].lockKey).toBe(
+      resolveAgentJobLockKey({
+        projectId: project.id,
+        agentType: "implementation",
+        targetType: "issue",
+        targetId: issue.id
+      })
+    );
     expect(activities.map((activity) => activity.title)).toContain("Agent job queued");
 
     context.client.close();

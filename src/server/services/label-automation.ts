@@ -1,5 +1,6 @@
 import type { AgentJobDto, AgentJobStatus, AgentType, LabelDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
+import { resolveAgentJobLockKey } from "./agent-job-locks";
 
 const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_human"]);
 
@@ -50,7 +51,13 @@ export async function runLabelAutomation(
       input: {
         automation: "label",
         labelName: label.name
-      }
+      },
+      lockKey: resolveAgentJobLockKey({
+        projectId: input.projectId,
+        agentType,
+        targetType: input.targetType,
+        targetId: input.targetId
+      })
     });
     await repos.activities.create({
       projectId: input.projectId,

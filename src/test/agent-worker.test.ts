@@ -7,6 +7,7 @@ import type { AgentAdapter } from "../server/agents/types";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
+import { resolveAgentJobLockKey } from "../server/services/agent-job-locks";
 
 describe("agent worker", () => {
   it("runs a queued job and persists comments, activities, and label transitions", async () => {
@@ -137,6 +138,72 @@ describe("agent worker", () => {
     expect(updatedJob?.status).toBe("canceled");
     expect(comments).toHaveLength(0);
     expect(activities.map((activity) => activity.title)).toContain("Agent job canceled");
+
+    context.client.close();
+  });
+
+  it("skips queued jobs whose lock key is already running", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-lock-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    const lockKey = resolveAgentJobLockKey({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id
+    });
+    const runningJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id,
+      lockKey
+    });
+    await repos.agentJobs.updateStatus(project.id, runningJob.id, "running");
+    const lockedQueuedJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id,
+      lockKey
+    });
+    const unlockedQueuedJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "requirements",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        return {
+          status: "succeeded",
+          message: "Unlocked job completed."
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const lockedJobAfterTick = await repos.agentJobs.get(project.id, lockedQueuedJob.id);
+    const unlockedJobAfterTick = await repos.agentJobs.get(project.id, unlockedQueuedJob.id);
+
+    expect(lockedJobAfterTick?.status).toBe("queued");
+    expect(unlockedJobAfterTick?.status).toBe("succeeded");
 
     context.client.close();
   });

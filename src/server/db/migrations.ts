@@ -147,9 +147,16 @@ const migrations: Migration[] = [
       "create index if not exists idx_pull_requests_project_status_updated on pull_requests(project_id, status, updated_at desc) where deleted_at is null",
       "create index if not exists idx_comments_target_created on comments(project_id, target_type, target_id, created_at asc)",
       "create index if not exists idx_agent_jobs_target_status on agent_jobs(project_id, target_type, target_id, status, created_at desc)",
+      "create index if not exists idx_agent_jobs_lock_status on agent_jobs(project_id, lock_key, status, created_at asc)",
       "create index if not exists idx_agent_activities_target_created on agent_activities(project_id, target_type, target_id, created_at asc)",
       "create index if not exists idx_agent_activities_job_created on agent_activities(agent_job_id, created_at asc)",
       "create index if not exists idx_repository_events_project_created on repository_events(project_id, created_at desc)"
+    ]
+  },
+  {
+    id: "0002_agent_job_lock_index",
+    statements: [
+      "create index if not exists idx_agent_jobs_lock_status on agent_jobs(project_id, lock_key, status, created_at asc)"
     ]
   }
 ];

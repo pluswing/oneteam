@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
 import { defaultCodexCommand } from "../shared/codex";
 import type { Repositories } from "./db/repositories";
+import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
   detectMergeConflicts,
@@ -568,13 +569,21 @@ export function createApp({ repos }: AppDependencies): Hono {
 
   app.post("/api/projects/:projectId/agent-jobs", zValidator("json", createAgentJobSchema), async (c) => {
     const input = c.req.valid("json");
+    const projectId = c.req.param("projectId");
+    const agentType = input.agentType as AgentType;
     const job = await repos.agentJobs.create({
-      projectId: c.req.param("projectId"),
-      agentType: input.agentType as AgentType,
+      projectId,
+      agentType,
       targetType: input.targetType,
       targetId: input.targetId,
       triggerType: input.triggerType,
-      input: input.input
+      input: input.input,
+      lockKey: resolveAgentJobLockKey({
+        projectId,
+        agentType,
+        targetType: input.targetType,
+        targetId: input.targetId
+      })
     });
     return c.json({ job }, 201);
   });

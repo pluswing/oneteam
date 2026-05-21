@@ -488,6 +488,7 @@ Response:
     "targetType": "issue",
     "targetId": 24,
     "status": "queued",
+    "lockKey": null,
     "createdAt": "2026-05-20T10:00:00.000Z"
   }
 }
@@ -515,6 +516,7 @@ Response:
       "targetId": 24,
       "status": "running",
       "attempt": 1,
+      "lockKey": null,
       "createdAt": "2026-05-20T10:00:00.000Z"
     }
   ]
@@ -534,6 +536,7 @@ Response:
     "input": {},
     "output": null,
     "error": null,
+    "lockKey": "project:project_123:issue:24:write",
     "createdAt": "2026-05-20T10:00:00.000Z",
     "startedAt": "2026-05-20T10:00:03.000Z",
     "finishedAt": null
