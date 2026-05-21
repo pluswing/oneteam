@@ -18,6 +18,7 @@ import {
   getDiffWithPatches,
   getRepositoryStatus
 } from "./services/git-service";
+import { runLabelAutomation } from "./services/label-automation";
 
 const execFileAsync = promisify(execFile);
 
@@ -294,11 +295,19 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.post("/api/projects/:projectId/issues", zValidator("json", createIssueSchema), async (c) => {
+    const projectId = c.req.param("projectId");
     const issue = await repos.issues.create({
-      projectId: c.req.param("projectId"),
+      projectId,
       ...c.req.valid("json")
     });
-    return c.json({ issue }, 201);
+    const automationJobs = await runLabelAutomation(repos, {
+      projectId,
+      targetType: "issue",
+      targetId: issue.id,
+      labels: issue.labels,
+      triggerType: "label_applied"
+    });
+    return c.json({ issue, automationJobIds: automationJobs.map((job) => job.id) }, 201);
   });
 
   app.get("/api/projects/:projectId/issues/:issueId", async (c) => {
@@ -310,15 +319,22 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.patch("/api/projects/:projectId/issues/:issueId", zValidator("json", updateIssueSchema), async (c) => {
-    const issue = await repos.issues.update(
-      c.req.param("projectId"),
-      Number(c.req.param("issueId")),
-      c.req.valid("json")
-    );
+    const projectId = c.req.param("projectId");
+    const issueId = Number(c.req.param("issueId"));
+    const previousIssue = await repos.issues.get(projectId, issueId);
+    const issue = await repos.issues.update(projectId, issueId, c.req.valid("json"));
     if (!issue) {
       notFound("Issue was not found.");
     }
-    return c.json({ issue });
+    const automationJobs = await runLabelAutomation(repos, {
+      projectId,
+      targetType: "issue",
+      targetId: issue.id,
+      labels: issue.labels,
+      previousLabels: previousIssue?.labels ?? [],
+      triggerType: "label_applied"
+    });
+    return c.json({ issue, automationJobIds: automationJobs.map((job) => job.id) });
   });
 
   app.delete("/api/projects/:projectId/issues/:issueId", async (c) => {
@@ -381,13 +397,21 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.post("/api/projects/:projectId/pull-requests", zValidator("json", createPullRequestSchema), async (c) => {
-    const reviewLabel = await repos.labels.findByName(c.req.param("projectId"), "レビュー中");
+    const projectId = c.req.param("projectId");
+    const reviewLabel = await repos.labels.findByName(projectId, "レビュー中");
     const pullRequest = await repos.pullRequests.create({
-      projectId: c.req.param("projectId"),
+      projectId,
       ...c.req.valid("json"),
       labelIds: c.req.valid("json").labelIds ?? (reviewLabel ? [reviewLabel.id] : [])
     });
-    return c.json({ pullRequest }, 201);
+    const automationJobs = await runLabelAutomation(repos, {
+      projectId,
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      labels: pullRequest.labels,
+      triggerType: "label_applied"
+    });
+    return c.json({ pullRequest, automationJobIds: automationJobs.map((job) => job.id) }, 201);
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId", async (c) => {
@@ -402,15 +426,22 @@ export function createApp({ repos }: AppDependencies): Hono {
     "/api/projects/:projectId/pull-requests/:pullRequestId",
     zValidator("json", updatePullRequestSchema),
     async (c) => {
-      const pullRequest = await repos.pullRequests.update(
-        c.req.param("projectId"),
-        Number(c.req.param("pullRequestId")),
-        c.req.valid("json")
-      );
+      const projectId = c.req.param("projectId");
+      const pullRequestId = Number(c.req.param("pullRequestId"));
+      const previousPullRequest = await repos.pullRequests.get(projectId, pullRequestId);
+      const pullRequest = await repos.pullRequests.update(projectId, pullRequestId, c.req.valid("json"));
       if (!pullRequest) {
         notFound("Pull request was not found.");
       }
-      return c.json({ pullRequest });
+      const automationJobs = await runLabelAutomation(repos, {
+        projectId,
+        targetType: "pull_request",
+        targetId: pullRequest.id,
+        labels: pullRequest.labels,
+        previousLabels: previousPullRequest?.labels ?? [],
+        triggerType: "label_applied"
+      });
+      return c.json({ pullRequest, automationJobIds: automationJobs.map((job) => job.id) });
     }
   );
 
@@ -500,27 +531,25 @@ export function createApp({ repos }: AppDependencies): Hono {
   app.post("/api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts", async (c) => {
     const projectId = c.req.param("projectId");
     const pullRequestId = Number(c.req.param("pullRequestId"));
-    const conflictLabel = await repos.labels.findByName(projectId, "コンフリクト修正中");
-    if (conflictLabel) {
-      await repos.pullRequests.update(projectId, pullRequestId, { labelIds: [conflictLabel.id] });
+    const previousPullRequest = await repos.pullRequests.get(projectId, pullRequestId);
+    if (!previousPullRequest) {
+      notFound("Pull request was not found.");
     }
-    const job = await repos.agentJobs.create({
+    const conflictLabel = await repos.labels.findByName(projectId, "コンフリクト修正中");
+    let pullRequest = previousPullRequest;
+    if (conflictLabel) {
+      pullRequest =
+        (await repos.pullRequests.update(projectId, pullRequestId, { labelIds: [conflictLabel.id] })) ??
+        previousPullRequest;
+    }
+    const automationJobs = await runLabelAutomation(repos, {
       projectId,
-      agentType: "fix",
       targetType: "pull_request",
       targetId: pullRequestId,
+      labels: pullRequest.labels,
       triggerType: "conflict_detected"
     });
-    await repos.activities.create({
-      projectId,
-      agentJobId: job.id,
-      targetType: "pull_request",
-      targetId: pullRequestId,
-      activityType: "system",
-      title: "Conflict resolution queued",
-      body: "Queued a fix agent job to resolve merge conflicts."
-    });
-    return c.json({ jobId: job.id, label: "コンフリクト修正中" });
+    return c.json({ jobId: automationJobs[0]?.id ?? null, label: "コンフリクト修正中" });
   });
 
   app.get("/api/projects/:projectId/agent-jobs", async (c) => {

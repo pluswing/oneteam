@@ -262,7 +262,8 @@ Response:
     "labels": [],
     "createdAt": "2026-05-20T10:00:00.000Z",
     "updatedAt": "2026-05-20T10:00:00.000Z"
-  }
+  },
+  "automationJobIds": [55]
 }
 ```
 
@@ -299,6 +300,20 @@ Request:
   "body": "Updated Markdown",
   "status": "open",
   "labelIds": [1, 2]
+}
+```
+
+Response:
+
+```json
+{
+  "issue": {
+    "id": 24,
+    "title": "Add build command",
+    "status": "open",
+    "labels": []
+  },
+  "automationJobIds": [56]
 }
 ```
 
@@ -392,6 +407,23 @@ Request:
 }
 ```
 
+Response:
+
+```json
+{
+  "pullRequest": {
+    "id": 8,
+    "issueId": 24,
+    "title": "Add build command",
+    "status": "open",
+    "sourceBranch": "oneteam/issue-24-add-build-command",
+    "targetBranch": "main",
+    "labels": []
+  },
+  "automationJobIds": [72]
+}
+```
+
 ### 7.3 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
 
 Response:
@@ -428,6 +460,8 @@ Response:
   "label": "コンフリクト修正中"
 }
 ```
+
+`jobId` is `null` when an active fix job already exists for the pull request.
 
 ## 8. Agent Jobs
 

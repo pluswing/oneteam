@@ -48,6 +48,11 @@ stateDiagram-v2
 | repository import 完了 | `command_detection` | project |
 | merge conflict 検出 | `fix` | pull request |
 
+Label automation is edge-triggered: a job is queued when a trigger label is newly
+applied. If an active job of the same agent type already exists for the same
+target, no duplicate job is created. Agent `metadata.nextLabel` transitions use
+the same automation rules as user/API label updates.
+
 ## 5. Issue Workflow
 
 ```mermaid

@@ -1,5 +1,6 @@
 import type { AgentJobDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
+import { runLabelAutomation } from "../services/label-automation";
 import type { AgentAdapter, AgentRunResult } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -206,10 +207,32 @@ export class AgentWorker {
     if (typeof nextLabel === "string") {
       const label = await this.repos.labels.findByName(job.projectId, nextLabel);
       if (label && job.targetType === "issue") {
-        await this.repos.issues.update(job.projectId, job.targetId, { labelIds: [label.id] });
+        const previousIssue = await this.repos.issues.get(job.projectId, job.targetId);
+        const issue = await this.repos.issues.update(job.projectId, job.targetId, { labelIds: [label.id] });
+        if (issue) {
+          await runLabelAutomation(this.repos, {
+            projectId: job.projectId,
+            targetType: "issue",
+            targetId: job.targetId,
+            labels: issue.labels,
+            previousLabels: previousIssue?.labels ?? [],
+            triggerType: "label_transition"
+          });
+        }
       }
       if (label && job.targetType === "pull_request") {
-        await this.repos.pullRequests.update(job.projectId, job.targetId, { labelIds: [label.id] });
+        const previousPullRequest = await this.repos.pullRequests.get(job.projectId, job.targetId);
+        const pullRequest = await this.repos.pullRequests.update(job.projectId, job.targetId, { labelIds: [label.id] });
+        if (pullRequest) {
+          await runLabelAutomation(this.repos, {
+            projectId: job.projectId,
+            targetType: "pull_request",
+            targetId: job.targetId,
+            labels: pullRequest.labels,
+            previousLabels: previousPullRequest?.labels ?? [],
+            triggerType: "label_transition"
+          });
+        }
       }
     }
 
@@ -224,7 +247,7 @@ export class AgentWorker {
       };
       if (typeof pr.title === "string" && typeof pr.sourceBranch === "string" && typeof pr.targetBranch === "string") {
         const reviewLabel = await this.repos.labels.findByName(job.projectId, "レビュー中");
-        await this.repos.pullRequests.create({
+        const pullRequest = await this.repos.pullRequests.create({
           projectId: job.projectId,
           issueId: typeof pr.issueId === "number" ? pr.issueId : job.targetType === "issue" ? job.targetId : null,
           title: pr.title,
@@ -232,6 +255,13 @@ export class AgentWorker {
           sourceBranch: pr.sourceBranch,
           targetBranch: pr.targetBranch,
           labelIds: reviewLabel ? [reviewLabel.id] : []
+        });
+        await runLabelAutomation(this.repos, {
+          projectId: job.projectId,
+          targetType: "pull_request",
+          targetId: pullRequest.id,
+          labels: pullRequest.labels,
+          triggerType: "pull_request_created"
         });
       }
     }
