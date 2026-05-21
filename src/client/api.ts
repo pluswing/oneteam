@@ -7,6 +7,7 @@ import type {
   MergeConflictDto,
   ProjectCommandDto,
   ProjectDto,
+  ProjectSettingsDto,
   PullRequestDto,
   RepositoryCommitDto,
   RepositoryFileChangeDto,
@@ -150,6 +151,24 @@ export const api = {
     await request(`/api/projects/${projectId}/commands/detect`, {
       method: "POST",
       body: JSON.stringify({ createIssuesForMissingCommands: true })
+    });
+  },
+
+  async getSettings(projectId: string): Promise<ProjectSettingsDto> {
+    return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`);
+  },
+
+  async updateSettings(
+    projectId: string,
+    input: {
+      locale: string;
+      codexCommand: string;
+      model?: string;
+    }
+  ): Promise<ProjectSettingsDto> {
+    return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify(input)
     });
   },
 

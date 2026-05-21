@@ -20,6 +20,7 @@ import type {
   MergeConflictDto,
   ProjectCommandDto,
   ProjectDto,
+  ProjectSettingsDto,
   PullRequestDto,
   RepositoryCommitDto,
   RepositoryFileChangeDto,
@@ -1065,17 +1066,85 @@ function PullRequestsView(props: { project: ProjectDto }) {
 }
 
 function SettingsView(props: { project: ProjectDto }) {
+  const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
+  const [locale, setLocale] = useState(props.project.locale);
+  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
+  const [codexModel, setCodexModel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [isSaving, setSaving] = useState(false);
+
+  async function load() {
+    const response = await api.getSettings(props.project.id);
+    setSettings(response);
+    setLocale(response.project.locale);
+    setCodexCommand(response.ai.codexCommand);
+    setCodexModel(response.ai.model ?? "");
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings."));
+  }, [props.project.id]);
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSavedMessage(null);
+    try {
+      const response = await api.updateSettings(props.project.id, {
+        locale,
+        codexCommand,
+        model: codexModel || undefined
+      });
+      setSettings(response);
+      setSavedMessage(t("settings.saved"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="page-section">
-      <h1>{t("settings.title")}</h1>
+      <div className="section-header">
+        <h1>{t("settings.title")}</h1>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
+      <form className="settings-form" onSubmit={saveSettings}>
+        <label>
+          {t("settings.codexCommand")}
+          <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} required />
+        </label>
+        <label>
+          {t("settings.model")}
+          <input value={codexModel} onChange={(event) => setCodexModel(event.target.value)} />
+        </label>
+        <label>
+          {t("settings.locale")}
+          <input value={locale} onChange={(event) => setLocale(event.target.value)} required />
+        </label>
+        <button className="primary-button" disabled={isSaving} type="submit">
+          <Save size={16} />
+          {t("actions.save")}
+        </button>
+      </form>
       <dl className="repository-facts">
         <div>
-          <dt>{t("settings.locale")}</dt>
-          <dd>{props.project.locale}</dd>
+          <dt>{t("settings.server")}</dt>
+          <dd>
+            {settings ? `${settings.runtime.server.host}:${settings.runtime.server.port}` : "-"}
+          </dd>
         </div>
         <div>
           <dt>{t("settings.database")}</dt>
-          <dd>file:./data/oneteam.db</dd>
+          <dd>{settings?.runtime.database.url ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("settings.fullAccess")}</dt>
+          <dd>{settings?.ai.fullAccess ? t("status.ready") : "-"}</dd>
         </div>
       </dl>
     </section>

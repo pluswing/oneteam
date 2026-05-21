@@ -234,6 +234,15 @@ textarea {
   background: #ffebe9;
 }
 
+.success-banner {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid #2da44e;
+  border-radius: 6px;
+  color: #116329;
+  background: #dafbe1;
+}
+
 .warning-banner {
   display: flex;
   align-items: center;
@@ -666,6 +675,13 @@ textarea {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
   gap: 16px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 14px;
+  max-width: 560px;
+  margin: 16px 0 24px;
 }
 
 .repository-facts dt {

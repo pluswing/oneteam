@@ -14,10 +14,7 @@
 
 ## P2. Settings and validation
 
-- Let users edit Codex command and model after setup.
-- Validate the Codex CLI path before saving.
-- Expose locale setting.
-- Show database and server runtime settings clearly.
+- No open MVP tasks after the current pass.
 
 ## P3. CRUD and QA finish
 
@@ -35,3 +32,4 @@
 - Review / Fix / QA flow: structured review findings, fix summaries, and QA verdicts now create actionable Activity entries and drive label transitions; conflict fix jobs fail when merge conflicts remain.
 - Pull request Git polish: pull request list/detail now include Git-derived file and commit counts; detail view adds a commits tab and a visible conflict resolution action.
 - Diff polish: large patches now render as a bounded preview with an explicit expand/collapse action.
+- Settings polish: users can edit Codex command/model and locale after setup; the server validates the Codex command before saving and shows runtime server/database settings.

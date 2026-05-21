@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { promisify } from "node:util";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { zValidator } from "@hono/zod-validator";
@@ -12,10 +13,11 @@ import type {
   AgentType,
   IssueStatus,
   ProjectDto,
+  ProjectSettingsDto,
   PullRequestDto,
   PullRequestStatus
 } from "../shared/types";
-import { defaultCodexCommand } from "../shared/codex";
+import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
 import type { Repositories } from "./db/repositories";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
@@ -34,6 +36,7 @@ const execFileAsync = promisify(execFile);
 
 export type AppDependencies = {
   repos: Repositories;
+  runtime?: ProjectSettingsDto["runtime"];
 };
 
 const createProjectSchema = z.object({
@@ -95,6 +98,12 @@ const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
 });
 
+const updateProjectSettingsSchema = z.object({
+  locale: z.string().min(2),
+  codexCommand: z.string().min(1),
+  model: z.string().optional()
+});
+
 function notFound(message: string): never {
   throw new HTTPException(404, { message });
 }
@@ -128,6 +137,57 @@ async function enrichPullRequestWithGitStats(project: ProjectDto, pullRequest: P
   } catch {
     return pullRequest;
   }
+}
+
+function resolveCommandPath(command: string): string {
+  if (command.includes("/") || command.includes("\\")) {
+    return isAbsolute(command) ? command : resolvePath(process.cwd(), command);
+  }
+  return command;
+}
+
+async function validateCodexCommand(command: string): Promise<void> {
+  try {
+    await execFileAsync(resolveCommandPath(command), ["--version"], {
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024
+    });
+  } catch {
+    throw new HTTPException(400, {
+      message: "Codex command could not be executed with --version."
+    });
+  }
+}
+
+function runtimeDefaults(runtime?: ProjectSettingsDto["runtime"]): ProjectSettingsDto["runtime"] {
+  return {
+    server: {
+      host: runtime?.server.host ?? "127.0.0.1",
+      port: runtime?.server.port ?? 3580
+    },
+    database: {
+      url: runtime?.database.url ?? "file:./data/oneteam.db"
+    }
+  };
+}
+
+async function readProjectSettings(
+  repos: Repositories,
+  project: ProjectDto,
+  runtime?: ProjectSettingsDto["runtime"]
+): Promise<ProjectSettingsDto> {
+  const ai = await repos.settings.get("ai");
+  return {
+    project: {
+      locale: project.locale
+    },
+    ai: {
+      codexCommand: normalizeCodexCommand(typeof ai?.codexCommand === "string" ? ai.codexCommand : defaultCodexCommand),
+      model: typeof ai?.model === "string" ? ai.model : null,
+      fullAccess: typeof ai?.fullAccess === "boolean" ? ai.fullAccess : true
+    },
+    runtime: runtimeDefaults(runtime)
+  };
 }
 
 async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
@@ -273,7 +333,7 @@ async function resumeWaitingJobForComment(
   return repos.agentJobs.resume(input.projectId, waitingJob.id);
 }
 
-export function createApp({ repos }: AppDependencies): Hono {
+export function createApp({ repos, runtime }: AppDependencies): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -349,6 +409,29 @@ export function createApp({ repos }: AppDependencies): Hono {
       notFound("Project was not found.");
     }
     return c.json({ project });
+  });
+
+  app.get("/api/projects/:projectId/settings", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    return c.json(await readProjectSettings(repos, project, runtime));
+  });
+
+  app.put("/api/projects/:projectId/settings", zValidator("json", updateProjectSettingsSchema), async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const input = c.req.valid("json");
+    const codexCommand = normalizeCodexCommand(input.codexCommand);
+    await validateCodexCommand(codexCommand);
+    const updatedProject = await repos.projects.update(project.id, { locale: input.locale });
+    if (!updatedProject) {
+      notFound("Project was not found.");
+    }
+    await repos.settings.set("ai", {
+      provider: "codex-cli",
+      codexCommand,
+      model: input.model || undefined,
+      fullAccess: true
+    });
+    return c.json(await readProjectSettings(repos, updatedProject, runtime));
   });
 
   app.get("/api/projects/:projectId/labels", async (c) => {

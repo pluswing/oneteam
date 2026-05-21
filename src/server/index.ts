@@ -14,7 +14,13 @@ const database = createDatabaseContext(config.database.url);
 await runMigrations(database.client);
 
 const repos = createRepositories(database.db);
-const app = createApp({ repos });
+const app = createApp({
+  repos,
+  runtime: {
+    server: config.server,
+    database: config.database
+  }
+});
 
 let worker: AgentWorker | null = null;
 if (config.agents.workerEnabled) {

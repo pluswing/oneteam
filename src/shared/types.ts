@@ -34,6 +34,26 @@ export type ProjectDto = {
   updatedAt: string;
 };
 
+export type ProjectSettingsDto = {
+  project: {
+    locale: string;
+  };
+  ai: {
+    codexCommand: string;
+    model: string | null;
+    fullAccess: boolean;
+  };
+  runtime: {
+    server: {
+      host: string;
+      port: number;
+    };
+    database: {
+      url: string;
+    };
+  };
+};
+
 export type LabelDto = {
   id: number;
   name: string;

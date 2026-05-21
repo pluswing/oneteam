@@ -88,7 +88,11 @@ export const en = {
     title: "Settings",
     server: "Server",
     database: "Database",
-    locale: "Locale"
+    locale: "Locale",
+    codexCommand: "Codex command",
+    model: "Model",
+    fullAccess: "Full access",
+    saved: "Settings saved"
   },
   agents: {
     title: "Agent Jobs",
