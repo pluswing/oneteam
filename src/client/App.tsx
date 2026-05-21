@@ -30,6 +30,8 @@ import { t } from "./i18n";
 type View = "issues" | "pullRequests" | "repository" | "settings";
 const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running"]);
 const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
+const issueWorkflowLabelNames = new Set(["要件定義中", "確認待ち", "実装待ち", "実装中", "PR作成済み", "完了"]);
+const pullRequestWorkflowLabelNames = new Set(["レビュー中", "修正中", "コンフリクト修正中", "テスト中", "完了"]);
 
 function isActiveAgentJob(job: AgentJobDto): boolean {
   return activeAgentStatuses.has(job.status);
@@ -41,6 +43,11 @@ function canRetryAgentJob(job: AgentJobDto): boolean {
 
 function formatJobTarget(job: AgentJobDto): string {
   return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
+}
+
+function labelsForTarget(labels: LabelDto[], targetType: "issue" | "pull_request"): LabelDto[] {
+  const workflowLabels = targetType === "issue" ? issueWorkflowLabelNames : pullRequestWorkflowLabelNames;
+  return labels.filter((label) => label.kind === "custom" || workflowLabels.has(label.name));
 }
 
 function AppShell(props: {
@@ -220,6 +227,52 @@ function ActivityLog(props: { activities: ActivityDto[] }) {
   );
 }
 
+function LabelEditor(props: {
+  labels: LabelDto[];
+  selectedLabelIds: number[];
+  isSaving: boolean;
+  onSelectedLabelIdsChange: (labelIds: number[]) => void;
+  onSave: () => Promise<void>;
+}) {
+  const selected = new Set(props.selectedLabelIds);
+
+  function toggleLabel(labelId: number) {
+    const next = new Set(props.selectedLabelIds);
+    if (next.has(labelId)) {
+      next.delete(labelId);
+    } else {
+      next.add(labelId);
+    }
+    props.onSelectedLabelIdsChange(Array.from(next));
+  }
+
+  return (
+    <section className="label-editor">
+      <div className="label-editor-header">
+        <h3>{t("labels.title")}</h3>
+        <button className="secondary-button" disabled={props.isSaving} onClick={() => void props.onSave()} type="button">
+          <Save size={14} />
+          {t("labels.save")}
+        </button>
+      </div>
+      <div className="label-checklist">
+        {props.labels.map((label) => (
+          <label className="label-checkbox" key={label.id}>
+            <input
+              checked={selected.has(label.id)}
+              disabled={props.isSaving}
+              onChange={() => toggleLabel(label.id)}
+              type="checkbox"
+            />
+            <span className="label-swatch" style={{ background: label.color }} />
+            <span>{label.name}</span>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
   const [body, setBody] = useState("");
 
@@ -242,18 +295,27 @@ function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
 
 function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose: () => void }) {
   const [issue, setIssue] = useState<IssueDto | null>(null);
+  const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [tab, setTab] = useState<"conversation" | "activity">("conversation");
   const [error, setError] = useState<string | null>(null);
+  const [isSavingLabels, setSavingLabels] = useState(false);
+  const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
-    const [issueResponse, commentsResponse, activitiesResponse] = await Promise.all([
+    const [issueResponse, labelsResponse, commentsResponse, activitiesResponse] = await Promise.all([
       api.getIssue(props.project.id, props.issueId),
+      api.listLabels(props.project.id),
       api.listIssueComments(props.project.id, props.issueId),
       api.listIssueActivities(props.project.id, props.issueId)
     ]);
     setIssue(issueResponse);
+    setLabels(labelsResponse);
+    if (!isLabelSelectionDirty) {
+      setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
+    }
     setComments(commentsResponse);
     setActivities(activitiesResponse);
   }
@@ -264,7 +326,7 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [props.project.id, props.issueId]);
+  }, [isLabelSelectionDirty, props.project.id, props.issueId]);
 
   async function addComment(body: string) {
     await api.createIssueComment(props.project.id, props.issueId, body);
@@ -282,6 +344,30 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     await load();
   }
 
+  async function saveLabels() {
+    if (!issue) {
+      return;
+    }
+    setSavingLabels(true);
+    setError(null);
+    try {
+      const response = await api.updateIssue(props.project.id, issue.id, {
+        labelIds: selectedLabelIds
+      });
+      setIssue(response.issue);
+      setSelectedLabelIds(response.issue.labels.map((label) => label.id));
+      setLabelSelectionDirty(false);
+      if (response.automationJobIds?.length) {
+        setTab("activity");
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save labels.");
+    } finally {
+      setSavingLabels(false);
+    }
+  }
+
   return (
     <aside className="detail-panel">
       <div className="section-header">
@@ -292,6 +378,16 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       {issue ? <p className="detail-body">{issue.body}</p> : null}
+      <LabelEditor
+        isSaving={isSavingLabels}
+        labels={labelsForTarget(labels, "issue")}
+        onSave={saveLabels}
+        onSelectedLabelIdsChange={(labelIds) => {
+          setSelectedLabelIds(labelIds);
+          setLabelSelectionDirty(true);
+        }}
+        selectedLabelIds={selectedLabelIds}
+      />
       <div className="action-row">
         <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
           <ListTodo size={16} />
@@ -615,20 +711,29 @@ function RepositoryView(props: { project: ProjectDto }) {
 
 function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: number; onClose: () => void }) {
   const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
   const [tab, setTab] = useState<"conversation" | "activity" | "files">("conversation");
   const [error, setError] = useState<string | null>(null);
+  const [isSavingLabels, setSavingLabels] = useState(false);
+  const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
-    const [pullRequestResponse, commentsResponse, activitiesResponse, filesResponse] = await Promise.all([
+    const [pullRequestResponse, labelsResponse, commentsResponse, activitiesResponse, filesResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
+      api.listLabels(props.project.id),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
       api.listPullRequestActivities(props.project.id, props.pullRequestId),
       api.listPullRequestFiles(props.project.id, props.pullRequestId)
     ]);
     setPullRequest(pullRequestResponse);
+    setLabels(labelsResponse);
+    if (!isLabelSelectionDirty) {
+      setSelectedLabelIds(pullRequestResponse.labels.map((label) => label.id));
+    }
     setComments(commentsResponse);
     setActivities(activitiesResponse);
     setFiles(filesResponse);
@@ -640,7 +745,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [props.project.id, props.pullRequestId]);
+  }, [isLabelSelectionDirty, props.project.id, props.pullRequestId]);
 
   async function addComment(body: string) {
     await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
@@ -658,6 +763,30 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     await load();
   }
 
+  async function saveLabels() {
+    if (!pullRequest) {
+      return;
+    }
+    setSavingLabels(true);
+    setError(null);
+    try {
+      const response = await api.updatePullRequest(props.project.id, pullRequest.id, {
+        labelIds: selectedLabelIds
+      });
+      setPullRequest(response.pullRequest);
+      setSelectedLabelIds(response.pullRequest.labels.map((label) => label.id));
+      setLabelSelectionDirty(false);
+      if (response.automationJobIds?.length) {
+        setTab("activity");
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save labels.");
+    } finally {
+      setSavingLabels(false);
+    }
+  }
+
   return (
     <aside className="detail-panel">
       <div className="section-header">
@@ -672,6 +801,16 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
           {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
         </p>
       ) : null}
+      <LabelEditor
+        isSaving={isSavingLabels}
+        labels={labelsForTarget(labels, "pull_request")}
+        onSave={saveLabels}
+        onSelectedLabelIdsChange={(labelIds) => {
+          setSelectedLabelIds(labelIds);
+          setLabelSelectionDirty(true);
+        }}
+        selectedLabelIds={selectedLabelIds}
+      />
       <div className="action-row">
         <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
           <GitPullRequest size={16} />

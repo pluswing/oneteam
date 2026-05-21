@@ -453,6 +453,64 @@ textarea {
   white-space: pre-wrap;
 }
 
+.label-editor {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.label-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label-editor h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.label-editor .secondary-button {
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.label-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.label-checkbox {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  color: #24292f;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.label-checkbox input {
+  width: 14px;
+  margin: 0;
+}
+
+.label-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
 .subtabs {
   display: flex;
   gap: 6px;

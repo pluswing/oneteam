@@ -47,6 +47,10 @@ export const en = {
     noComments: "No comments yet",
     noActivity: "No activity yet"
   },
+  labels: {
+    title: "Labels",
+    save: "Save labels"
+  },
   pullRequests: {
     title: "Pull Requests",
     noPullRequests: "No pull requests",

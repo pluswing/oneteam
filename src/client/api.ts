@@ -31,6 +31,16 @@ type PullRequestListResponse = ListResponse<PullRequestDto> & {
   };
 };
 
+type IssueMutationResponse = {
+  issue: IssueDto;
+  automationJobIds?: number[];
+};
+
+type PullRequestMutationResponse = {
+  pullRequest: PullRequestDto;
+  automationJobIds?: number[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -88,11 +98,27 @@ export const api = {
   },
 
   async createIssue(projectId: string, input: { title: string; body: string; labelIds: number[] }): Promise<IssueDto> {
-    const response = await request<{ issue: IssueDto }>(`/api/projects/${projectId}/issues`, {
+    const response = await request<IssueMutationResponse>(`/api/projects/${projectId}/issues`, {
       method: "POST",
       body: JSON.stringify(input)
     });
     return response.issue;
+  },
+
+  async updateIssue(
+    projectId: string,
+    issueId: number,
+    input: {
+      title?: string;
+      body?: string;
+      status?: IssueDto["status"];
+      labelIds?: number[];
+    }
+  ): Promise<IssueMutationResponse> {
+    return request<IssueMutationResponse>(`/api/projects/${projectId}/issues/${issueId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
   },
 
   async listIssueComments(projectId: string, issueId: number): Promise<CommentDto[]> {
@@ -146,11 +172,30 @@ export const api = {
       targetBranch: string;
     }
   ): Promise<PullRequestDto> {
-    const response = await request<{ pullRequest: PullRequestDto }>(`/api/projects/${projectId}/pull-requests`, {
+    const response = await request<PullRequestMutationResponse>(`/api/projects/${projectId}/pull-requests`, {
       method: "POST",
       body: JSON.stringify(input)
     });
     return response.pullRequest;
+  },
+
+  async updatePullRequest(
+    projectId: string,
+    pullRequestId: number,
+    input: {
+      issueId?: number | null;
+      title?: string;
+      body?: string;
+      status?: PullRequestDto["status"];
+      sourceBranch?: string;
+      targetBranch?: string;
+      labelIds?: number[];
+    }
+  ): Promise<PullRequestMutationResponse> {
+    return request<PullRequestMutationResponse>(`/api/projects/${projectId}/pull-requests/${pullRequestId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
   },
 
   async listPullRequestComments(projectId: string, pullRequestId: number): Promise<CommentDto[]> {
