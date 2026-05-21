@@ -15,7 +15,7 @@
     "db:migrate": "tsx src/server/db/migrate.ts",
     "codex:version": "codex --version",
     "codex:login": "codex login",
-    "codex:exec": "codex exec --sandbox danger-full-access --ask-for-approval never"
+    "codex:exec": "codex exec --dangerously-bypass-approvals-and-sandbox"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.6",

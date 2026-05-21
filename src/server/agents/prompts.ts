@@ -11,23 +11,23 @@ const outputSchema = `Return only JSON with this shape:
 {
   "status": "succeeded" | "waiting_human" | "failed",
   "message": "short user-visible summary",
-  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown" },
-  "questions": ["question"],
+  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown" } | null,
+  "questions": ["question"] | null,
   "activities": [{ "type": "progress", "title": "short title", "body": "markdown", "payload": {} }],
-  "changedFiles": ["path"],
-  "testResults": [],
+  "changedFiles": ["path"] | null,
+  "testResults": [] | null,
   "metadata": {
-    "nextLabel": "optional system label",
+    "nextLabel": "optional system label" | null,
     "pullRequest": {
       "title": "optional PR title",
-      "body": "optional markdown",
+      "body": "optional markdown" | null,
       "sourceBranch": "branch",
       "targetBranch": "branch",
-      "issueId": 1
-    }
-  }
+      "issueId": 1 | null
+    } | null
+  } | null
 }
-Omit fields that are not relevant.`;
+Use null or empty arrays for fields that are not relevant.`;
 
 const commonPrompt = `You are an autonomous development agent for one team.
 

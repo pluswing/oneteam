@@ -26,7 +26,9 @@ If an older setup stored `codex` as the command, one team normalizes it to `node
 Agent jobs run Codex with:
 
 ```text
-codex exec --sandbox danger-full-access --ask-for-approval never
+codex exec --json --dangerously-bypass-approvals-and-sandbox
 ```
 
-The worker passes the target repository with `--cd`.
+The worker passes the target repository with `--cd`, writes a strict output schema
+with `--output-schema`, and reads the final response from `--output-last-message`.
+JSONL events emitted by Codex are saved as agent activity records.

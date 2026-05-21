@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { AgentAdapter, AgentRunResult } from "./types";
+import type { ActivityType } from "../../shared/types";
+import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
 
 export type CodexAdapterOptions = {
   command: string;
@@ -40,15 +41,17 @@ export class CodexAdapter implements AgentAdapter {
     const command = resolveCommand(options.command);
     const tempDir = await mkdtemp(join(tmpdir(), "oneteam-codex-"));
     const lastMessagePath = join(tempDir, "last-message.txt");
+    const outputSchemaPath = join(tempDir, "agent-output.schema.json");
+    await writeFile(outputSchemaPath, JSON.stringify(agentOutputSchema, null, 2), "utf8");
+
     const args = [
       "exec",
       "--json",
-      "--sandbox",
-      "danger-full-access",
-      "--ask-for-approval",
-      "never",
+      "--dangerously-bypass-approvals-and-sandbox",
       "--cd",
       input.repoPath,
+      "--output-schema",
+      outputSchemaPath,
       "--output-last-message",
       lastMessagePath
     ];
@@ -71,11 +74,35 @@ export class CodexAdapter implements AgentAdapter {
     });
 
     try {
-      const { stdout, stderr, exitCode } = await runProcess(command, args, input.prompt);
+      let activityQueue = Promise.resolve();
+      let activityError: unknown = null;
+      const enqueueActivity = (activity: AgentActivityResult) => {
+        activityQueue = activityQueue.then(async () => {
+          try {
+            await input.onActivity?.(activity);
+          } catch (error) {
+            activityError ??= error;
+          }
+        });
+      };
+
+      const { stdout, stderr, exitCode } = await runProcess(command, args, input.prompt, {
+        onStdoutLine: (line) => {
+          const activity = parseCodexJsonLine(line);
+          if (activity) {
+            enqueueActivity(activity);
+          }
+        }
+      });
+      await activityQueue;
+      if (activityError) {
+        throw activityError;
+      }
+
       await input.onActivity?.({
         type: exitCode === 0 ? "progress" : "error",
         title: exitCode === 0 ? "Codex CLI completed" : "Codex CLI failed",
-        body: stderr || stdout.slice(-4000),
+        body: completionBody(exitCode, stdout, stderr),
         payload: {
           exitCode,
           stdoutTail: stdout.slice(-4000),
@@ -107,6 +134,188 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
+const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);
+
+const agentOutputSchema = {
+  type: "object",
+  properties: {
+    status: {
+      type: "string",
+      enum: ["succeeded", "waiting_human", "failed"]
+    },
+    message: {
+      type: "string"
+    },
+    comment: {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            targetType: {
+              type: "string",
+              enum: ["issue", "pull_request"]
+            },
+            targetId: {
+              type: "number"
+            },
+            body: {
+              type: "string"
+            }
+          },
+          required: ["targetType", "targetId", "body"],
+          additionalProperties: false
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    questions: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "string"
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    activities: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: Array.from(activityTypes)
+              },
+              title: {
+                type: "string"
+              },
+              body: {
+                type: ["string", "null"]
+              },
+              payload: {
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {},
+                    required: [],
+                    additionalProperties: false
+                  },
+                  {
+                    type: "null"
+                  }
+                ]
+              }
+            },
+            required: ["type", "title", "body", "payload"],
+            additionalProperties: false
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    changedFiles: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "string"
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    testResults: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              command: {
+                type: ["string", "null"]
+              },
+              status: {
+                type: ["string", "null"]
+              },
+              exitCode: {
+                type: ["number", "null"]
+              },
+              output: {
+                type: ["string", "null"]
+              }
+            },
+            required: ["command", "status", "exitCode", "output"],
+            additionalProperties: false
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    metadata: {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            nextLabel: {
+              type: ["string", "null"]
+            },
+            pullRequest: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    title: {
+                      type: "string"
+                    },
+                    body: {
+                      type: ["string", "null"]
+                    },
+                    sourceBranch: {
+                      type: "string"
+                    },
+                    targetBranch: {
+                      type: "string"
+                    },
+                    issueId: {
+                      type: ["number", "null"]
+                    }
+                  },
+                  required: ["title", "body", "sourceBranch", "targetBranch", "issueId"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
+            }
+          },
+          required: ["nextLabel", "pullRequest"],
+          additionalProperties: false
+        },
+        {
+          type: "null"
+        }
+      ]
+    }
+  },
+  required: ["status", "message", "comment", "questions", "activities", "changedFiles", "testResults", "metadata"],
+  additionalProperties: false
+} as const;
+
 function resolveCommand(command: string): string {
   if (command.includes("/") || command.includes("\\")) {
     return isAbsolute(command) ? command : resolve(process.cwd(), command);
@@ -114,7 +323,205 @@ function resolveCommand(command: string): string {
   return command;
 }
 
-async function runProcess(command: string, args: string[], stdin: string): Promise<{
+function parseCodexJsonLine(line: string): AgentActivityResult | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let event: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    event = parsed;
+  } catch {
+    return null;
+  }
+
+  const eventType = stringValue(event.type);
+  if (!eventType) {
+    return null;
+  }
+
+  if (eventType === "thread.started") {
+    return {
+      type: "system",
+      title: "Codex thread started",
+      body: stringValue(event.thread_id),
+      payload: event
+    };
+  }
+
+  if (eventType === "turn.started") {
+    return {
+      type: "progress",
+      title: "Codex turn started",
+      payload: event
+    };
+  }
+
+  if (eventType === "turn.completed") {
+    return {
+      type: "progress",
+      title: "Codex turn completed",
+      body: formatUsage(event.usage),
+      payload: event
+    };
+  }
+
+  if (eventType === "turn.failed" || eventType === "error") {
+    return {
+      type: "error",
+      title: eventType === "turn.failed" ? "Codex turn failed" : "Codex error",
+      body: visibleText(event.error) ?? stringValue(event.message),
+      payload: event
+    };
+  }
+
+  if (eventType === "item.started" || eventType === "item.completed") {
+    return activityFromCodexItem(event.item, eventType);
+  }
+
+  return null;
+}
+
+function activityFromCodexItem(value: unknown, eventType: string): AgentActivityResult | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const itemType = stringValue(value.type);
+  if (itemType === "agent_message") {
+    return null;
+  }
+
+  const status = stringValue(value.status);
+  const exitCode = numberValue(value.exit_code) ?? numberValue(value.exitCode);
+  const command = stringValue(value.command) ?? stringValue(value.cmd);
+  const text = truncate(visibleText(value), 4000);
+  const isCompleted = eventType === "item.completed";
+  const failed = (typeof exitCode === "number" && exitCode !== 0) || status === "failed";
+
+  if (command || itemType?.includes("command") || itemType?.includes("exec")) {
+    return {
+      type: failed ? "error" : "command",
+      title: isCompleted ? "Codex command completed" : "Codex command started",
+      body: [command, status ? `status: ${status}` : null, typeof exitCode === "number" ? `exit code: ${exitCode}` : null, text]
+        .filter(Boolean)
+        .join("\n"),
+      payload: value
+    };
+  }
+
+  if (itemType === "reasoning") {
+    return {
+      type: "thinking",
+      title: "Codex thinking summary",
+      body: text,
+      payload: value
+    };
+  }
+
+  if (itemType?.includes("patch") || itemType?.includes("file")) {
+    return {
+      type: "file_change",
+      title: isCompleted ? "Codex file change completed" : "Codex file change started",
+      body: text,
+      payload: value
+    };
+  }
+
+  if (text) {
+    return {
+      type: "progress",
+      title: `Codex ${itemType ?? "item"} ${isCompleted ? "completed" : "started"}`,
+      body: text,
+      payload: value
+    };
+  }
+
+  return null;
+}
+
+function formatUsage(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const parts = [
+    ["input", numberValue(value.input_tokens)],
+    ["cached", numberValue(value.cached_input_tokens)],
+    ["output", numberValue(value.output_tokens)],
+    ["reasoning", numberValue(value.reasoning_output_tokens)]
+  ]
+    .filter(([, amount]) => typeof amount === "number")
+    .map(([label, amount]) => `${label}: ${amount}`);
+
+  return parts.length ? parts.join(", ") : undefined;
+}
+
+function completionBody(exitCode: number, stdout: string, stderr: string): string {
+  if (exitCode === 0) {
+    return stderr.trim()
+      ? "Codex completed successfully. Non-fatal CLI warnings were captured in the activity payload."
+      : "Codex completed successfully.";
+  }
+
+  return stderr || stdout.slice(-4000);
+}
+
+function visibleText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const text = value.map((item) => visibleText(item)).filter(Boolean).join("\n");
+    return text || undefined;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return (
+    stringValue(value.text) ??
+    stringValue(value.message) ??
+    stringValue(value.summary) ??
+    visibleText(value.content) ??
+    visibleText(value.output)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function truncate(value: string | undefined, maxLength: number): string | undefined {
+  if (!value || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}...`;
+}
+
+async function runProcess(
+  command: string,
+  args: string[],
+  stdin: string,
+  callbacks: {
+    onStdoutLine?: (line: string) => void;
+  } = {}
+): Promise<{
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -125,15 +532,26 @@ async function runProcess(command: string, args: string[], stdin: string): Promi
     });
     let stdout = "";
     let stderr = "";
+    let stdoutBuffer = "";
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stdout += text;
+      stdoutBuffer += text;
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        callbacks.onStdoutLine?.(line);
+      }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
     child.on("error", reject);
     child.on("close", (exitCode) => {
+      if (stdoutBuffer) {
+        callbacks.onStdoutLine?.(stdoutBuffer);
+      }
       resolve({
         stdout,
         stderr,

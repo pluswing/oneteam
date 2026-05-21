@@ -3,8 +3,8 @@ import type { ActivityType, AgentJobDto, AgentJobStatus } from "../../shared/typ
 export type AgentActivityResult = {
   type: ActivityType;
   title: string;
-  body?: string;
-  payload?: Record<string, unknown>;
+  body?: string | null;
+  payload?: Record<string, unknown> | null;
 };
 
 export type AgentRunResult = {
@@ -14,22 +14,22 @@ export type AgentRunResult = {
     targetType: "issue" | "pull_request";
     targetId: number;
     body: string;
-  };
-  questions?: string[];
-  activities?: AgentActivityResult[];
-  changedFiles?: string[];
-  testResults?: Array<Record<string, unknown>>;
+  } | null;
+  questions?: string[] | null;
+  activities?: AgentActivityResult[] | null;
+  changedFiles?: string[] | null;
+  testResults?: Array<Record<string, unknown>> | null;
   metadata?: {
-    nextLabel?: string;
+    nextLabel?: string | null;
     pullRequest?: {
       title: string;
-      body?: string;
+      body?: string | null;
       sourceBranch: string;
       targetBranch: string;
       issueId?: number | null;
-    };
+    } | null;
     [key: string]: unknown;
-  };
+  } | null;
 };
 
 export type AgentAdapter = {

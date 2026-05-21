@@ -89,8 +89,8 @@ export class AgentWorker {
             targetId: target.targetId,
             activityType: activity.type,
             title: activity.title,
-            body: activity.body,
-            payload: activity.payload
+            body: activity.body ?? undefined,
+            payload: activity.payload ?? undefined
           });
         }
       });
@@ -128,8 +128,8 @@ export class AgentWorker {
         targetId: target.targetId,
         activityType: activity.type,
         title: activity.title,
-        body: activity.body,
-        payload: activity.payload
+        body: activity.body ?? undefined,
+        payload: activity.payload ?? undefined
       });
     }
 
@@ -141,7 +141,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: result.comment.body,
-        metadata: result.metadata
+        metadata: result.metadata ?? undefined
       });
     } else if (result.questions?.length && target) {
       await this.repos.comments.create({
@@ -151,7 +151,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: result.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
-        metadata: result.metadata
+        metadata: result.metadata ?? undefined
       });
     } else if (result.message && target) {
       await this.repos.comments.create({
@@ -161,7 +161,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: result.message,
-        metadata: result.metadata
+        metadata: result.metadata ?? undefined
       });
     }
 
