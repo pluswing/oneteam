@@ -234,6 +234,25 @@ textarea {
   background: #ffebe9;
 }
 
+.warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid #d4a72c;
+  border-radius: 6px;
+  color: #633c01;
+  background: #fff8c5;
+}
+
+.warning-banner p {
+  margin: 4px 0 0;
+  color: #6e7781;
+  font-size: 13px;
+}
+
 .page-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -453,6 +472,15 @@ textarea {
   white-space: pre-wrap;
 }
 
+.detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 16px;
+  color: #57606a;
+  font-size: 13px;
+}
+
 .label-editor {
   display: grid;
   gap: 10px;
@@ -580,7 +608,8 @@ textarea {
   margin-top: 16px;
 }
 
-.file-list {
+.file-list,
+.commit-list {
   display: grid;
   gap: 12px;
 }
@@ -602,6 +631,13 @@ textarea {
   overflow: auto;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.commit-row p {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: #57606a;
+  font-size: 13px;
 }
 
 .repository-facts {

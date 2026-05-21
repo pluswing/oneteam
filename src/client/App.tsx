@@ -17,9 +17,11 @@ import type {
   CommentDto,
   IssueDto,
   LabelDto,
+  MergeConflictDto,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
+  RepositoryCommitDto,
   RepositoryFileChangeDto,
   RepositoryStatusDto
 } from "../shared/types";
@@ -716,18 +718,25 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
-  const [tab, setTab] = useState<"conversation" | "activity" | "files">("conversation");
+  const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
+  const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
+  const [tab, setTab] = useState<"conversation" | "activity" | "files" | "commits">("conversation");
   const [error, setError] = useState<string | null>(null);
   const [isSavingLabels, setSavingLabels] = useState(false);
+  const [isResolvingConflicts, setResolvingConflicts] = useState(false);
   const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
-    const [pullRequestResponse, labelsResponse, commentsResponse, activitiesResponse, filesResponse] = await Promise.all([
+    const [pullRequestResponse, labelsResponse, commentsResponse, activitiesResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
       api.listLabels(props.project.id),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
-      api.listPullRequestActivities(props.project.id, props.pullRequestId),
-      api.listPullRequestFiles(props.project.id, props.pullRequestId)
+      api.listPullRequestActivities(props.project.id, props.pullRequestId)
+    ]);
+    const [filesResponse, commitsResponse, conflictsResponse] = await Promise.all([
+      api.listPullRequestFiles(props.project.id, props.pullRequestId),
+      api.listPullRequestCommits(props.project.id, props.pullRequestId),
+      api.getMergeConflicts(props.project.id, pullRequestResponse.sourceBranch, pullRequestResponse.targetBranch)
     ]);
     setPullRequest(pullRequestResponse);
     setLabels(labelsResponse);
@@ -737,6 +746,8 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     setComments(commentsResponse);
     setActivities(activitiesResponse);
     setFiles(filesResponse);
+    setCommits(commitsResponse);
+    setMergeConflicts(conflictsResponse);
   }
 
   useEffect(() => {
@@ -761,6 +772,20 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     });
     setTab("activity");
     await load();
+  }
+
+  async function resolveConflicts() {
+    setResolvingConflicts(true);
+    setError(null);
+    try {
+      await api.resolvePullRequestConflicts(props.project.id, props.pullRequestId);
+      setTab("activity");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to queue conflict resolution.");
+    } finally {
+      setResolvingConflicts(false);
+    }
   }
 
   async function saveLabels() {
@@ -797,9 +822,32 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       {pullRequest ? (
-        <p className="detail-body">
-          {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
-        </p>
+        <>
+          <p className="detail-body">
+            {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
+          </p>
+          <div className="detail-facts">
+            <span>{pullRequest.changedFileCount} {t("pullRequests.files")}</span>
+            <span>{pullRequest.commitCount} {t("pullRequests.commits")}</span>
+          </div>
+        </>
+      ) : null}
+      {mergeConflicts?.hasConflicts ? (
+        <div className="warning-banner">
+          <div>
+            <strong>{t("pullRequests.conflictsDetected")}</strong>
+            <p>{mergeConflicts.files.map((file) => file.path).join(", ")}</p>
+          </div>
+          <button
+            className="secondary-button"
+            disabled={isResolvingConflicts}
+            onClick={() => void resolveConflicts()}
+            type="button"
+          >
+            <CircleAlert size={16} />
+            {t("pullRequests.resolveConflicts")}
+          </button>
+        </div>
       ) : null}
       <LabelEditor
         isSaving={isSavingLabels}
@@ -835,6 +883,9 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
         <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
           {t("pullRequests.filesChanged")}
         </button>
+        <button className={tab === "commits" ? "active" : ""} onClick={() => setTab("commits")} type="button">
+          {t("pullRequests.commitsTab")}
+        </button>
       </div>
       {tab === "conversation" ? (
         <>
@@ -855,6 +906,22 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
                 </span>
               </header>
               {file.patch ? <pre>{file.patch}</pre> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+      {tab === "commits" ? (
+        <div className="commit-list">
+          {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
+          {commits.map((commit) => (
+            <article className="file-row commit-row" key={commit.hash}>
+              <header>
+                <strong>{commit.subject}</strong>
+                <code>{commit.hash.slice(0, 8)}</code>
+              </header>
+              <p>
+                {commit.authorName} - {new Date(commit.date).toLocaleString()}
+              </p>
             </article>
           ))}
         </div>

@@ -112,6 +112,11 @@ export async function getCommits(repoPath: string, revision = "HEAD", limit = 20
     });
 }
 
+export async function getCommitCount(repoPath: string, revision = "HEAD"): Promise<number> {
+  const output = await git(repoPath, ["rev-list", "--count", revision]);
+  return Number(output) || 0;
+}
+
 export async function getDiffFiles(
   repoPath: string,
   sourceBranch: string,

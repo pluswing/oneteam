@@ -10,9 +10,6 @@
 
 ## P2. Pull request and Git UI polish
 
-- Add a commits tab to pull request detail.
-- Populate pull request `changedFileCount` and `commitCount` from Git.
-- Add merge conflict detection and a visible resolve-conflicts action.
 - Improve diff rendering for larger patches.
 
 ## P2. Settings and validation
@@ -36,3 +33,4 @@
 - Implementation verification: successful implementation jobs now run configured lint/test/build commands, save command summaries and changed files to Activity, and fail before pull request creation when verification fails.
 - Local pull request creation from structured implementation output is covered by the worker flow and verification tests.
 - Review / Fix / QA flow: structured review findings, fix summaries, and QA verdicts now create actionable Activity entries and drive label transitions; conflict fix jobs fail when merge conflicts remain.
+- Pull request Git polish: pull request list/detail now include Git-derived file and commit counts; detail view adds a commits tab and a visible conflict resolution action.

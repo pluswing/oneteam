@@ -59,7 +59,13 @@ export const en = {
     targetBranch: "Target branch",
     linkedIssue: "Linked issue",
     filesChanged: "Files changed",
-    noFiles: "No changed files"
+    files: "files",
+    commits: "commits",
+    commitsTab: "Commits",
+    noFiles: "No changed files",
+    noCommits: "No commits",
+    conflictsDetected: "Merge conflicts detected",
+    resolveConflicts: "Resolve conflicts"
   },
   repository: {
     title: "Repository",

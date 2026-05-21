@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { getBranches, getCommits, getDiffFiles, getRepositoryStatus } from "../server/services/git-service";
+import { getBranches, getCommitCount, getCommits, getDiffFiles, getRepositoryStatus } from "../server/services/git-service";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,12 +28,14 @@ describe("git service", () => {
     const status = await getRepositoryStatus(repo);
     const branches = await getBranches(repo);
     const commits = await getCommits(repo, "main..feature");
+    const commitCount = await getCommitCount(repo, "main..feature");
     const files = await getDiffFiles(repo, "feature", "main");
 
     expect(status.branch).toBe("feature");
     expect(status.clean).toBe(true);
     expect(branches.map((branch) => branch.name)).toContain("main");
     expect(commits[0].subject).toBe("change readme");
+    expect(commitCount).toBe(1);
     expect(files[0]).toMatchObject({ path: "README.md", status: "M" });
   });
 });

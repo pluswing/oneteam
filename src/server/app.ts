@@ -6,7 +6,15 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import type { AgentJobDto, AgentJobStatus, AgentType, IssueStatus, PullRequestStatus } from "../shared/types";
+import type {
+  AgentJobDto,
+  AgentJobStatus,
+  AgentType,
+  IssueStatus,
+  ProjectDto,
+  PullRequestDto,
+  PullRequestStatus
+} from "../shared/types";
 import { defaultCodexCommand } from "../shared/codex";
 import type { Repositories } from "./db/repositories";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
@@ -14,6 +22,7 @@ import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/c
 import {
   detectMergeConflicts,
   getBranches,
+  getCommitCount,
   getCommits,
   getDiffFiles,
   getDiffWithPatches,
@@ -102,6 +111,23 @@ async function getProjectOr404(repos: Repositories, projectId: string) {
     notFound("Project was not found.");
   }
   return project;
+}
+
+async function enrichPullRequestWithGitStats(project: ProjectDto, pullRequest: PullRequestDto): Promise<PullRequestDto> {
+  try {
+    const revision = `${pullRequest.targetBranch}..${pullRequest.sourceBranch}`;
+    const [files, commitCount] = await Promise.all([
+      getDiffFiles(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch),
+      getCommitCount(project.repoPath, revision)
+    ]);
+    return {
+      ...pullRequest,
+      changedFileCount: files.length,
+      commitCount
+    };
+  } catch {
+    return pullRequest;
+  }
 }
 
 async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
@@ -454,15 +480,17 @@ export function createApp({ repos }: AppDependencies): Hono {
     const url = new URL(c.req.url);
     const { limit, offset } = pageParams(url);
     const status = url.searchParams.get("status") as PullRequestStatus | null;
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
     const result = await repos.pullRequests.list({
-      projectId: c.req.param("projectId"),
+      projectId: project.id,
       status: status ?? undefined,
       limit,
       offset
     });
+    const items = await Promise.all(result.items.map((item) => enrichPullRequestWithGitStats(project, item)));
 
     return c.json({
-      items: result.items,
+      items,
       page: {
         limit,
         offset,
@@ -490,11 +518,12 @@ export function createApp({ repos }: AppDependencies): Hono {
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId", async (c) => {
-    const pullRequest = await repos.pullRequests.get(c.req.param("projectId"), Number(c.req.param("pullRequestId")));
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
     if (!pullRequest) {
       notFound("Pull request was not found.");
     }
-    return c.json({ pullRequest });
+    return c.json({ pullRequest: await enrichPullRequestWithGitStats(project, pullRequest) });
   });
 
   app.patch(

@@ -4,9 +4,11 @@ import type {
   CommentDto,
   IssueDto,
   LabelDto,
+  MergeConflictDto,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
+  RepositoryCommitDto,
   RepositoryFileChangeDto,
   RepositoryStatusDto
 } from "../shared/types";
@@ -228,6 +230,28 @@ export const api = {
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/diff`
     );
     return response.files;
+  },
+
+  async listPullRequestCommits(projectId: string, pullRequestId: number): Promise<RepositoryCommitDto[]> {
+    const response = await request<ListResponse<RepositoryCommitDto>>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/commits`
+    );
+    return response.items;
+  },
+
+  async getMergeConflicts(projectId: string, sourceBranch: string, targetBranch: string): Promise<MergeConflictDto> {
+    const params = new URLSearchParams({ sourceBranch, targetBranch });
+    return request<MergeConflictDto>(`/api/projects/${projectId}/repository/merge-conflicts?${params.toString()}`);
+  },
+
+  async resolvePullRequestConflicts(projectId: string, pullRequestId: number): Promise<number | null> {
+    const response = await request<{ jobId: number | null }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/resolve-conflicts`,
+      {
+        method: "POST"
+      }
+    );
+    return response.jobId;
   },
 
   async getRepositoryStatus(projectId: string): Promise<RepositoryStatusDto> {
