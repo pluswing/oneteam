@@ -19,7 +19,6 @@
 ## P3. CRUD and QA finish
 
 - Add Playwright smoke coverage for setup, label automation, and agent job controls.
-- Add a final manual E2E checklist from setup to QA completion.
 
 ## Completed in current pass
 
@@ -32,3 +31,4 @@
 - Diff polish: large patches now render as a bounded preview with an explicit expand/collapse action.
 - Settings polish: users can edit Codex command/model and locale after setup; the server validates the Codex command before saving and shows runtime server/database settings.
 - CRUD polish: issue and pull request detail panels now expose title/body/status edit forms and logical delete actions.
+- Manual E2E checklist: `docs/11-manual-e2e-checklist.md` covers setup, issue automation, PR review/fix/QA, CRUD, cancellation, retry, and final verification.
