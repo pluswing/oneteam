@@ -43,9 +43,11 @@ export const en = {
     comments: "comments",
     conversation: "Conversation",
     activity: "Activity",
+    status: "Status",
     addComment: "Add comment",
     noComments: "No comments yet",
-    noActivity: "No activity yet"
+    noActivity: "No activity yet",
+    deleteConfirm: "Delete this issue?"
   },
   labels: {
     title: "Labels",
@@ -68,7 +70,8 @@ export const en = {
     resolveConflicts: "Resolve conflicts",
     diffLines: "diff lines",
     showFullDiff: "Show full diff",
-    collapseDiff: "Collapse diff"
+    collapseDiff: "Collapse diff",
+    deleteConfirm: "Delete this pull request?"
   },
   repository: {
     title: "Repository",

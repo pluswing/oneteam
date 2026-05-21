@@ -325,7 +325,13 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [tab, setTab] = useState<"conversation" | "activity">("conversation");
   const [error, setError] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editStatus, setEditStatus] = useState<IssueDto["status"]>("open");
+  const [isSavingDetails, setSavingDetails] = useState(false);
   const [isSavingLabels, setSavingLabels] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
+  const [isDetailsDirty, setDetailsDirty] = useState(false);
   const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
@@ -337,6 +343,11 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     ]);
     setIssue(issueResponse);
     setLabels(labelsResponse);
+    if (!isDetailsDirty) {
+      setEditTitle(issueResponse.title);
+      setEditBody(issueResponse.body);
+      setEditStatus(issueResponse.status);
+    }
     if (!isLabelSelectionDirty) {
       setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
     }
@@ -350,7 +361,7 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [isLabelSelectionDirty, props.project.id, props.issueId]);
+  }, [isDetailsDirty, isLabelSelectionDirty, props.project.id, props.issueId]);
 
   async function addComment(body: string) {
     await api.createIssueComment(props.project.id, props.issueId, body);
@@ -366,6 +377,45 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     });
     setTab("activity");
     await load();
+  }
+
+  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!issue) {
+      return;
+    }
+    setSavingDetails(true);
+    setError(null);
+    try {
+      const response = await api.updateIssue(props.project.id, issue.id, {
+        title: editTitle,
+        body: editBody,
+        status: editStatus
+      });
+      setIssue(response.issue);
+      setDetailsDirty(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save issue.");
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
+  async function deleteIssue() {
+    if (!issue || !window.confirm(t("issues.deleteConfirm"))) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteIssue(props.project.id, issue.id);
+      props.onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete issue.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function saveLabels() {
@@ -401,7 +451,54 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
         </button>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      {issue ? <p className="detail-body">{issue.body}</p> : null}
+      {issue ? (
+        <form className="detail-edit-form" onSubmit={saveDetails}>
+          <label>
+            {t("issues.titleField")}
+            <input
+              value={editTitle}
+              onChange={(event) => {
+                setEditTitle(event.target.value);
+                setDetailsDirty(true);
+              }}
+              required
+            />
+          </label>
+          <label>
+            {t("issues.bodyField")}
+            <textarea
+              value={editBody}
+              onChange={(event) => {
+                setEditBody(event.target.value);
+                setDetailsDirty(true);
+              }}
+              rows={4}
+            />
+          </label>
+          <label>
+            {t("issues.status")}
+            <select
+              value={editStatus}
+              onChange={(event) => {
+                setEditStatus(event.target.value as IssueDto["status"]);
+                setDetailsDirty(true);
+              }}
+            >
+              <option value="open">{t("issues.open")}</option>
+              <option value="closed">{t("issues.closed")}</option>
+            </select>
+          </label>
+          <div className="action-row">
+            <button className="primary-button" disabled={isSavingDetails || !isDetailsDirty} type="submit">
+              <Save size={16} />
+              {t("actions.save")}
+            </button>
+            <button className="danger-button" disabled={isDeleting} onClick={() => void deleteIssue()} type="button">
+              {t("actions.delete")}
+            </button>
+          </div>
+        </form>
+      ) : null}
       <LabelEditor
         isSaving={isSavingLabels}
         labels={labelsForTarget(labels, "issue")}
@@ -744,8 +841,14 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
   const [tab, setTab] = useState<"conversation" | "activity" | "files" | "commits">("conversation");
   const [error, setError] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editStatus, setEditStatus] = useState<PullRequestDto["status"]>("open");
+  const [isSavingDetails, setSavingDetails] = useState(false);
   const [isSavingLabels, setSavingLabels] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
+  const [isDetailsDirty, setDetailsDirty] = useState(false);
   const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
@@ -762,6 +865,11 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     ]);
     setPullRequest(pullRequestResponse);
     setLabels(labelsResponse);
+    if (!isDetailsDirty) {
+      setEditTitle(pullRequestResponse.title);
+      setEditBody(pullRequestResponse.body);
+      setEditStatus(pullRequestResponse.status);
+    }
     if (!isLabelSelectionDirty) {
       setSelectedLabelIds(pullRequestResponse.labels.map((label) => label.id));
     }
@@ -778,7 +886,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [isLabelSelectionDirty, props.project.id, props.pullRequestId]);
+  }, [isDetailsDirty, isLabelSelectionDirty, props.project.id, props.pullRequestId]);
 
   async function addComment(body: string) {
     await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
@@ -807,6 +915,45 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       setError(err instanceof Error ? err.message : "Failed to queue conflict resolution.");
     } finally {
       setResolvingConflicts(false);
+    }
+  }
+
+  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pullRequest) {
+      return;
+    }
+    setSavingDetails(true);
+    setError(null);
+    try {
+      const response = await api.updatePullRequest(props.project.id, pullRequest.id, {
+        title: editTitle,
+        body: editBody,
+        status: editStatus
+      });
+      setPullRequest(response.pullRequest);
+      setDetailsDirty(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save pull request.");
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
+  async function deletePullRequest() {
+    if (!pullRequest || !window.confirm(t("pullRequests.deleteConfirm"))) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deletePullRequest(props.project.id, pullRequest.id);
+      props.onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete pull request.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -870,6 +1017,54 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
             {t("pullRequests.resolveConflicts")}
           </button>
         </div>
+      ) : null}
+      {pullRequest ? (
+        <form className="detail-edit-form" onSubmit={saveDetails}>
+          <label>
+            {t("issues.titleField")}
+            <input
+              value={editTitle}
+              onChange={(event) => {
+                setEditTitle(event.target.value);
+                setDetailsDirty(true);
+              }}
+              required
+            />
+          </label>
+          <label>
+            {t("issues.bodyField")}
+            <textarea
+              value={editBody}
+              onChange={(event) => {
+                setEditBody(event.target.value);
+                setDetailsDirty(true);
+              }}
+              rows={4}
+            />
+          </label>
+          <label>
+            {t("issues.status")}
+            <select
+              value={editStatus}
+              onChange={(event) => {
+                setEditStatus(event.target.value as PullRequestDto["status"]);
+                setDetailsDirty(true);
+              }}
+            >
+              <option value="open">{t("issues.open")}</option>
+              <option value="closed">{t("issues.closed")}</option>
+            </select>
+          </label>
+          <div className="action-row">
+            <button className="primary-button" disabled={isSavingDetails || !isDetailsDirty} type="submit">
+              <Save size={16} />
+              {t("actions.save")}
+            </button>
+            <button className="danger-button" disabled={isDeleting} onClick={() => void deletePullRequest()} type="button">
+              {t("actions.delete")}
+            </button>
+          </div>
+        </form>
       ) : null}
       <LabelEditor
         isSaving={isSavingLabels}

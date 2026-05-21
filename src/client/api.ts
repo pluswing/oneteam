@@ -124,6 +124,12 @@ export const api = {
     });
   },
 
+  async deleteIssue(projectId: string, issueId: number): Promise<void> {
+    await request<{ deleted: boolean }>(`/api/projects/${projectId}/issues/${issueId}`, {
+      method: "DELETE"
+    });
+  },
+
   async listIssueComments(projectId: string, issueId: number): Promise<CommentDto[]> {
     const response = await request<ListResponse<CommentDto>>(`/api/projects/${projectId}/issues/${issueId}/comments`);
     return response.items;
@@ -216,6 +222,12 @@ export const api = {
     return request<PullRequestMutationResponse>(`/api/projects/${projectId}/pull-requests/${pullRequestId}`, {
       method: "PATCH",
       body: JSON.stringify(input)
+    });
+  },
+
+  async deletePullRequest(projectId: string, pullRequestId: number): Promise<void> {
+    await request<{ deleted: boolean }>(`/api/projects/${projectId}/pull-requests/${pullRequestId}`, {
+      method: "DELETE"
     });
   },
 

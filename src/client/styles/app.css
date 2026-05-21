@@ -490,6 +490,20 @@ textarea {
   font-size: 13px;
 }
 
+.detail-edit-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.detail-edit-form .action-row {
+  margin-bottom: 0;
+}
+
 .label-editor {
   display: grid;
   gap: 10px;
