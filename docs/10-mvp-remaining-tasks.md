@@ -1,24 +1,26 @@
-# MVP remaining tasks
+# MVP completion status
+
+Status: MVP complete. There are no open MVP tasks.
 
 ## P1. Implementation Agent hardening
 
-- No open MVP tasks after the current pass.
+- Complete.
 
 ## P1. Review / Fix / QA flow
 
-- No open MVP tasks after the current pass.
+- Complete.
 
 ## P2. Pull request and Git UI polish
 
-- No open MVP tasks after the current pass.
+- Complete.
 
 ## P2. Settings and validation
 
-- No open MVP tasks after the current pass.
+- Complete.
 
 ## P3. CRUD and QA finish
 
-- No open MVP tasks after the current pass.
+- Complete.
 
 ## Completed in current pass
 

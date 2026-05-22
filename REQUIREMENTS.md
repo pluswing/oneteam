@@ -16,6 +16,9 @@ GitHub の issue / pull request に近い UI とワークフローを持ち、is
 - pull request は実 GitHub PR ではなく、ローカル Git ブランチ間の差分・レビュー対象を表す one team 内の概念とする。
 - one team は 1 インスタンスにつき 1 つの Git repository を管理する。複数 repository を扱う場合は one team を別インスタンスとして起動する。
 - データベースは libSQL を使用する。
+- package manager は npm を使用する。
+- API framework は Hono を使用する。
+- ORM / query builder は Drizzle ORM を使用する。
 - Docker は使用しない。
 - Node.js と git がインストールされていれば起動できる構成にする。
 - AI 実行基盤は Codex CLI を主想定とする。
@@ -766,28 +769,36 @@ type AgentActivity = {
 - Codex CLI adapter は full access 実行を前提にする。
 - 将来的に他の CLI 型、API 型、ローカルモデル型を差し替えられる。
 
-## 14. 実装候補アーキテクチャ
+## 14. 実装アーキテクチャ
 
-実装時は次の構成を推奨する。
+MVP 実装では、過度な monorepo 化を避け、1 repository / 1 app 構成で server、UI、DB、agents を同居させる。
+
+現在の主要な配置は次の通り。
 
 ```text
-apps/web        UI
-apps/server     API / agent orchestration / git integration
-packages/db     libSQL schema and repository layer
-packages/agents agent prompts and adapter interface
-packages/git    git operation wrapper
+src/client      React + Vite UI
+src/server      Hono API / agent orchestration / git integration
+src/server/db   libSQL schema and repository layer
+src/server/agents
+                agent prompts and adapter interface
+src/server/services
+                git / command detection / label automation services
+src/shared      shared DTO and utility types
+docs            requirements, API, prompt, workflow, and QA documents
+e2e             Playwright smoke tests
 ```
 
-ただし MVP の初期実装では、過度な monorepo 化を避け、1 アプリ内に server / UI / db / agents を置いてもよい。
+将来、複数 package 化が必要になった場合は、この境界を基準に分割する。
 
-### 14.1 推奨技術
+### 14.1 採用技術
 
 - Language: TypeScript
+- Package manager: npm
 - Runtime: Node.js
 - UI: React + Vite
-- API: Fastify または Hono
+- API: Hono
 - DB: libSQL
-- ORM / query builder: Drizzle ORM または Kysely
+- ORM / query builder: Drizzle ORM
 - Git: child_process 経由の git command wrapper
 - E2E: Playwright
 - Unit test: Vitest
@@ -884,12 +895,17 @@ packages/git    git operation wrapper
 - Agent Job の Activity Log をコメントとは別に時系列で保存する。
 - Codex CLI の command path、model、実行オプションは one team 初回起動時に設定できるようにする。
 - UI は多言語対応可能な設計とし、初期実装は英語 UI とする。
+- package manager は npm とする。
+- API framework は Hono とする。
+- ORM / query builder は Drizzle ORM とする。
 
 ### 17.2 未確認事項
 
 現時点で MVP 実装開始を妨げる未確認事項はない。
 
-## 18. 推奨する初期実装順
+## 18. MVP 実装順
+
+以下は MVP で完了済みの実装順である。
 
 1. Node.js アプリケーションの土台作成
 2. libSQL schema / migration
@@ -907,7 +923,7 @@ packages/git    git operation wrapper
 14. レビューエージェント
 15. 修正エージェント
 16. QA エージェント
-17. Playwright による UI QA
+17. Playwright による UI smoke coverage
 
 ## 19. 詳細資料
 
@@ -918,5 +934,7 @@ packages/git    git operation wrapper
 - [API request / response schema](./docs/05-api-schemas.md)
 - [MVP タスク分解](./docs/06-mvp-task-breakdown.md)
 - [command auto-detection 仕様](./docs/07-command-auto-detection.md)
+- [MVP 完了状況](./docs/10-mvp-remaining-tasks.md)
+- [Manual E2E checklist](./docs/11-manual-e2e-checklist.md)
 - [i18n リソース設計](./docs/08-i18n-resource-design.md)
 - [Local Codex CLI setup](./docs/09-local-codex-setup.md)
