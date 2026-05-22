@@ -576,12 +576,16 @@ export function createRepositories(db: Database) {
       async list(input: {
         projectId: string;
         status?: PullRequestStatus;
+        issueId?: number;
         limit: number;
         offset: number;
       }): Promise<{ items: PullRequestDto[]; total: number }> {
         const filters: SQL[] = [eq(pullRequests.projectId, input.projectId), isNull(pullRequests.deletedAt)];
         if (input.status) {
           filters.push(eq(pullRequests.status, input.status));
+        }
+        if (typeof input.issueId === "number") {
+          filters.push(eq(pullRequests.issueId, input.issueId));
         }
 
         const where = and(...filters);

@@ -1,8 +1,12 @@
 import {
+  ArrowLeft,
+  Bot,
   CheckCircle2,
   CircleAlert,
   GitPullRequest,
   ListTodo,
+  Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -10,7 +14,8 @@ import {
   Square,
   Terminal
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import type {
   ActivityDto,
   AgentJobDto,
@@ -33,9 +38,11 @@ import {
   workflowLabelNames
 } from "../shared/workflow-labels";
 import { api } from "./api";
+import logoMarkUrl from "./assets/logo.svg";
+import oneTeamLogoUrl from "./assets/oneteam.svg";
 import { t } from "./i18n";
 
-type View = "issues" | "pullRequests" | "repository" | "settings";
+type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
 const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running"]);
 const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
@@ -53,9 +60,45 @@ function formatJobTarget(job: AgentJobDto): string {
   return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
 }
 
+function formatDateTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "-";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function recordArrayValue(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
 function labelsForTarget(labels: LabelDto[], targetType: "issue" | "pull_request"): LabelDto[] {
   const workflowLabels = targetType === "issue" ? issueWorkflowLabelNames : pullRequestWorkflowLabelNames;
   return labels.filter((label) => label.kind === "custom" || workflowLabels.has(label.name));
+}
+
+function MarkdownContent(props: { content: string; className?: string }) {
+  return (
+    <div className={["markdown-body", props.className].filter(Boolean).join(" ")}>
+      <ReactMarkdown>{props.content}</ReactMarkdown>
+    </div>
+  );
 }
 
 function AppShell(props: {
@@ -64,9 +107,13 @@ function AppShell(props: {
   onViewChange: (view: View) => void;
   children: React.ReactNode;
 }) {
+  const [isSettingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const nav = [
     { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
     { view: "pullRequests" as const, label: t("nav.pullRequests"), icon: GitPullRequest },
+    { view: "agentJobs" as const, label: t("nav.agentJobs"), icon: Bot }
+  ];
+  const settingsNav = [
     { view: "repository" as const, label: t("nav.repository"), icon: Terminal },
     { view: "settings" as const, label: t("nav.settings"), icon: Settings }
   ];
@@ -74,7 +121,9 @@ function AppShell(props: {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">{t("app.name")}</div>
+        <div className="header-logo" aria-hidden="true">
+          <img src={logoMarkUrl} alt="" />
+        </div>
         <nav className="nav-tabs" aria-label="Primary">
           {nav.map((item) => {
             const Icon = item.icon;
@@ -95,12 +144,41 @@ function AppShell(props: {
           <CheckCircle2 size={16} />
           {t("status.ready")}
         </div>
+        <div className="settings-menu">
+          <button
+            aria-expanded={isSettingsMenuOpen}
+            aria-haspopup="menu"
+            aria-label={t("nav.tools")}
+            className={props.view === "repository" || props.view === "settings" ? "settings-menu-button active" : "settings-menu-button"}
+            onClick={() => setSettingsMenuOpen((current) => !current)}
+            type="button"
+          >
+            <Settings size={18} />
+          </button>
+          {isSettingsMenuOpen ? (
+            <div className="settings-menu-popover" role="menu">
+              {settingsNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    className={props.view === item.view ? "settings-menu-item active" : "settings-menu-item"}
+                    key={item.view}
+                    onClick={() => {
+                      props.onViewChange(item.view);
+                      setSettingsMenuOpen(false);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Icon size={16} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </header>
-      <div className="projectbar">
-        <span>{props.project.name}</span>
-        <span>{props.project.defaultBranch}</span>
-        <span>{props.project.repoPath}</span>
-      </div>
       <main className="main">{props.children}</main>
     </div>
   );
@@ -144,6 +222,9 @@ function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
   return (
     <main className="setup-screen">
       <form className="setup-panel" onSubmit={handleSubmit}>
+        <div className="setup-logo">
+          <img src={oneTeamLogoUrl} alt={t("app.name")} />
+        </div>
         <h1>{t("setup.title")}</h1>
         <section className="form-section">
           <h2>{t("setup.repository")}</h2>
@@ -194,22 +275,192 @@ function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
   );
 }
 
-function Timeline(props: { comments: CommentDto[] }) {
-  if (props.comments.length === 0) {
+type ConversationEntry =
+  | { kind: "comment"; comment: CommentDto; timestamp: number }
+  | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number };
+
+function timestampMs(value: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function commentAgentJobId(comment: CommentDto): number | null {
+  const metadata = comment.metadata;
+  if (!metadata) {
+    return null;
+  }
+  const directJobId = numberValue(metadata.agentJobId) ?? numberValue(metadata.jobId);
+  if (directJobId !== null) {
+    return directJobId;
+  }
+  return numberValue(recordValue(metadata.agentJob)?.id);
+}
+
+function isCommentInsideJobWindow(comment: CommentDto, job: AgentJobDto): boolean {
+  const commentTimestamp = timestampMs(comment.createdAt);
+  const startTimestamp = timestampMs(job.createdAt) - 30_000;
+  const endTimestamp = timestampMs(job.finishedAt ?? job.startedAt ?? job.createdAt);
+  if (!endTimestamp || ["queued", "running", "waiting_human"].includes(job.status)) {
+    return commentTimestamp >= startTimestamp;
+  }
+  return commentTimestamp >= startTimestamp && commentTimestamp <= endTimestamp + 120_000;
+}
+
+function findRelatedAgentJob(comment: CommentDto, agentJobs: AgentJobDto[]): AgentJobDto | null {
+  const explicitJobId = commentAgentJobId(comment);
+  if (explicitJobId !== null) {
+    return agentJobs.find((job) => job.id === explicitJobId) ?? null;
+  }
+  if (comment.authorType !== "agent" || !comment.agentType) {
+    return null;
+  }
+
+  const candidates = agentJobs.filter(
+    (job) => job.agentType === comment.agentType && isCommentInsideJobWindow(comment, job)
+  );
+  if (!candidates.length) {
+    return null;
+  }
+
+  const commentTimestamp = timestampMs(comment.createdAt);
+  return candidates.sort((left, right) => {
+    const leftReference = timestampMs(left.finishedAt ?? left.startedAt ?? left.createdAt);
+    const rightReference = timestampMs(right.finishedAt ?? right.startedAt ?? right.createdAt);
+    return Math.abs(commentTimestamp - leftReference) - Math.abs(commentTimestamp - rightReference);
+  })[0];
+}
+
+function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[]): ConversationEntry[] {
+  const groups = new Map<number, { job: AgentJobDto; comments: CommentDto[] }>();
+  for (const job of agentJobs) {
+    groups.set(job.id, { job, comments: [] });
+  }
+
+  const groupedCommentIds = new Set<number>();
+  for (const comment of comments) {
+    const job = findRelatedAgentJob(comment, agentJobs);
+    if (!job) {
+      continue;
+    }
+    groups.get(job.id)?.comments.push(comment);
+    groupedCommentIds.add(comment.id);
+  }
+
+  const entries: ConversationEntry[] = [];
+  for (const group of groups.values()) {
+    const firstCommentTimestamp = Math.min(
+      ...group.comments.map((comment) => timestampMs(comment.createdAt)),
+      Number.POSITIVE_INFINITY
+    );
+    entries.push({
+      kind: "agent_job",
+      job: group.job,
+      comments: group.comments.sort((left, right) => timestampMs(left.createdAt) - timestampMs(right.createdAt)),
+      timestamp: Math.min(timestampMs(group.job.createdAt), firstCommentTimestamp)
+    });
+  }
+  for (const comment of comments) {
+    if (!groupedCommentIds.has(comment.id)) {
+      entries.push({ kind: "comment", comment, timestamp: timestampMs(comment.createdAt) });
+    }
+  }
+
+  return entries.sort((left, right) => left.timestamp - right.timestamp);
+}
+
+function commentAuthorLabel(comment: CommentDto): string {
+  if (comment.authorType === "agent" && comment.agentType) {
+    return `${comment.agentType} agent`;
+  }
+  return comment.authorType;
+}
+
+function readableCommentBody(comment: CommentDto, relatedJob?: AgentJobDto): string {
+  if (!isNoisyCodexText(comment.body)) {
+    return comment.body;
+  }
+  return relatedJob ? agentJobMessage(relatedJob, []) ?? t("agents.noConciseComment") : t("agents.noConciseComment");
+}
+
+function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: AgentJobDto }) {
+  return (
+    <article className="conversation-comment">
+      <header>
+        <strong>{commentAuthorLabel(props.comment)}</strong>
+        <span>{formatDateTime(props.comment.createdAt)}</span>
+      </header>
+      <MarkdownContent content={readableCommentBody(props.comment, props.relatedJob)} />
+    </article>
+  );
+}
+
+function ConversationAgentJobCard(props: {
+  job: AgentJobDto;
+  comments: CommentDto[];
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const message = props.comments.length ? null : agentJobMessage(props.job, []);
+
+  return (
+    <article className="conversation-agent-job">
+      <header className="conversation-agent-job-header">
+        <div>
+          <strong>#{props.job.id} {props.job.agentType}</strong>
+          <span>{formatDateTime(props.job.createdAt)}</span>
+        </div>
+        <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.job.id)} type="button">
+          {t("agents.detail")}
+        </button>
+      </header>
+      <div className="conversation-agent-job-meta">
+        <span className={`status-pill status-${props.job.status}`}>{props.job.status}</span>
+        <span>{props.job.triggerType}</span>
+        {props.job.finishedAt ? <span>{formatDateTime(props.job.finishedAt)}</span> : null}
+      </div>
+      {message ? (
+        <MarkdownContent
+          className={props.job.status === "failed" ? "job-error" : "agent-job-message"}
+          content={message}
+        />
+      ) : null}
+      {props.comments.length ? (
+        <div className="conversation-agent-comments">
+          {props.comments.map((comment) => (
+            <ConversationCommentCard comment={comment} key={comment.id} relatedJob={props.job} />
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ConversationTimeline(props: {
+  comments: CommentDto[];
+  agentJobs: AgentJobDto[];
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const entries = conversationEntries(props.comments, props.agentJobs);
+  if (entries.length === 0) {
     return <div className="empty-state">{t("issues.noComments")}</div>;
   }
 
   return (
-    <div className="timeline">
-      {props.comments.map((comment) => (
-        <article className="timeline-item" key={comment.id}>
-          <header>
-            <strong>{comment.authorType}</strong>
-            <span>{new Date(comment.createdAt).toLocaleString()}</span>
-          </header>
-          <p>{comment.body}</p>
-        </article>
-      ))}
+    <div className="conversation-timeline">
+      {entries.map((entry) =>
+        entry.kind === "comment" ? (
+          <ConversationCommentCard comment={entry.comment} key={`comment-${entry.comment.id}`} />
+        ) : (
+          <ConversationAgentJobCard
+            comments={entry.comments}
+            job={entry.job}
+            key={`agent-job-${entry.job.id}`}
+            onOpenAgentJob={props.onOpenAgentJob}
+          />
+        )
+      )}
     </div>
   );
 }
@@ -228,19 +479,18 @@ function ActivityLog(props: { activities: ActivityDto[] }) {
             <span>{new Date(activity.createdAt).toLocaleString()}</span>
           </header>
           <h3>{activity.title}</h3>
-          {activity.body ? <p>{activity.body}</p> : null}
+          {activity.body ? <MarkdownContent content={activity.body} /> : null}
         </article>
       ))}
     </div>
   );
 }
 
-function LabelEditor(props: {
+function LabelPicker(props: {
   labels: LabelDto[];
   selectedLabelIds: number[];
-  isSaving: boolean;
+  disabled?: boolean;
   onSelectedLabelIdsChange: (labelIds: number[]) => void;
-  onSave: () => Promise<void>;
 }) {
   const selected = new Set(props.selectedLabelIds);
 
@@ -256,19 +506,13 @@ function LabelEditor(props: {
 
   return (
     <section className="label-editor">
-      <div className="label-editor-header">
-        <h3>{t("labels.title")}</h3>
-        <button className="secondary-button" disabled={props.isSaving} onClick={() => void props.onSave()} type="button">
-          <Save size={14} />
-          {t("labels.save")}
-        </button>
-      </div>
+      <h3>{t("labels.title")}</h3>
       <div className="label-checklist">
         {props.labels.map((label) => (
           <label className="label-checkbox" key={label.id}>
             <input
               checked={selected.has(label.id)}
-              disabled={props.isSaving}
+              disabled={props.disabled}
               onChange={() => toggleLabel(label.id)}
               type="checkbox"
             />
@@ -322,42 +566,187 @@ function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
   );
 }
 
-function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose: () => void }) {
-  const [issue, setIssue] = useState<IssueDto | null>(null);
-  const [labels, setLabels] = useState<LabelDto[]>([]);
-  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
-  const [comments, setComments] = useState<CommentDto[]>([]);
-  const [activities, setActivities] = useState<ActivityDto[]>([]);
-  const [tab, setTab] = useState<"conversation" | "activity">("conversation");
+type IssueScreen =
+  | { name: "list" }
+  | { name: "new" }
+  | { name: "detail"; issueId: number }
+  | { name: "edit"; issueId: number };
+
+function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpen: (issueId: number) => void }) {
+  const [issues, setIssues] = useState<IssueDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editBody, setEditBody] = useState("");
-  const [editStatus, setEditStatus] = useState<IssueDto["status"]>("open");
-  const [isSavingDetails, setSavingDetails] = useState(false);
-  const [isSavingLabels, setSavingLabels] = useState(false);
-  const [isDeleting, setDeleting] = useState(false);
-  const [isDetailsDirty, setDetailsDirty] = useState(false);
-  const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
-    const [issueResponse, labelsResponse, commentsResponse, activitiesResponse] = await Promise.all([
+    const issueResponse = await api.listIssues(props.project.id);
+    setIssues(issueResponse.items);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issues."));
+  }, [props.project.id]);
+
+  return (
+    <section className="page-section">
+      <div className="section-header">
+        <h1>{t("issues.title")}</h1>
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
+            <RefreshCw size={16} />
+            {t("actions.refresh")}
+          </button>
+          <button className="primary-button" onClick={props.onNew} type="button">
+            <Plus size={16} />
+            {t("issues.newIssue")}
+          </button>
+        </div>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="work-item-list">
+        {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
+        {issues.map((issue) => (
+          <button className="work-item-summary" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
+            <span className="work-item-title">#{issue.id} {issue.title}</span>
+            <span className={`status-pill status-${issue.status}`}>{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
+            <span>{issue.commentCount} {t("issues.comments")}</span>
+            <span>{formatDateTime(issue.updatedAt)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function IssueNewScreen(props: { project: ProjectDto; onCancel: () => void; onCreated: (issueId: number) => void }) {
+  const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .listLabels(props.project.id)
+      .then((labelResponse) => {
+        setLabels(labelResponse);
+        const requirementsLabel = labelResponse.find((label) => label.name === workflowLabelNames.requirements);
+        setSelectedLabelIds(requirementsLabel ? [requirementsLabel.id] : []);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load labels."));
+  }, [props.project.id]);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const issue = await api.createIssue(props.project.id, {
+        title,
+        body,
+        labelIds: selectedLabelIds
+      });
+      props.onCreated(issue.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create issue.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="editor-form" onSubmit={handleCreate}>
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onCancel} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
+        </button>
+        <h1>{t("issues.newIssue")}</h1>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="editor-layout">
+        <section className="page-section">
+          <label>
+            {t("issues.titleField")}
+            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+          </label>
+          <label>
+            {t("issues.bodyField")}
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} />
+          </label>
+        </section>
+        <aside className="side-panel">
+          <LabelPicker
+            disabled={isSaving}
+            labels={labelsForTarget(labels, "issue")}
+            onSelectedLabelIdsChange={setSelectedLabelIds}
+            selectedLabelIds={selectedLabelIds}
+          />
+          <button className="primary-button full-width" disabled={isSaving} type="submit">
+            <Save size={16} />
+            {t("actions.create")}
+          </button>
+        </aside>
+      </div>
+    </form>
+  );
+}
+
+function IssueRelatedLinks(props: {
+  pullRequests: PullRequestDto[];
+  onOpenPullRequest: (pullRequestId: number) => void;
+}) {
+  if (!props.pullRequests.length) {
+    return null;
+  }
+
+  return (
+    <section className="related-links" aria-label={t("issues.related")}>
+      {props.pullRequests.length ? (
+        <div className="related-link-group">
+          <h3>{t("issues.relatedPullRequests")}</h3>
+          <div className="related-link-list">
+            {props.pullRequests.map((pullRequest) => (
+              <button
+                className="related-link-item"
+                key={pullRequest.id}
+                onClick={() => props.onOpenPullRequest(pullRequest.id)}
+                type="button"
+              >
+                <span className="related-link-title">#{pullRequest.id} {pullRequest.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function IssueDetailScreen(props: {
+  project: ProjectDto;
+  issueId: number;
+  onBack: () => void;
+  onEdit: (issueId: number) => void;
+  onOpenAgentJob: (jobId: number) => void;
+  onOpenPullRequest: (pullRequestId: number) => void;
+}) {
+  const [issue, setIssue] = useState<IssueDto | null>(null);
+  const [comments, setComments] = useState<CommentDto[]>([]);
+  const [relatedPullRequests, setRelatedPullRequests] = useState<PullRequestDto[]>([]);
+  const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse] = await Promise.all([
       api.getIssue(props.project.id, props.issueId),
-      api.listLabels(props.project.id),
       api.listIssueComments(props.project.id, props.issueId),
-      api.listIssueActivities(props.project.id, props.issueId)
+      api.listPullRequests(props.project.id, { issueId: props.issueId, status: null }),
+      api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId })
     ]);
     setIssue(issueResponse);
-    setLabels(labelsResponse);
-    if (!isDetailsDirty) {
-      setEditTitle(issueResponse.title);
-      setEditBody(issueResponse.body);
-      setEditStatus(issueResponse.status);
-    }
-    if (!isLabelSelectionDirty) {
-      setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
-    }
     setComments(commentsResponse);
-    setActivities(activitiesResponse);
+    setRelatedPullRequests(pullRequestResponse.items);
+    setRelatedAgentJobs(agentJobResponse);
   }
 
   useEffect(() => {
@@ -366,7 +755,7 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [isDetailsDirty, isLabelSelectionDirty, props.project.id, props.issueId]);
+  }, [props.project.id, props.issueId]);
 
   async function addComment(body: string) {
     await api.createIssueComment(props.project.id, props.issueId, body);
@@ -380,30 +769,126 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
       targetId: props.issueId,
       triggerType: "manual"
     });
-    setTab("activity");
     await load();
   }
 
-  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+  return (
+    <div className="detail-page">
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onBack} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
+        </button>
+        <div className="page-title-block">
+          <h1>{issue ? `#${issue.id} ${issue.title}` : "Issue"}</h1>
+          {issue ? <span className={`status-pill status-${issue.status}`}>{issue.status}</span> : null}
+        </div>
+        {issue ? (
+          <button className="secondary-button" onClick={() => props.onEdit(issue.id)} type="button">
+            <Pencil size={16} />
+            {t("actions.edit")}
+          </button>
+        ) : null}
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="detail-layout">
+        <section className="page-section detail-main">
+          {issue?.body ? <MarkdownContent content={issue.body} /> : <div className="empty-state">{t("issues.noDescription")}</div>}
+          <h2>{t("issues.conversation")}</h2>
+          <IssueRelatedLinks
+            onOpenPullRequest={props.onOpenPullRequest}
+            pullRequests={relatedPullRequests}
+          />
+          <ConversationTimeline
+            agentJobs={relatedAgentJobs}
+            comments={comments}
+            onOpenAgentJob={props.onOpenAgentJob}
+          />
+          <CommentForm onSubmit={addComment} />
+        </section>
+        <aside className="side-panel detail-sidebar">
+          <h2>{t("labels.title")}</h2>
+          <div className="label-row">
+            {issue?.labels.length ? (
+              issue.labels.map((label) => (
+                <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
+                  {label.name}
+                </span>
+              ))
+            ) : (
+              <span className="muted-text">{t("labels.none")}</span>
+            )}
+          </div>
+          <h2>{t("agents.title")}</h2>
+          <div className="action-row">
+            <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
+              <ListTodo size={16} />
+              {t("agents.queueRequirements")}
+            </button>
+            <button className="secondary-button" onClick={() => void queueAgent("implementation")} type="button">
+              <Terminal size={16} />
+              {t("agents.queueImplementation")}
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function IssueEditScreen(props: {
+  project: ProjectDto;
+  issueId: number;
+  onCancel: () => void;
+  onDeleted: () => void;
+  onSaved: (issueId: number) => void;
+}) {
+  const [issue, setIssue] = useState<IssueDto | null>(null);
+  const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [status, setStatus] = useState<IssueDto["status"]>("open");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setSaving] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
+
+  async function load() {
+    const [issueResponse, labelResponse] = await Promise.all([
+      api.getIssue(props.project.id, props.issueId),
+      api.listLabels(props.project.id)
+    ]);
+    setIssue(issueResponse);
+    setTitle(issueResponse.title);
+    setBody(issueResponse.body);
+    setStatus(issueResponse.status);
+    setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
+    setLabels(labelResponse);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+  }, [props.project.id, props.issueId]);
+
+  async function saveIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!issue) {
       return;
     }
-    setSavingDetails(true);
+    setSaving(true);
     setError(null);
     try {
       const response = await api.updateIssue(props.project.id, issue.id, {
-        title: editTitle,
-        body: editBody,
-        status: editStatus
+        title,
+        body,
+        status,
+        labelIds: selectedLabelIds
       });
-      setIssue(response.issue);
-      setDetailsDirty(false);
-      await load();
+      props.onSaved(response.issue.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save issue.");
     } finally {
-      setSavingDetails(false);
+      setSaving(false);
     }
   }
 
@@ -415,7 +900,7 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     setError(null);
     try {
       await api.deleteIssue(props.project.id, issue.id);
-      props.onClose();
+      props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete issue.");
     } finally {
@@ -423,223 +908,294 @@ function IssueDetailPanel(props: { project: ProjectDto; issueId: number; onClose
     }
   }
 
-  async function saveLabels() {
-    if (!issue) {
-      return;
-    }
-    setSavingLabels(true);
-    setError(null);
-    try {
-      const response = await api.updateIssue(props.project.id, issue.id, {
-        labelIds: selectedLabelIds
-      });
-      setIssue(response.issue);
-      setSelectedLabelIds(response.issue.labels.map((label) => label.id));
-      setLabelSelectionDirty(false);
-      if (response.automationJobIds?.length) {
-        setTab("activity");
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save labels.");
-    } finally {
-      setSavingLabels(false);
-    }
-  }
-
   return (
-    <aside className="detail-panel">
-      <div className="section-header">
-        <h2>{issue ? `#${issue.id} ${issue.title}` : "Issue"}</h2>
-        <button className="secondary-button" onClick={props.onClose} type="button">
-          {t("actions.close")}
+    <form className="editor-form" onSubmit={saveIssue}>
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onCancel} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
         </button>
+        <h1>{issue ? `${t("actions.edit")} #${issue.id}` : t("actions.edit")}</h1>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      {issue ? (
-        <form className="detail-edit-form" onSubmit={saveDetails}>
-          <label>
-            {t("issues.titleField")}
-            <input
-              value={editTitle}
-              onChange={(event) => {
-                setEditTitle(event.target.value);
-                setDetailsDirty(true);
-              }}
-              required
-            />
-          </label>
-          <label>
-            {t("issues.bodyField")}
-            <textarea
-              value={editBody}
-              onChange={(event) => {
-                setEditBody(event.target.value);
-                setDetailsDirty(true);
-              }}
-              rows={4}
-            />
-          </label>
-          <label>
-            {t("issues.status")}
-            <select
-              value={editStatus}
-              onChange={(event) => {
-                setEditStatus(event.target.value as IssueDto["status"]);
-                setDetailsDirty(true);
-              }}
-            >
-              <option value="open">{t("issues.open")}</option>
-              <option value="closed">{t("issues.closed")}</option>
-            </select>
-          </label>
-          <div className="action-row">
-            <button className="primary-button" disabled={isSavingDetails || !isDetailsDirty} type="submit">
-              <Save size={16} />
-              {t("actions.save")}
-            </button>
-            <button className="danger-button" disabled={isDeleting} onClick={() => void deleteIssue()} type="button">
-              {t("actions.delete")}
-            </button>
-          </div>
-        </form>
-      ) : null}
-      <LabelEditor
-        isSaving={isSavingLabels}
-        labels={labelsForTarget(labels, "issue")}
-        onSave={saveLabels}
-        onSelectedLabelIdsChange={(labelIds) => {
-          setSelectedLabelIds(labelIds);
-          setLabelSelectionDirty(true);
-        }}
-        selectedLabelIds={selectedLabelIds}
-      />
-      <div className="action-row">
-        <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
-          <ListTodo size={16} />
-          {t("agents.queueRequirements")}
-        </button>
-        <button className="secondary-button" onClick={() => void queueAgent("implementation")} type="button">
-          <Terminal size={16} />
-          {t("agents.queueImplementation")}
-        </button>
-      </div>
-      <div className="subtabs">
-        <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
-          {t("issues.conversation")}
-        </button>
-        <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")} type="button">
-          {t("issues.activity")}
-        </button>
-      </div>
-      {tab === "conversation" ? (
-        <>
-          <Timeline comments={comments} />
-          <CommentForm onSubmit={addComment} />
-        </>
-      ) : (
-        <ActivityLog activities={activities} />
-      )}
-    </aside>
-  );
-}
-
-function IssuesView(props: { project: ProjectDto }) {
-  const [issues, setIssues] = useState<IssueDto[]>([]);
-  const [labels, setLabels] = useState<LabelDto[]>([]);
-  const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    const [issueResponse, labelResponse] = await Promise.all([
-      api.listIssues(props.project.id),
-      api.listLabels(props.project.id)
-    ]);
-    setIssues(issueResponse.items);
-    setLabels(labelResponse);
-  }
-
-  useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issues."));
-  }, [props.project.id]);
-
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const requirementsLabel = labels.find((label) => label.name === workflowLabelNames.requirements);
-    const issue = await api.createIssue(props.project.id, {
-      title,
-      body,
-      labelIds: requirementsLabel ? [requirementsLabel.id] : []
-    });
-    setIssues((current) => [issue, ...current]);
-    setTitle("");
-    setBody("");
-  }
-
-  return (
-    <div className="page-grid">
-      <section className="page-section">
-        <div className="section-header">
-          <h1>{t("issues.title")}</h1>
-          <button className="icon-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
-            <RefreshCw size={16} />
-          </button>
-        </div>
-        {error ? <div className="error-banner">{error}</div> : null}
-        <div className="issue-list">
-          {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
-          {issues.map((issue) => (
-            <article className="issue-row clickable" key={issue.id} onClick={() => setSelectedIssueId(issue.id)}>
-              <div>
-                <h2>#{issue.id} {issue.title}</h2>
-                <p>{issue.body || "\u00a0"}</p>
-                <div className="label-row">
-                  {issue.labels.map((label) => (
-                    <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
-                      {label.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="row-meta">
-                <span>{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
-                <span>{issue.commentCount} {t("issues.comments")}</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <aside className="side-panel">
-        <h2>{t("issues.newIssue")}</h2>
-        <form onSubmit={handleCreate}>
+      <div className="editor-layout">
+        <section className="page-section">
           <label>
             {t("issues.titleField")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} required />
           </label>
           <label>
             {t("issues.bodyField")}
-            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={8} />
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} />
           </label>
-          <button className="primary-button" type="submit">
+        </section>
+        <aside className="side-panel">
+          <label>
+            {t("issues.status")}
+            <select value={status} onChange={(event) => setStatus(event.target.value as IssueDto["status"])}>
+              <option value="open">{t("issues.open")}</option>
+              <option value="closed">{t("issues.closed")}</option>
+            </select>
+          </label>
+          <LabelPicker
+            disabled={isSaving}
+            labels={labelsForTarget(labels, "issue")}
+            onSelectedLabelIdsChange={setSelectedLabelIds}
+            selectedLabelIds={selectedLabelIds}
+          />
+          <button className="primary-button full-width" disabled={isSaving} type="submit">
             <Save size={16} />
-            {t("actions.create")}
+            {t("actions.save")}
           </button>
-        </form>
-      </aside>
-      {selectedIssueId ? (
-        <IssueDetailPanel project={props.project} issueId={selectedIssueId} onClose={() => setSelectedIssueId(null)} />
+          <button className="danger-button full-width" disabled={isDeleting} onClick={() => void deleteIssue()} type="button">
+            {t("actions.delete")}
+          </button>
+        </aside>
+      </div>
+    </form>
+  );
+}
+
+function IssuesView(props: {
+  project: ProjectDto;
+  openIssueId: number | null;
+  onOpenIssueHandled: () => void;
+  onOpenAgentJob: (jobId: number) => void;
+  onOpenPullRequest: (pullRequestId: number) => void;
+}) {
+  const [screen, setScreen] = useState<IssueScreen>({ name: "list" });
+
+  useEffect(() => {
+    if (props.openIssueId === null) {
+      return;
+    }
+    setScreen({ name: "detail", issueId: props.openIssueId });
+    props.onOpenIssueHandled();
+  }, [props.openIssueId, props.onOpenIssueHandled]);
+
+  if (screen.name === "new") {
+    return (
+      <IssueNewScreen
+        project={props.project}
+        onCancel={() => setScreen({ name: "list" })}
+        onCreated={(issueId) => setScreen({ name: "detail", issueId })}
+      />
+    );
+  }
+
+  if (screen.name === "detail") {
+    return (
+      <IssueDetailScreen
+        project={props.project}
+        issueId={screen.issueId}
+        onBack={() => setScreen({ name: "list" })}
+        onEdit={(issueId) => setScreen({ name: "edit", issueId })}
+        onOpenAgentJob={props.onOpenAgentJob}
+        onOpenPullRequest={props.onOpenPullRequest}
+      />
+    );
+  }
+
+  if (screen.name === "edit") {
+    return (
+      <IssueEditScreen
+        project={props.project}
+        issueId={screen.issueId}
+        onCancel={() => setScreen({ name: "detail", issueId: screen.issueId })}
+        onDeleted={() => setScreen({ name: "list" })}
+        onSaved={(issueId) => setScreen({ name: "detail", issueId })}
+      />
+    );
+  }
+
+  return (
+    <IssuesListScreen
+      project={props.project}
+      onNew={() => setScreen({ name: "new" })}
+      onOpen={(issueId) => setScreen({ name: "detail", issueId })}
+    />
+  );
+}
+
+type AgentJobScreen = { name: "list" } | { name: "detail"; jobId: number };
+
+function AgentJobActions(props: {
+  job: AgentJobDto;
+  busyJobId: number | null;
+  onCancel: (jobId: number) => Promise<void>;
+  onRetry: (jobId: number) => Promise<void>;
+}) {
+  return (
+    <div className="job-actions">
+      {isActiveAgentJob(props.job) ? (
+        <button
+          className="danger-button"
+          disabled={props.busyJobId === props.job.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            void props.onCancel(props.job.id);
+          }}
+          title={t("agents.cancelJob")}
+          type="button"
+        >
+          <Square size={14} />
+          {t("actions.cancel")}
+        </button>
+      ) : null}
+      {canRetryAgentJob(props.job) ? (
+        <button
+          className="secondary-button"
+          disabled={props.busyJobId === props.job.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            void props.onRetry(props.job.id);
+          }}
+          title={t("agents.retryJob")}
+          type="button"
+        >
+          <RotateCcw size={14} />
+          {t("agents.retryJob")}
+        </button>
       ) : null}
     </div>
   );
 }
 
-function AgentJobsPanel(props: { project: ProjectDto }) {
+const noisyAgentActivityTitles = new Set([
+  "Agent job queued",
+  "Started Codex CLI",
+  "Codex thread started",
+  "Codex turn started",
+  "Codex turn completed",
+  "Codex CLI completed",
+  "Codex CLI failed",
+  "Codex error",
+  "Codex turn failed",
+  "Codex command started",
+  "Codex command completed",
+  "Codex thinking summary"
+]);
+
+function isNoisyCodexText(text: string): boolean {
+  return (
+    text.length > 1000 &&
+    (text.includes("<html>") || text.includes("codex_core_plugins") || text.includes("codex_core_skills"))
+  );
+}
+
+function agentJobFailureMessage(activities: ActivityDto[]): string | null {
+  const meaningfulError = [...activities]
+    .reverse()
+    .find((activity) => ["Codex turn failed", "Codex error", "Agent job failed"].includes(activity.title) && activity.body);
+  return meaningfulError?.body ?? null;
+}
+
+function agentJobMessage(job: AgentJobDto, activities: ActivityDto[]): string | null {
+  const output = job.output ?? {};
+  if (job.status === "failed") {
+    const activityMessage = agentJobFailureMessage(activities);
+    if (activityMessage) {
+      return activityMessage;
+    }
+  }
+
+  const outputMessage = stringValue(output.message);
+  if (outputMessage && !isNoisyCodexText(outputMessage)) {
+    return outputMessage;
+  }
+
+  if (job.error && !isNoisyCodexText(job.error)) {
+    return job.error;
+  }
+
+  return job.status === "failed" ? "Agent job failed. No concise error message was captured." : null;
+}
+
+function isRelevantAgentActivity(job: AgentJobDto, activity: ActivityDto): boolean {
+  if (activity.title === `${job.agentType} agent started`) {
+    return false;
+  }
+
+  if (noisyAgentActivityTitles.has(activity.title)) {
+    return false;
+  }
+
+  return true;
+}
+
+function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDto[] }) {
+  const output = props.job.output ?? {};
+  const message = agentJobMessage(props.job, props.activities);
+  const comment = recordValue(output.comment);
+  const commentBody = stringValue(comment?.body);
+  const questions = stringArrayValue(output.questions);
+  const changedFiles = stringArrayValue(output.changedFiles);
+  const testResults = recordArrayValue(output.testResults);
+  const hasSummary = message || commentBody || questions.length || changedFiles.length || testResults.length;
+
+  if (!hasSummary) {
+    return <div className="empty-state">{t("agents.noSummary")}</div>;
+  }
+
+  return (
+    <div className="agent-job-result">
+      {message ? (
+        <MarkdownContent
+          className={props.job.status === "failed" ? "job-error" : "agent-job-message"}
+          content={message}
+        />
+      ) : null}
+      {commentBody ? <MarkdownContent content={commentBody} /> : null}
+      {questions.length ? (
+        <div className="result-block">
+          <h3>{t("agents.questions")}</h3>
+          <ul className="result-list">
+            {questions.map((question) => (
+              <li key={question}>{question}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {changedFiles.length ? (
+        <div className="result-block">
+          <h3>{t("agents.changedFiles")}</h3>
+          <ul className="result-list">
+            {changedFiles.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {testResults.length ? (
+        <div className="result-block">
+          <h3>{t("agents.tests")}</h3>
+          <div className="test-result-list">
+            {testResults.map((result, index) => {
+              const command = stringValue(result.command) ?? `${t("agents.test")} ${index + 1}`;
+              const status = stringValue(result.status) ?? "-";
+              const exitCode = numberValue(result.exitCode);
+              const outputText = stringValue(result.output);
+              return (
+                <article className="test-result-row" key={`${command}-${index}`}>
+                  <header>
+                    <strong>{command}</strong>
+                    <span className={`status-pill status-${status}`}>{status}</span>
+                  </header>
+                  {exitCode !== null ? <span className="muted-text">exit code: {exitCode}</span> : null}
+                  {outputText ? <p>{outputText}</p> : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: number) => void }) {
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busyJobId, setBusyJobId] = useState<number | null>(null);
 
   async function load() {
     setJobs(await api.listAgentJobs(props.project.id));
@@ -660,21 +1216,73 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
     return () => window.clearInterval(interval);
   }, [hasActiveJobs, props.project.id]);
 
-  async function queueRequirementsJob() {
-    await api.createAgentJob(props.project.id, {
-      agentType: "requirements",
-      targetType: "project",
-      targetId: 0,
-      triggerType: "manual"
-    });
-    await load();
+  return (
+    <section className="page-section">
+      <div className="section-header">
+        <h1>{t("agents.title")}</h1>
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => void load()} title={t("actions.refresh")} type="button">
+            <RefreshCw size={16} />
+            {t("actions.refresh")}
+          </button>
+        </div>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="agent-job-list">
+        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
+        {jobs.map((job) => (
+          <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
+            <span className="agent-job-title">#{job.id} {job.agentType}</span>
+            <span className={`status-pill status-${job.status}`}>{job.status}</span>
+            <span>{formatJobTarget(job)}</span>
+            <span>{formatDateTime(job.createdAt)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentJobDetailScreen(props: {
+  project: ProjectDto;
+  jobId: number;
+  onBack: () => void;
+  onOpen: (jobId: number) => void;
+}) {
+  const [job, setJob] = useState<AgentJobDto | null>(null);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busyJobId, setBusyJobId] = useState<number | null>(null);
+
+  async function load() {
+    const [jobResponse, activityResponse] = await Promise.all([
+      api.getAgentJob(props.project.id, props.jobId),
+      api.listAgentJobActivities(props.project.id, props.jobId)
+    ]);
+    setJob(jobResponse);
+    setActivities(activityResponse.filter((activity) => activity.agentJobId === jobResponse.id));
   }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+  }, [props.project.id, props.jobId]);
+
+  const isActive = job ? isActiveAgentJob(job) : false;
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [isActive, props.project.id, props.jobId]);
 
   async function cancelJob(jobId: number) {
     setBusyJobId(jobId);
     setError(null);
     try {
-      await api.cancelAgentJob(props.project.id, jobId);
+      setJob(await api.cancelAgentJob(props.project.id, jobId));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel agent job.");
@@ -687,8 +1295,8 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
     setBusyJobId(jobId);
     setError(null);
     try {
-      await api.retryAgentJob(props.project.id, jobId);
-      await load();
+      const retriedJobId = await api.retryAgentJob(props.project.id, jobId);
+      props.onOpen(retriedJobId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to retry agent job.");
     } finally {
@@ -696,64 +1304,95 @@ function AgentJobsPanel(props: { project: ProjectDto }) {
     }
   }
 
+  const visibleActivities = useMemo(
+    () => (job ? activities.filter((activity) => isRelevantAgentActivity(job, activity)) : []),
+    [activities, job]
+  );
+
   return (
-    <aside className="side-panel">
-      <div className="section-header compact">
-        <h2>{t("agents.title")}</h2>
-        <button className="icon-button" onClick={() => void load()} title={t("actions.refresh")} type="button">
-          <RefreshCw size={16} />
+    <div className="detail-page">
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onBack} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
         </button>
+        <div className="page-title-block">
+          <h1>{job ? `#${job.id} ${job.agentType}` : t("agents.detail")}</h1>
+          {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
+        </div>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      <button className="secondary-button full-width" onClick={() => void queueRequirementsJob()} type="button">
-        <ListTodo size={16} />
-        {t("agents.queueRequirements")}
-      </button>
-      <div className="job-list">
-        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
-        {jobs.map((job) => (
-          <article className="job-row" key={job.id}>
-            <header className="job-row-header">
-              <strong>#{job.id} {job.agentType}</strong>
-              <span className={`status-pill status-${job.status}`}>{job.status}</span>
-            </header>
-            <div className="job-meta">
-              <span>{formatJobTarget(job)}</span>
-              <span>{t("agents.attempt")} {job.attempt}</span>
-              <span>{new Date(job.createdAt).toLocaleString()}</span>
+      <section className="page-section agent-job-detail-section">
+        {job ? (
+          <>
+            <div className="agent-job-details-summary">
+              <div className="agent-job-details-header">
+                <h2>{t("agents.details")}</h2>
+                <AgentJobActions job={job} busyJobId={busyJobId} onCancel={cancelJob} onRetry={retryJob} />
+              </div>
+              <dl className="agent-job-detail-facts">
+                <div>
+                  <dt>{t("agents.target")}</dt>
+                  <dd>{formatJobTarget(job)}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.trigger")}</dt>
+                  <dd>{job.triggerType}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.attempt")}</dt>
+                  <dd>{job.attempt}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.created")}</dt>
+                  <dd>{formatDateTime(job.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.started")}</dt>
+                  <dd>{formatDateTime(job.startedAt)}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.finished")}</dt>
+                  <dd>{formatDateTime(job.finishedAt)}</dd>
+                </div>
+              </dl>
             </div>
-            {job.error ? <p className="job-error">{job.error}</p> : null}
-            <div className="job-actions">
-              {isActiveAgentJob(job) ? (
-                <button
-                  className="danger-button"
-                  disabled={busyJobId === job.id}
-                  onClick={() => void cancelJob(job.id)}
-                  title={t("agents.cancelJob")}
-                  type="button"
-                >
-                  <Square size={14} />
-                  {t("actions.cancel")}
-                </button>
-              ) : null}
-              {canRetryAgentJob(job) ? (
-                <button
-                  className="secondary-button"
-                  disabled={busyJobId === job.id}
-                  onClick={() => void retryJob(job.id)}
-                  title={t("agents.retryJob")}
-                  type="button"
-                >
-                  <RotateCcw size={14} />
-                  {t("agents.retryJob")}
-                </button>
-              ) : null}
+            <div className="agent-job-main-content">
+              <h2>{t("agents.result")}</h2>
+              <AgentJobResultSummary job={job} activities={activities} />
+              <h2>{t("agents.activities")}</h2>
+              <ActivityLog activities={visibleActivities} />
             </div>
-          </article>
-        ))}
-      </div>
-    </aside>
+          </>
+        ) : null}
+      </section>
+    </div>
   );
+}
+
+function AgentJobsView(props: { project: ProjectDto; openJobId: number | null; onOpenJobHandled: () => void }) {
+  const [screen, setScreen] = useState<AgentJobScreen>({ name: "list" });
+
+  useEffect(() => {
+    if (props.openJobId === null) {
+      return;
+    }
+    setScreen({ name: "detail", jobId: props.openJobId });
+    props.onOpenJobHandled();
+  }, [props.openJobId, props.onOpenJobHandled]);
+
+  if (screen.name === "detail") {
+    return (
+      <AgentJobDetailScreen
+        project={props.project}
+        jobId={screen.jobId}
+        onBack={() => setScreen({ name: "list" })}
+        onOpen={(jobId) => setScreen({ name: "detail", jobId })}
+      />
+    );
+  }
+
+  return <AgentJobsListScreen project={props.project} onOpen={(jobId) => setScreen({ name: "detail", jobId })} />;
 }
 
 function RepositoryView(props: { project: ProjectDto }) {
@@ -835,51 +1474,251 @@ function RepositoryView(props: { project: ProjectDto }) {
   );
 }
 
-function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: number; onClose: () => void }) {
-  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+type PullRequestScreen =
+  | { name: "list" }
+  | { name: "new" }
+  | { name: "detail"; pullRequestId: number }
+  | { name: "edit"; pullRequestId: number };
+
+function PullRequestsListScreen(props: {
+  project: ProjectDto;
+  onNew: () => void;
+  onOpen: (pullRequestId: number) => void;
+}) {
+  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const response = await api.listPullRequests(props.project.id);
+    setPullRequests(response.items);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull requests."));
+  }, [props.project.id]);
+
+  return (
+    <section className="page-section">
+      <div className="section-header">
+        <h1>{t("pullRequests.title")}</h1>
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
+            <RefreshCw size={16} />
+            {t("actions.refresh")}
+          </button>
+          <button className="primary-button" onClick={props.onNew} type="button">
+            <Plus size={16} />
+            {t("pullRequests.newPullRequest")}
+          </button>
+        </div>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="work-item-list">
+        {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
+        {pullRequests.map((pullRequest) => (
+          <button
+            className="work-item-summary"
+            key={pullRequest.id}
+            onClick={() => props.onOpen(pullRequest.id)}
+            type="button"
+          >
+            <span className="work-item-title">#{pullRequest.id} {pullRequest.title}</span>
+            <span className={`status-pill status-${pullRequest.status}`}>{pullRequest.status}</span>
+            <span>{pullRequest.commentCount} {t("issues.comments")}</span>
+            <span>{formatDateTime(pullRequest.updatedAt)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PullRequestNewScreen(props: {
+  project: ProjectDto;
+  onCancel: () => void;
+  onCreated: (pullRequestId: number) => void;
+}) {
   const [labels, setLabels] = useState<LabelDto[]>([]);
   const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sourceBranch, setSourceBranch] = useState("");
+  const [targetBranch, setTargetBranch] = useState(props.project.defaultBranch);
+  const [issueId, setIssueId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .listLabels(props.project.id)
+      .then((labelResponse) => {
+        setLabels(labelResponse);
+        const reviewLabel = labelResponse.find((label) => label.name === workflowLabelNames.reviewing);
+        setSelectedLabelIds(reviewLabel ? [reviewLabel.id] : []);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load labels."));
+  }, [props.project.id]);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const pullRequest = await api.createPullRequest(props.project.id, {
+        issueId: issueId ? Number(issueId) : null,
+        title,
+        body,
+        sourceBranch,
+        targetBranch,
+        labelIds: selectedLabelIds
+      });
+      props.onCreated(pullRequest.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create pull request.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="editor-form" onSubmit={handleCreate}>
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onCancel} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
+        </button>
+        <h1>{t("pullRequests.newPullRequest")}</h1>
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="editor-layout">
+        <section className="page-section">
+          <label>
+            {t("issues.titleField")}
+            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+          </label>
+          <label>
+            {t("issues.bodyField")}
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={10} />
+          </label>
+          <div className="form-grid two-columns">
+            <label>
+              {t("pullRequests.sourceBranch")}
+              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
+            </label>
+            <label>
+              {t("pullRequests.targetBranch")}
+              <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
+            </label>
+          </div>
+          <label>
+            {t("pullRequests.linkedIssue")}
+            <input value={issueId} onChange={(event) => setIssueId(event.target.value)} type="number" />
+          </label>
+        </section>
+        <aside className="side-panel">
+          <LabelPicker
+            disabled={isSaving}
+            labels={labelsForTarget(labels, "pull_request")}
+            onSelectedLabelIdsChange={setSelectedLabelIds}
+            selectedLabelIds={selectedLabelIds}
+          />
+          <button className="primary-button full-width" disabled={isSaving} type="submit">
+            <Save size={16} />
+            {t("actions.create")}
+          </button>
+        </aside>
+      </div>
+    </form>
+  );
+}
+
+function PullRequestRelatedLinks(props: {
+  issueId: number | null;
+  linkedIssue: IssueDto | null;
+  onOpenIssue: (issueId: number) => void;
+}) {
+  const issueId = props.issueId;
+
+  if (!issueId) {
+    return null;
+  }
+
+  return (
+    <section className="related-links" aria-label={t("issues.related")}>
+      {issueId ? (
+        <div className="related-link-group">
+          <h3>{t("pullRequests.relatedIssue")}</h3>
+          <div className="related-link-list">
+            <button className="related-link-item" onClick={() => props.onOpenIssue(issueId)} type="button">
+              <span className="related-link-title">
+                #{issueId} {props.linkedIssue?.title ?? ""}
+              </span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function BranchCompare(props: { sourceBranch: string; targetBranch: string }) {
+  return (
+    <div className="branch-compare" aria-label={t("pullRequests.branchComparison")}>
+      <div className="branch-card source-branch">
+        <span>{t("pullRequests.sourceBranch")}</span>
+        <code>{props.sourceBranch}</code>
+      </div>
+      <div className="branch-merge-arrow" aria-hidden="true">
+        -&gt;
+      </div>
+      <div className="branch-card target-branch">
+        <span>{t("pullRequests.targetBranch")}</span>
+        <code>{props.targetBranch}</code>
+      </div>
+    </div>
+  );
+}
+
+function PullRequestDetailScreen(props: {
+  project: ProjectDto;
+  pullRequestId: number;
+  onBack: () => void;
+  onEdit: (pullRequestId: number) => void;
+  onOpenAgentJob: (jobId: number) => void;
+  onOpenIssue: (issueId: number) => void;
+}) {
+  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  const [linkedIssue, setLinkedIssue] = useState<IssueDto | null>(null);
+  const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
-  const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
-  const [tab, setTab] = useState<"conversation" | "activity" | "files" | "commits">("conversation");
+  const [tab, setTab] = useState<"conversation" | "files" | "commits">("conversation");
   const [error, setError] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editBody, setEditBody] = useState("");
-  const [editStatus, setEditStatus] = useState<PullRequestDto["status"]>("open");
-  const [isSavingDetails, setSavingDetails] = useState(false);
-  const [isSavingLabels, setSavingLabels] = useState(false);
-  const [isDeleting, setDeleting] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<string | null>(null);
+  const [isMerging, setMerging] = useState(false);
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
-  const [isDetailsDirty, setDetailsDirty] = useState(false);
-  const [isLabelSelectionDirty, setLabelSelectionDirty] = useState(false);
 
   async function load() {
-    const [pullRequestResponse, labelsResponse, commentsResponse, activitiesResponse] = await Promise.all([
+    const [pullRequestResponse, commentsResponse, agentJobResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
-      api.listLabels(props.project.id),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
-      api.listPullRequestActivities(props.project.id, props.pullRequestId)
+      api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId })
     ]);
-    const [filesResponse, commitsResponse, conflictsResponse] = await Promise.all([
+    const linkedIssuePromise = pullRequestResponse.issueId
+      ? api.getIssue(props.project.id, pullRequestResponse.issueId).catch(() => null)
+      : Promise.resolve(null);
+    const [filesResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
       api.listPullRequestFiles(props.project.id, props.pullRequestId),
       api.listPullRequestCommits(props.project.id, props.pullRequestId),
-      api.getMergeConflicts(props.project.id, pullRequestResponse.sourceBranch, pullRequestResponse.targetBranch)
+      api.getMergeConflicts(props.project.id, pullRequestResponse.sourceBranch, pullRequestResponse.targetBranch),
+      linkedIssuePromise
     ]);
     setPullRequest(pullRequestResponse);
-    setLabels(labelsResponse);
-    if (!isDetailsDirty) {
-      setEditTitle(pullRequestResponse.title);
-      setEditBody(pullRequestResponse.body);
-      setEditStatus(pullRequestResponse.status);
-    }
-    if (!isLabelSelectionDirty) {
-      setSelectedLabelIds(pullRequestResponse.labels.map((label) => label.id));
-    }
+    setLinkedIssue(linkedIssueResponse);
+    setRelatedAgentJobs(agentJobResponse);
     setComments(commentsResponse);
-    setActivities(activitiesResponse);
     setFiles(filesResponse);
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
@@ -891,7 +1730,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [isDetailsDirty, isLabelSelectionDirty, props.project.id, props.pullRequestId]);
+  }, [props.project.id, props.pullRequestId]);
 
   async function addComment(body: string) {
     await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
@@ -905,7 +1744,6 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
       targetId: props.pullRequestId,
       triggerType: "manual"
     });
-    setTab("activity");
     await load();
   }
 
@@ -914,7 +1752,6 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     setError(null);
     try {
       await api.resolvePullRequestConflicts(props.project.id, props.pullRequestId);
-      setTab("activity");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to queue conflict resolution.");
@@ -923,26 +1760,256 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     }
   }
 
-  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+  async function mergePullRequest() {
+    if (!pullRequest || !window.confirm(t("pullRequests.mergeConfirm"))) {
+      return;
+    }
+    setMerging(true);
+    setError(null);
+    setMergeMessage(null);
+    try {
+      const response = await api.mergePullRequest(props.project.id, pullRequest.id);
+      setPullRequest(response.pullRequest);
+      setMergeMessage(`${t("pullRequests.mergeSucceeded")} ${response.mergeCommit.slice(0, 12)}`);
+      setTab("conversation");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to merge pull request.");
+    } finally {
+      setMerging(false);
+    }
+  }
+
+  const mergeDisabled = !pullRequest || pullRequest.status !== "open" || Boolean(mergeConflicts?.hasConflicts) || isMerging;
+  const mergeDisabledReason = !pullRequest
+    ? null
+    : pullRequest.status !== "open"
+      ? t("pullRequests.mergeUnavailableClosed")
+      : mergeConflicts?.hasConflicts
+        ? t("pullRequests.mergeUnavailableConflict")
+        : null;
+
+  return (
+    <div className="detail-page">
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onBack} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
+        </button>
+        <div className="page-title-block">
+          <h1>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : "Pull request"}</h1>
+          {pullRequest ? <span className={`status-pill status-${pullRequest.status}`}>{pullRequest.status}</span> : null}
+        </div>
+        {pullRequest ? (
+          <button className="secondary-button" onClick={() => props.onEdit(pullRequest.id)} type="button">
+            <Pencil size={16} />
+            {t("actions.edit")}
+          </button>
+        ) : null}
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <div className="detail-layout">
+        <section className="page-section detail-main">
+          {pullRequest ? (
+            <>
+              <BranchCompare sourceBranch={pullRequest.sourceBranch} targetBranch={pullRequest.targetBranch} />
+              <div className="detail-facts">
+                <span>{pullRequest.changedFileCount} {t("pullRequests.files")}</span>
+                <span>{pullRequest.commitCount} {t("pullRequests.commits")}</span>
+              </div>
+              {pullRequest.body ? (
+                <MarkdownContent content={pullRequest.body} />
+              ) : (
+                <div className="empty-state">{t("issues.noDescription")}</div>
+              )}
+            </>
+          ) : null}
+          {mergeConflicts?.hasConflicts ? (
+            <div className="warning-banner">
+              <div>
+                <strong>{t("pullRequests.conflictsDetected")}</strong>
+                <p>{mergeConflicts.files.map((file) => file.path).join(", ")}</p>
+              </div>
+              <button
+                className="secondary-button"
+                disabled={isResolvingConflicts}
+                onClick={() => void resolveConflicts()}
+                type="button"
+              >
+                <CircleAlert size={16} />
+                {t("pullRequests.resolveConflicts")}
+              </button>
+            </div>
+          ) : null}
+          <div className="subtabs">
+            <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
+              {t("issues.conversation")}
+            </button>
+            <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
+              {t("pullRequests.filesChanged")}
+            </button>
+            <button className={tab === "commits" ? "active" : ""} onClick={() => setTab("commits")} type="button">
+              {t("pullRequests.commitsTab")}
+            </button>
+          </div>
+          {tab === "conversation" ? (
+            <>
+              <PullRequestRelatedLinks
+                issueId={pullRequest?.issueId ?? null}
+                linkedIssue={linkedIssue}
+                onOpenIssue={props.onOpenIssue}
+              />
+              <ConversationTimeline
+                agentJobs={relatedAgentJobs}
+                comments={comments}
+                onOpenAgentJob={props.onOpenAgentJob}
+              />
+              <CommentForm onSubmit={addComment} />
+            </>
+          ) : null}
+          {tab === "files" ? (
+            <div className="file-list">
+              {files.length === 0 ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
+              {files.map((file) => (
+                <article className="file-row" key={file.path}>
+                  <header>
+                    <strong>{file.path}</strong>
+                    <span>
+                      +{file.additions} -{file.deletions}
+                    </span>
+                  </header>
+                  {file.patch ? <DiffPreview patch={file.patch} /> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {tab === "commits" ? (
+            <div className="commit-list">
+              {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
+              {commits.map((commit) => (
+                <article className="file-row commit-row" key={commit.hash}>
+                  <header>
+                    <strong>{commit.subject}</strong>
+                    <code>{commit.hash.slice(0, 8)}</code>
+                  </header>
+                  <p>
+                    {commit.authorName} - {new Date(commit.date).toLocaleString()}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+        <aside className="side-panel detail-sidebar">
+          <h2>{t("pullRequests.merge")}</h2>
+          <div className="merge-panel">
+            {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}
+            <button
+              className="primary-button full-width"
+              disabled={mergeDisabled}
+              onClick={() => void mergePullRequest()}
+              type="button"
+            >
+              <GitPullRequest size={16} />
+              {isMerging ? t("status.running") : t("pullRequests.mergePullRequest")}
+            </button>
+            {mergeDisabledReason ? <p className="muted-text">{mergeDisabledReason}</p> : null}
+          </div>
+          <h2>{t("labels.title")}</h2>
+          <div className="label-row">
+            {pullRequest?.labels.length ? (
+              pullRequest.labels.map((label) => (
+                <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
+                  {label.name}
+                </span>
+              ))
+            ) : (
+              <span className="muted-text">{t("labels.none")}</span>
+            )}
+          </div>
+          <h2>{t("agents.title")}</h2>
+          <div className="action-row">
+            <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
+              <GitPullRequest size={16} />
+              {t("agents.queueReview")}
+            </button>
+            <button className="secondary-button" onClick={() => void queueAgent("fix")} type="button">
+              <CircleAlert size={16} />
+              {t("agents.queueFix")}
+            </button>
+            <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
+              <CheckCircle2 size={16} />
+              {t("agents.queueQa")}
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function PullRequestEditScreen(props: {
+  project: ProjectDto;
+  pullRequestId: number;
+  onCancel: () => void;
+  onDeleted: () => void;
+  onSaved: (pullRequestId: number) => void;
+}) {
+  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  const [labels, setLabels] = useState<LabelDto[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<number[]>([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [status, setStatus] = useState<PullRequestDto["status"]>("open");
+  const [sourceBranch, setSourceBranch] = useState("");
+  const [targetBranch, setTargetBranch] = useState("");
+  const [issueId, setIssueId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setSaving] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
+
+  async function load() {
+    const [pullRequestResponse, labelsResponse] = await Promise.all([
+      api.getPullRequest(props.project.id, props.pullRequestId),
+      api.listLabels(props.project.id)
+    ]);
+    setPullRequest(pullRequestResponse);
+    setTitle(pullRequestResponse.title);
+    setBody(pullRequestResponse.body);
+    setStatus(pullRequestResponse.status);
+    setSourceBranch(pullRequestResponse.sourceBranch);
+    setTargetBranch(pullRequestResponse.targetBranch);
+    setIssueId(pullRequestResponse.issueId ? String(pullRequestResponse.issueId) : "");
+    setSelectedLabelIds(pullRequestResponse.labels.map((label) => label.id));
+    setLabels(labelsResponse);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+  }, [props.project.id, props.pullRequestId]);
+
+  async function savePullRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pullRequest) {
       return;
     }
-    setSavingDetails(true);
+    setSaving(true);
     setError(null);
     try {
       const response = await api.updatePullRequest(props.project.id, pullRequest.id, {
-        title: editTitle,
-        body: editBody,
-        status: editStatus
+        issueId: issueId ? Number(issueId) : null,
+        title,
+        body,
+        status,
+        sourceBranch,
+        targetBranch,
+        labelIds: selectedLabelIds
       });
-      setPullRequest(response.pullRequest);
-      setDetailsDirty(false);
-      await load();
+      props.onSaved(response.pullRequest.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save pull request.");
     } finally {
-      setSavingDetails(false);
+      setSaving(false);
     }
   }
 
@@ -954,7 +2021,7 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     setError(null);
     try {
       await api.deletePullRequest(props.project.id, pullRequest.id);
-      props.onClose();
+      props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete pull request.");
     } finally {
@@ -962,306 +2029,126 @@ function PullRequestDetailPanel(props: { project: ProjectDto; pullRequestId: num
     }
   }
 
-  async function saveLabels() {
-    if (!pullRequest) {
-      return;
-    }
-    setSavingLabels(true);
-    setError(null);
-    try {
-      const response = await api.updatePullRequest(props.project.id, pullRequest.id, {
-        labelIds: selectedLabelIds
-      });
-      setPullRequest(response.pullRequest);
-      setSelectedLabelIds(response.pullRequest.labels.map((label) => label.id));
-      setLabelSelectionDirty(false);
-      if (response.automationJobIds?.length) {
-        setTab("activity");
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save labels.");
-    } finally {
-      setSavingLabels(false);
-    }
-  }
-
   return (
-    <aside className="detail-panel">
-      <div className="section-header">
-        <h2>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : "Pull request"}</h2>
-        <button className="secondary-button" onClick={props.onClose} type="button">
-          {t("actions.close")}
+    <form className="editor-form" onSubmit={savePullRequest}>
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onCancel} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
         </button>
+        <h1>{pullRequest ? `${t("actions.edit")} #${pullRequest.id}` : t("actions.edit")}</h1>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      {pullRequest ? (
-        <>
-          <p className="detail-body">
-            {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
-          </p>
-          <div className="detail-facts">
-            <span>{pullRequest.changedFileCount} {t("pullRequests.files")}</span>
-            <span>{pullRequest.commitCount} {t("pullRequests.commits")}</span>
-          </div>
-        </>
-      ) : null}
-      {mergeConflicts?.hasConflicts ? (
-        <div className="warning-banner">
-          <div>
-            <strong>{t("pullRequests.conflictsDetected")}</strong>
-            <p>{mergeConflicts.files.map((file) => file.path).join(", ")}</p>
-          </div>
-          <button
-            className="secondary-button"
-            disabled={isResolvingConflicts}
-            onClick={() => void resolveConflicts()}
-            type="button"
-          >
-            <CircleAlert size={16} />
-            {t("pullRequests.resolveConflicts")}
-          </button>
-        </div>
-      ) : null}
-      {pullRequest ? (
-        <form className="detail-edit-form" onSubmit={saveDetails}>
-          <label>
-            {t("issues.titleField")}
-            <input
-              value={editTitle}
-              onChange={(event) => {
-                setEditTitle(event.target.value);
-                setDetailsDirty(true);
-              }}
-              required
-            />
-          </label>
-          <label>
-            {t("issues.bodyField")}
-            <textarea
-              value={editBody}
-              onChange={(event) => {
-                setEditBody(event.target.value);
-                setDetailsDirty(true);
-              }}
-              rows={4}
-            />
-          </label>
-          <label>
-            {t("issues.status")}
-            <select
-              value={editStatus}
-              onChange={(event) => {
-                setEditStatus(event.target.value as PullRequestDto["status"]);
-                setDetailsDirty(true);
-              }}
-            >
-              <option value="open">{t("issues.open")}</option>
-              <option value="closed">{t("issues.closed")}</option>
-            </select>
-          </label>
-          <div className="action-row">
-            <button className="primary-button" disabled={isSavingDetails || !isDetailsDirty} type="submit">
-              <Save size={16} />
-              {t("actions.save")}
-            </button>
-            <button className="danger-button" disabled={isDeleting} onClick={() => void deletePullRequest()} type="button">
-              {t("actions.delete")}
-            </button>
-          </div>
-        </form>
-      ) : null}
-      <LabelEditor
-        isSaving={isSavingLabels}
-        labels={labelsForTarget(labels, "pull_request")}
-        onSave={saveLabels}
-        onSelectedLabelIdsChange={(labelIds) => {
-          setSelectedLabelIds(labelIds);
-          setLabelSelectionDirty(true);
-        }}
-        selectedLabelIds={selectedLabelIds}
-      />
-      <div className="action-row">
-        <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
-          <GitPullRequest size={16} />
-          {t("agents.queueReview")}
-        </button>
-        <button className="secondary-button" onClick={() => void queueAgent("fix")} type="button">
-          <CircleAlert size={16} />
-          {t("agents.queueFix")}
-        </button>
-        <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
-          <CheckCircle2 size={16} />
-          {t("agents.queueQa")}
-        </button>
-      </div>
-      <div className="subtabs">
-        <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
-          {t("issues.conversation")}
-        </button>
-        <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")} type="button">
-          {t("issues.activity")}
-        </button>
-        <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
-          {t("pullRequests.filesChanged")}
-        </button>
-        <button className={tab === "commits" ? "active" : ""} onClick={() => setTab("commits")} type="button">
-          {t("pullRequests.commitsTab")}
-        </button>
-      </div>
-      {tab === "conversation" ? (
-        <>
-          <Timeline comments={comments} />
-          <CommentForm onSubmit={addComment} />
-        </>
-      ) : null}
-      {tab === "activity" ? <ActivityLog activities={activities} /> : null}
-      {tab === "files" ? (
-        <div className="file-list">
-          {files.length === 0 ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
-          {files.map((file) => (
-            <article className="file-row" key={file.path}>
-              <header>
-                <strong>{file.path}</strong>
-                <span>
-                  +{file.additions} -{file.deletions}
-                </span>
-              </header>
-              {file.patch ? <DiffPreview patch={file.patch} /> : null}
-            </article>
-          ))}
-        </div>
-      ) : null}
-      {tab === "commits" ? (
-        <div className="commit-list">
-          {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
-          {commits.map((commit) => (
-            <article className="file-row commit-row" key={commit.hash}>
-              <header>
-                <strong>{commit.subject}</strong>
-                <code>{commit.hash.slice(0, 8)}</code>
-              </header>
-              <p>
-                {commit.authorName} - {new Date(commit.date).toLocaleString()}
-              </p>
-            </article>
-          ))}
-        </div>
-      ) : null}
-    </aside>
-  );
-}
-
-function PullRequestsView(props: { project: ProjectDto }) {
-  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
-  const [selectedPullRequestId, setSelectedPullRequestId] = useState<number | null>(null);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [sourceBranch, setSourceBranch] = useState("");
-  const [targetBranch, setTargetBranch] = useState(props.project.defaultBranch);
-  const [issueId, setIssueId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    const response = await api.listPullRequests(props.project.id);
-    setPullRequests(response.items);
-  }
-
-  useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull requests."));
-  }, [props.project.id]);
-
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const pullRequest = await api.createPullRequest(props.project.id, {
-      issueId: issueId ? Number(issueId) : null,
-      title,
-      body,
-      sourceBranch,
-      targetBranch
-    });
-    setPullRequests((current) => [pullRequest, ...current]);
-    setTitle("");
-    setBody("");
-    setSourceBranch("");
-    setIssueId("");
-  }
-
-  return (
-    <div className="page-grid">
-      <section className="page-section">
-        <div className="section-header">
-          <h1>{t("pullRequests.title")}</h1>
-          <button className="icon-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
-            <RefreshCw size={16} />
-          </button>
-        </div>
-        {error ? <div className="error-banner">{error}</div> : null}
-        <div className="issue-list">
-          {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
-          {pullRequests.map((pullRequest) => (
-            <article
-              className="issue-row clickable"
-              key={pullRequest.id}
-              onClick={() => setSelectedPullRequestId(pullRequest.id)}
-            >
-              <div>
-                <h2>#{pullRequest.id} {pullRequest.title}</h2>
-                <p>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</p>
-                <div className="label-row">
-                  {pullRequest.labels.map((label) => (
-                    <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
-                      {label.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="row-meta">
-                <span>{pullRequest.status}</span>
-                <span>{pullRequest.commentCount} {t("issues.comments")}</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <aside className="side-panel">
-        <h2>{t("pullRequests.newPullRequest")}</h2>
-        <form onSubmit={handleCreate}>
+      <div className="editor-layout">
+        <section className="page-section">
           <label>
             {t("issues.titleField")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} required />
           </label>
           <label>
             {t("issues.bodyField")}
-            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={6} />
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={10} />
           </label>
-          <label>
-            {t("pullRequests.sourceBranch")}
-            <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
-          </label>
-          <label>
-            {t("pullRequests.targetBranch")}
-            <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
-          </label>
+          <div className="form-grid two-columns">
+            <label>
+              {t("pullRequests.sourceBranch")}
+              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
+            </label>
+            <label>
+              {t("pullRequests.targetBranch")}
+              <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
+            </label>
+          </div>
           <label>
             {t("pullRequests.linkedIssue")}
             <input value={issueId} onChange={(event) => setIssueId(event.target.value)} type="number" />
           </label>
-          <button className="primary-button" type="submit">
+        </section>
+        <aside className="side-panel">
+          <label>
+            {t("issues.status")}
+            <select value={status} onChange={(event) => setStatus(event.target.value as PullRequestDto["status"])}>
+              <option value="open">{t("issues.open")}</option>
+              <option value="closed">{t("issues.closed")}</option>
+            </select>
+          </label>
+          <LabelPicker
+            disabled={isSaving}
+            labels={labelsForTarget(labels, "pull_request")}
+            onSelectedLabelIdsChange={setSelectedLabelIds}
+            selectedLabelIds={selectedLabelIds}
+          />
+          <button className="primary-button full-width" disabled={isSaving} type="submit">
             <Save size={16} />
-            {t("actions.create")}
+            {t("actions.save")}
           </button>
-        </form>
-      </aside>
-      {selectedPullRequestId ? (
-        <PullRequestDetailPanel
-          project={props.project}
-          pullRequestId={selectedPullRequestId}
-          onClose={() => setSelectedPullRequestId(null)}
-        />
-      ) : null}
-    </div>
+          <button className="danger-button full-width" disabled={isDeleting} onClick={() => void deletePullRequest()} type="button">
+            {t("actions.delete")}
+          </button>
+        </aside>
+      </div>
+    </form>
+  );
+}
+
+function PullRequestsView(props: {
+  project: ProjectDto;
+  openPullRequestId: number | null;
+  onOpenPullRequestHandled: () => void;
+  onOpenAgentJob: (jobId: number) => void;
+  onOpenIssue: (issueId: number) => void;
+}) {
+  const [screen, setScreen] = useState<PullRequestScreen>({ name: "list" });
+
+  useEffect(() => {
+    if (props.openPullRequestId === null) {
+      return;
+    }
+    setScreen({ name: "detail", pullRequestId: props.openPullRequestId });
+    props.onOpenPullRequestHandled();
+  }, [props.openPullRequestId, props.onOpenPullRequestHandled]);
+
+  if (screen.name === "new") {
+    return (
+      <PullRequestNewScreen
+        project={props.project}
+        onCancel={() => setScreen({ name: "list" })}
+        onCreated={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+      />
+    );
+  }
+
+  if (screen.name === "detail") {
+    return (
+      <PullRequestDetailScreen
+        project={props.project}
+        pullRequestId={screen.pullRequestId}
+        onBack={() => setScreen({ name: "list" })}
+        onEdit={(pullRequestId) => setScreen({ name: "edit", pullRequestId })}
+        onOpenAgentJob={props.onOpenAgentJob}
+        onOpenIssue={props.onOpenIssue}
+      />
+    );
+  }
+
+  if (screen.name === "edit") {
+    return (
+      <PullRequestEditScreen
+        project={props.project}
+        pullRequestId={screen.pullRequestId}
+        onCancel={() => setScreen({ name: "detail", pullRequestId: screen.pullRequestId })}
+        onDeleted={() => setScreen({ name: "list" })}
+        onSaved={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+      />
+    );
+  }
+
+  return (
+    <PullRequestsListScreen
+      project={props.project}
+      onNew={() => setScreen({ name: "new" })}
+      onOpen={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+    />
   );
 }
 
@@ -1355,7 +2242,25 @@ export function App() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [isLoading, setLoading] = useState(true);
   const [view, setView] = useState<View>("issues");
+  const [openIssueId, setOpenIssueId] = useState<number | null>(null);
+  const [openAgentJobId, setOpenAgentJobId] = useState<number | null>(null);
+  const [openPullRequestId, setOpenPullRequestId] = useState<number | null>(null);
   const project = useMemo(() => projects[0] ?? null, [projects]);
+  const handleOpenIssue = useCallback((issueId: number) => {
+    setOpenIssueId(issueId);
+    setView("issues");
+  }, []);
+  const handleOpenAgentJob = useCallback((jobId: number) => {
+    setOpenAgentJobId(jobId);
+    setView("agentJobs");
+  }, []);
+  const handleOpenPullRequest = useCallback((pullRequestId: number) => {
+    setOpenPullRequestId(pullRequestId);
+    setView("pullRequests");
+  }, []);
+  const handleOpenAgentJobHandled = useCallback(() => setOpenAgentJobId(null), []);
+  const handleOpenIssueHandled = useCallback(() => setOpenIssueId(null), []);
+  const handleOpenPullRequestHandled = useCallback(() => setOpenPullRequestId(null), []);
 
   useEffect(() => {
     api
@@ -1374,11 +2279,33 @@ export function App() {
 
   return (
     <AppShell project={project} view={view} onViewChange={setView}>
-      {view === "issues" ? <IssuesView project={project} /> : null}
-      {view === "pullRequests" ? <PullRequestsView project={project} /> : null}
+      {view === "issues" ? (
+        <IssuesView
+          project={project}
+          openIssueId={openIssueId}
+          onOpenIssueHandled={handleOpenIssueHandled}
+          onOpenAgentJob={handleOpenAgentJob}
+          onOpenPullRequest={handleOpenPullRequest}
+        />
+      ) : null}
+      {view === "pullRequests" ? (
+        <PullRequestsView
+          project={project}
+          openPullRequestId={openPullRequestId}
+          onOpenPullRequestHandled={handleOpenPullRequestHandled}
+          onOpenAgentJob={handleOpenAgentJob}
+          onOpenIssue={handleOpenIssue}
+        />
+      ) : null}
+      {view === "agentJobs" ? (
+        <AgentJobsView
+          project={project}
+          openJobId={openAgentJobId}
+          onOpenJobHandled={handleOpenAgentJobHandled}
+        />
+      ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
       {view === "settings" ? <SettingsView project={project} /> : null}
-      {view === "issues" ? <AgentJobsPanel project={project} /> : null}
     </AppShell>
   );
 }

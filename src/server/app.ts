@@ -29,7 +29,8 @@ import {
   getCommits,
   getDiffFiles,
   getDiffWithPatches,
-  getRepositoryStatus
+  getRepositoryStatus,
+  mergeBranch
 } from "./services/git-service";
 import { runLabelAutomation } from "./services/label-automation";
 
@@ -107,6 +108,14 @@ const updateProjectSettingsSchema = z.object({
 
 function notFound(message: string): never {
   throw new HTTPException(404, { message });
+}
+
+function conflict(message: string): never {
+  throw new HTTPException(409, { message });
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function pageParams(url: URL): { limit: number; offset: number } {
@@ -540,12 +549,21 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
   app.post("/api/projects/:projectId/issues/:issueId/comments", zValidator("json", createCommentSchema), async (c) => {
     const projectId = c.req.param("projectId");
     const issueId = Number(c.req.param("issueId"));
+    const waitingJob = (
+      await repos.agentJobs.list({
+        projectId,
+        targetType: "issue",
+        targetId: issueId,
+        status: "waiting_human"
+      })
+    )[0];
     const comment = await repos.comments.create({
       projectId,
       targetType: "issue",
       targetId: issueId,
       authorType: "user",
-      body: c.req.valid("json").body
+      body: c.req.valid("json").body,
+      metadata: waitingJob ? { agentJobId: waitingJob.id, relation: "human_reply" } : undefined
     });
     const autoResumedJob = await resumeWaitingJobForComment(repos, {
       projectId,
@@ -564,10 +582,12 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     const url = new URL(c.req.url);
     const { limit, offset } = pageParams(url);
     const status = url.searchParams.get("status") as PullRequestStatus | null;
+    const issueIdParam = url.searchParams.get("issueId");
     const project = await getProjectOr404(repos, c.req.param("projectId"));
     const result = await repos.pullRequests.list({
       projectId: project.id,
       status: status ?? undefined,
+      issueId: issueIdParam ? Number(issueIdParam) : undefined,
       limit,
       offset
     });
@@ -659,12 +679,21 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     async (c) => {
       const projectId = c.req.param("projectId");
       const pullRequestId = Number(c.req.param("pullRequestId"));
+      const waitingJob = (
+        await repos.agentJobs.list({
+          projectId,
+          targetType: "pull_request",
+          targetId: pullRequestId,
+          status: "waiting_human"
+        })
+      )[0];
       const comment = await repos.comments.create({
         projectId,
         targetType: "pull_request",
         targetId: pullRequestId,
         authorType: "user",
-        body: c.req.valid("json").body
+        body: c.req.valid("json").body,
+        metadata: waitingJob ? { agentJobId: waitingJob.id, relation: "human_reply" } : undefined
       });
       const autoResumedJob = await resumeWaitingJobForComment(repos, {
         projectId,
@@ -712,6 +741,54 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     }
     const files = await getDiffWithPatches(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
     return c.json({ files });
+  });
+
+  app.post("/api/projects/:projectId/pull-requests/:pullRequestId/merge", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequestId = Number(c.req.param("pullRequestId"));
+    const pullRequest = await repos.pullRequests.get(project.id, pullRequestId);
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    if (pullRequest.status !== "open") {
+      conflict("Only open pull requests can be merged.");
+    }
+
+    const status = await getRepositoryStatus(project.repoPath);
+    if (!status.clean) {
+      conflict(`Working tree must be clean before merge. Changed files: ${status.changedFiles.join(", ")}`);
+    }
+
+    const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    if (conflicts.hasConflicts) {
+      conflict(`Merge conflicts detected: ${conflicts.files.map((file) => file.path).join(", ")}`);
+    }
+
+    let mergeResult: { mergeCommit: string; output: string };
+    try {
+      mergeResult = await mergeBranch(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    } catch (error) {
+      conflict(errorMessage(error, "Merge failed."));
+    }
+
+    const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, { status: "closed" });
+    if (!mergedPullRequest) {
+      notFound("Pull request was not found.");
+    }
+
+    await repos.comments.create({
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      authorType: "system",
+      body: `Merged \`${pullRequest.sourceBranch}\` into \`${pullRequest.targetBranch}\`.\n\nMerge commit: \`${mergeResult.mergeCommit.slice(0, 12)}\`.`
+    });
+
+    return c.json({
+      pullRequest: await enrichPullRequestWithGitStats(project, mergedPullRequest),
+      mergeCommit: mergeResult.mergeCommit,
+      output: mergeResult.output
+    });
   });
 
   app.post("/api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts", async (c) => {

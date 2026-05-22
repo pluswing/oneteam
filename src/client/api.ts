@@ -44,6 +44,12 @@ type PullRequestMutationResponse = {
   automationJobIds?: number[];
 };
 
+type PullRequestMergeResponse = {
+  pullRequest: PullRequestDto;
+  mergeCommit: string;
+  output: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -178,8 +184,19 @@ export const api = {
     });
   },
 
-  async listPullRequests(projectId: string): Promise<PullRequestListResponse> {
-    return request<PullRequestListResponse>(`/api/projects/${projectId}/pull-requests?status=open`);
+  async listPullRequests(
+    projectId: string,
+    filters: { status?: PullRequestDto["status"] | null; issueId?: number } = { status: "open" }
+  ): Promise<PullRequestListResponse> {
+    const params = new URLSearchParams();
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+    if (typeof filters.issueId === "number") {
+      params.set("issueId", String(filters.issueId));
+    }
+    const query = params.toString();
+    return request<PullRequestListResponse>(`/api/projects/${projectId}/pull-requests${query ? `?${query}` : ""}`);
   },
 
   async getPullRequest(projectId: string, pullRequestId: number): Promise<PullRequestDto> {
@@ -197,6 +214,7 @@ export const api = {
       body: string;
       sourceBranch: string;
       targetBranch: string;
+      labelIds?: number[];
     }
   ): Promise<PullRequestDto> {
     const response = await request<PullRequestMutationResponse>(`/api/projects/${projectId}/pull-requests`, {
@@ -285,6 +303,12 @@ export const api = {
     return response.jobId;
   },
 
+  async mergePullRequest(projectId: string, pullRequestId: number): Promise<PullRequestMergeResponse> {
+    return request<PullRequestMergeResponse>(`/api/projects/${projectId}/pull-requests/${pullRequestId}/merge`, {
+      method: "POST"
+    });
+  },
+
   async getRepositoryStatus(projectId: string): Promise<RepositoryStatusDto> {
     return request<RepositoryStatusDto>(`/api/projects/${projectId}/repository/status`);
   },
@@ -310,6 +334,18 @@ export const api = {
     const query = params.toString();
     const response = await request<ListResponse<AgentJobDto>>(
       `/api/projects/${projectId}/agent-jobs${query ? `?${query}` : ""}`
+    );
+    return response.items;
+  },
+
+  async getAgentJob(projectId: string, jobId: number): Promise<AgentJobDto> {
+    const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs/${jobId}`);
+    return response.job;
+  },
+
+  async listAgentJobActivities(projectId: string, jobId: number): Promise<ActivityDto[]> {
+    const response = await request<ListResponse<ActivityDto>>(
+      `/api/projects/${projectId}/agent-jobs/${jobId}/activities`
     );
     return response.items;
   },

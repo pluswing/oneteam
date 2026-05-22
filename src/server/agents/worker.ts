@@ -354,6 +354,11 @@ export class AgentWorker {
       output = await this.enterHumanGate(job, output, target);
     }
 
+    const commentMetadata = {
+      ...(output.metadata ?? {}),
+      agentJobId: job.id
+    };
+
     if (output.comment) {
       await this.repos.comments.create({
         projectId: job.projectId,
@@ -362,7 +367,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: output.comment.body,
-        metadata: output.metadata ?? undefined
+        metadata: commentMetadata
       });
     } else if (output.questions?.length && target) {
       await this.repos.comments.create({
@@ -372,7 +377,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: output.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
-        metadata: output.metadata ?? undefined
+        metadata: commentMetadata
       });
     } else if (output.message && target) {
       await this.repos.comments.create({
@@ -382,7 +387,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: output.message,
-        metadata: output.metadata ?? undefined
+        metadata: commentMetadata
       });
     }
 

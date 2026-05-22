@@ -114,10 +114,12 @@ export class CodexAdapter implements AgentAdapter {
         };
       }
 
+      const failureMessage = exitCode === 0 ? undefined : codexFailureMessage(exitCode, stdout, stderr);
+
       await input.onActivity?.({
         type: exitCode === 0 ? "progress" : "error",
         title: exitCode === 0 ? "Codex CLI completed" : "Codex CLI failed",
-        body: completionBody(exitCode, stdout, stderr),
+        body: exitCode === 0 ? completionBody(stderr) : failureMessage,
         payload: {
           exitCode,
           stdoutTail: stdout.slice(-4000),
@@ -128,7 +130,7 @@ export class CodexAdapter implements AgentAdapter {
       if (exitCode !== 0) {
         return {
           status: "failed",
-          message: stderr || `Codex CLI failed with exit code ${exitCode}`,
+          message: failureMessage ?? `Codex CLI failed with exit code ${exitCode}`,
           activities: []
         };
       }
@@ -348,7 +350,7 @@ const agentOutputSchema = {
                                 type: ["string", "null"]
                               }
                             },
-                            required: [],
+                            required: ["severity", "path", "line", "title", "body"],
                             additionalProperties: false
                           }
                         },
@@ -402,7 +404,8 @@ const agentOutputSchema = {
                         {
                           type: "object",
                           properties: {},
-                          additionalProperties: true
+                          required: [],
+                          additionalProperties: false
                         },
                         {
                           type: "null"
@@ -446,7 +449,7 @@ const agentOutputSchema = {
                                 type: ["string", "null"]
                               }
                             },
-                            required: [],
+                            required: ["severity", "path", "title", "body"],
                             additionalProperties: false
                           }
                         },
@@ -478,7 +481,7 @@ const agentOutputSchema = {
               ]
             }
           },
-          required: ["nextLabel", "pullRequest"],
+          required: ["nextLabel", "pullRequest", "review", "fix", "qa"],
           additionalProperties: false
         },
         {
@@ -637,14 +640,51 @@ function formatUsage(value: unknown): string | undefined {
   return parts.length ? parts.join(", ") : undefined;
 }
 
-function completionBody(exitCode: number, stdout: string, stderr: string): string {
-  if (exitCode === 0) {
-    return stderr.trim()
-      ? "Codex completed successfully. Non-fatal CLI warnings were captured in the activity payload."
-      : "Codex completed successfully.";
+function completionBody(stderr: string): string {
+  return stderr.trim()
+    ? "Codex completed successfully. Non-fatal CLI warnings were captured in the activity payload."
+    : "Codex completed successfully.";
+}
+
+function codexFailureMessage(exitCode: number, stdout: string, stderr: string): string {
+  const structuredError = structuredCodexError(stdout);
+  if (structuredError) {
+    return structuredError;
   }
 
-  return stderr || stdout.slice(-4000);
+  const fallback = stderr.trim() || stdout.trim();
+  return truncate(fallback, 4000) ?? `Codex CLI failed with exit code ${exitCode}`;
+}
+
+function structuredCodexError(stdout: string): string | undefined {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reverse();
+
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as unknown;
+      if (!isRecord(event)) {
+        continue;
+      }
+
+      const eventType = stringValue(event.type);
+      if (eventType !== "turn.failed" && eventType !== "error") {
+        continue;
+      }
+
+      const message = visibleText(event.error) ?? stringValue(event.message);
+      if (message) {
+        return message;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 function visibleText(value: unknown): string | undefined {

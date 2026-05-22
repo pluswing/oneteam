@@ -9,14 +9,17 @@ describe("codex adapter", () => {
   it("runs the local Codex CLI with full access flags and captures JSONL activity", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-"));
     const argsPath = join(dir, "args.json");
+    const schemaCopyPath = join(dir, "agent-output.schema.json");
     const fakeCodexPath = join(dir, "fake-codex.mjs");
     await writeFile(
       fakeCodexPath,
       `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));
+const schemaPath = args[args.indexOf("--output-schema") + 1];
+writeFileSync(${JSON.stringify(schemaCopyPath)}, readFileSync(schemaPath, "utf8"));
 
 process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-1" }) + "\\n");
 process.stdout.write(JSON.stringify({ type: "item.completed", item: { id: "item-1", type: "reasoning", text: "Reviewed the target issue." } }) + "\\n");
@@ -47,6 +50,33 @@ writeFileSync(outputPath, JSON.stringify({
     });
 
     const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+    const schema = JSON.parse(await readFile(schemaCopyPath, "utf8")) as {
+      properties: {
+        metadata: {
+          anyOf: Array<{
+            properties?: {
+              review?: {
+                anyOf: Array<{
+                  properties?: {
+                    findings?: {
+                      anyOf: Array<{
+                        items?: {
+                          required?: string[];
+                        };
+                      }>;
+                    };
+                  };
+                }>;
+              };
+            };
+            required?: string[];
+          }>;
+        };
+      };
+    };
+    const metadataObjectSchema = schema.properties.metadata.anyOf.find((item) => item.properties);
+    const reviewObjectSchema = metadataObjectSchema?.properties?.review?.anyOf.find((item) => item.properties);
+    const findingItemSchema = reviewObjectSchema?.properties?.findings?.anyOf.find((item) => item.items)?.items;
     expect(args).toEqual(
       expect.arrayContaining([
         "exec",
@@ -61,6 +91,8 @@ writeFileSync(outputPath, JSON.stringify({
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--sandbox");
     expect(args.at(-1)).toBe("-");
+    expect(metadataObjectSchema?.required).toEqual(["nextLabel", "pullRequest", "review", "fix", "qa"]);
+    expect(findingItemSchema?.required).toEqual(["severity", "path", "line", "title", "body"]);
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Codex completed.");
     expect(activities.map((activity) => activity.title)).toEqual(
@@ -104,6 +136,40 @@ setInterval(() => {}, 1000);
 
     expect(result.status).toBe("canceled");
     expect(result.activities?.map((activity) => activity.title)).toContain("Codex CLI canceled");
+  });
+
+  it("prefers structured Codex errors over noisy stderr output", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-error-"));
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-error" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "error", message: "You've hit your usage limit. Try again later." }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "turn.failed", error: { message: "You've hit your usage limit. Try again later." } }) + "\\n");
+process.stderr.write("WARN plugin cache failed\\n<html>cloudflare challenge</html>\\n");
+process.exit(1);
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+
+    const activities: Array<{ type: string; title: string; body?: string | null }> = [];
+    const adapter = new CodexAdapter({ command: fakeCodexPath });
+    const result = await adapter.run({
+      job: fakeJob,
+      repoPath: dir,
+      prompt: "Review the pull request.",
+      onActivity: (activity) => {
+        activities.push(activity);
+      }
+    });
+
+    const failedActivity = activities.find((activity) => activity.title === "Codex CLI failed");
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("You've hit your usage limit. Try again later.");
+    expect(failedActivity?.body).toBe("You've hit your usage limit. Try again later.");
+    expect(failedActivity?.body).not.toContain("cloudflare");
   });
 });
 
