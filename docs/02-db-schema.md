@@ -361,23 +361,23 @@ project 作成時に system labels を投入する。
 
 | name | color |
 | --- | --- |
-| `要件定義中` | `#0969da` |
-| `確認待ち` | `#bf8700` |
-| `実装待ち` | `#1a7f37` |
-| `実装中` | `#8250df` |
-| `PR作成済み` | `#0969da` |
-| `完了` | `#1a7f37` |
+| `requirements` | `#0969da` |
+| `needs-input` | `#bf8700` |
+| `ready-for-implementation` | `#1a7f37` |
+| `implementing` | `#8250df` |
+| `pull-request-created` | `#0969da` |
+| `done` | `#1a7f37` |
 
 ### 6.2 Pull Request Labels
 
 | name | color |
 | --- | --- |
-| `レビュー中` | `#0969da` |
-| `修正中` | `#cf222e` |
-| `コンフリクト修正中` | `#cf222e` |
-| `テスト中` | `#8250df` |
-| `確認待ち` | `#bf8700` |
-| `完了` | `#1a7f37` |
+| `reviewing` | `#0969da` |
+| `fixing` | `#cf222e` |
+| `resolving-conflicts` | `#cf222e` |
+| `testing` | `#8250df` |
+| `needs-input` | `#bf8700` |
+| `done` | `#1a7f37` |
 
 MVP では labels table は issue / PR 共通で扱う。必要であれば `description` に intended target を保存する。
 

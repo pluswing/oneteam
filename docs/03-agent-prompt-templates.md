@@ -29,7 +29,7 @@ Codex CLI で実行する各 Agent の prompt template、入力 context、出力
     "id": 24,
     "title": "Add build command",
     "body": "Markdown body",
-    "labels": ["要件定義中"],
+    "labels": ["requirements"],
     "comments": []
   },
   "pullRequest": null,
@@ -246,9 +246,9 @@ Tasks:
 2. Look for bugs, regressions, missing tests, unsafe behavior, and style issues.
 3. Prioritize concrete findings with file paths and line references when available.
 4. If fixes are required, return succeeded with a review comment whose verdict is
-   "changes_requested", metadata.nextLabel = "修正中", and metadata.review.findings.
+   "changes_requested", metadata.nextLabel = "fixing", and metadata.review.findings.
 5. If no blocking issues exist, return succeeded with verdict "approved" and
-   metadata.nextLabel = "テスト中".
+   metadata.nextLabel = "testing".
 6. Return metadata.review:
    - verdict: "approved" or "changes_requested"
    - findings: array of severity/path/line/title/body objects
@@ -299,7 +299,7 @@ Tasks:
 5. Add or update tests when appropriate.
 6. Run relevant lint/test/build commands.
 7. Return a fix summary and test results.
-8. Set metadata.nextLabel = "レビュー中" when complete.
+8. Set metadata.nextLabel = "reviewing" when complete.
 9. Return metadata.fix.resolvedFindings and metadata.fix.conflictVerification when relevant.
 
 Return JSON using the common output schema.
@@ -330,8 +330,8 @@ Tasks:
 2. Run relevant tests and build commands.
 3. If UI changed, start the dev server and use Playwright for verification.
 4. Record commands, observations, screenshots or trace paths if available.
-5. If a defect is found, return succeeded with metadata.nextLabel = "修正中".
-6. If no defect is found, return succeeded with metadata.nextLabel = "完了".
+5. If a defect is found, return succeeded with metadata.nextLabel = "fixing".
+6. If no defect is found, return succeeded with metadata.nextLabel = "done".
 7. Return metadata.qa:
    - verdict: "passed" or "defects_found"
    - defects: array of severity/path/title/body objects

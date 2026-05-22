@@ -1,4 +1,5 @@
 import type { AgentJobDto, CommentDto, IssueDto, ProjectCommandDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import { workflowLabelNames } from "../../shared/workflow-labels";
 
 export type AgentPromptContext = {
   project: ProjectDto;
@@ -62,7 +63,7 @@ Tasks:
 5. If human input is not required, write a requirements definition comment.
 6. For a new repository, include install/dev/build/test/lint command requirements.
 
-Set metadata.nextLabel to "実装待ち" when requirements are complete.`,
+Set metadata.nextLabel to "${workflowLabelNames.readyForImplementation}" when requirements are complete.`,
 
   implementation: `You are the Implementation Agent.
 
@@ -83,8 +84,8 @@ Goal:
 Review the local pull request for correctness, requirement coverage,
 maintainability, and test adequacy.
 
-If fixes are required, set metadata.nextLabel to "修正中".
-If no blocking issues exist, set metadata.nextLabel to "テスト中".
+If fixes are required, set metadata.nextLabel to "${workflowLabelNames.fixing}".
+If no blocking issues exist, set metadata.nextLabel to "${workflowLabelNames.testing}".
 Return metadata.review with verdict, findings, and checked items.
 Each finding should include severity, path, line, title, and body when available.`,
 
@@ -93,7 +94,7 @@ Each finding should include severity, path, line, title, and body when available
 Goal:
 Resolve review findings, QA findings, or merge conflicts for the pull request.
 
-After fixes are complete, set metadata.nextLabel to "レビュー中".
+After fixes are complete, set metadata.nextLabel to "${workflowLabelNames.reviewing}".
 Return metadata.fix with resolvedFindings and conflictVerification when relevant.`,
 
   qa: `You are the QA Agent.
@@ -101,8 +102,8 @@ Return metadata.fix with resolvedFindings and conflictVerification when relevant
 Goal:
 Validate the pull request from the user's perspective.
 
-If a defect is found, set metadata.nextLabel to "修正中".
-If no defect is found, set metadata.nextLabel to "完了".
+If a defect is found, set metadata.nextLabel to "${workflowLabelNames.fixing}".
+If no defect is found, set metadata.nextLabel to "${workflowLabelNames.done}".
 Return metadata.qa with verdict, defects, and observations.`,
 
   command_detection: `You are the Command Detection Agent.

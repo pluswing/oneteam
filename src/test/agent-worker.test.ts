@@ -89,7 +89,7 @@ describe("agent worker", () => {
             }
           ],
           metadata: {
-            nextLabel: "実装待ち"
+            nextLabel: "ready-for-implementation"
           }
         };
       }
@@ -106,7 +106,7 @@ describe("agent worker", () => {
     expect(updatedJob?.status).toBe("succeeded");
     expect(comments[0].body).toContain("Build the setup wizard");
     expect(activities.map((activity) => activity.title)).toContain("Reviewed issue");
-    expect(updatedIssue?.labels.map((label) => label.name)).toContain("実装待ち");
+    expect(updatedIssue?.labels.map((label) => label.name)).toContain("ready-for-implementation");
 
     context.client.close();
   });
@@ -178,7 +178,7 @@ describe("agent worker", () => {
       defaultBranch: "main",
       locale: "en"
     });
-    const requirementsLabel = await repos.labels.findByName(project.id, "要件定義中");
+    const requirementsLabel = await repos.labels.findByName(project.id, "requirements");
     const issue = await repos.issues.create({
       projectId: project.id,
       title: "Add setup",
@@ -221,9 +221,9 @@ describe("agent worker", () => {
       | undefined;
 
     expect(updatedJob?.status).toBe("waiting_human");
-    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["確認待ち"]);
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["needs-input"]);
     expect(comments[0].body).toContain("Which users");
-    expect(output?.metadata?.humanGate?.previousLabelNames).toContain("要件定義中");
+    expect(output?.metadata?.humanGate?.previousLabelNames).toContain("requirements");
     expect(activities.map((activity) => activity.title)).toContain("Waiting for human input");
 
     context.client.close();
@@ -531,8 +531,8 @@ describe("agent worker", () => {
     const approvedActivities = await repos.activities.list(project.id, "pull_request", approvedPr.id);
     const jobs = await repos.agentJobs.list({ projectId: project.id });
 
-    expect(changesRequestedAfter?.labels.map((label) => label.name)).toContain("修正中");
-    expect(approvedAfter?.labels.map((label) => label.name)).toContain("テスト中");
+    expect(changesRequestedAfter?.labels.map((label) => label.name)).toContain("fixing");
+    expect(approvedAfter?.labels.map((label) => label.name)).toContain("testing");
     expect(changesRequestedActivities.map((activity) => activity.title)).toContain("Review findings captured");
     expect(approvedActivities.map((activity) => activity.title)).toContain("Review approval captured");
     expect(jobs.some((job) => job.agentType === "fix" && job.targetId === changesRequestedPr.id)).toBe(true);
@@ -643,9 +643,9 @@ describe("agent worker", () => {
     const defectActivities = await repos.activities.list(project.id, "pull_request", defectPr.id);
     const passedActivities = await repos.activities.list(project.id, "pull_request", passedPr.id);
 
-    expect(fixAfter?.labels.map((label) => label.name)).toContain("レビュー中");
-    expect(defectAfter?.labels.map((label) => label.name)).toContain("修正中");
-    expect(passedAfter?.labels.map((label) => label.name)).toContain("完了");
+    expect(fixAfter?.labels.map((label) => label.name)).toContain("reviewing");
+    expect(defectAfter?.labels.map((label) => label.name)).toContain("fixing");
+    expect(passedAfter?.labels.map((label) => label.name)).toContain("done");
     expect(fixActivities.map((activity) => activity.title)).toContain("Fix summary captured");
     expect(defectActivities.map((activity) => activity.title)).toContain("QA defects captured");
     expect(passedActivities.map((activity) => activity.title)).toContain("QA pass captured");
@@ -673,7 +673,7 @@ describe("agent worker", () => {
       defaultBranch: "main",
       locale: "en"
     });
-    const conflictLabel = await repos.labels.findByName(project.id, "コンフリクト修正中");
+    const conflictLabel = await repos.labels.findByName(project.id, "resolving-conflicts");
     const pullRequest = await repos.pullRequests.create({
       projectId: project.id,
       title: "Resolve conflict",
@@ -694,7 +694,7 @@ describe("agent worker", () => {
           status: "succeeded",
           message: "Conflict fix completed.",
           metadata: {
-            nextLabel: "レビュー中",
+            nextLabel: "reviewing",
             fix: {
               resolvedFindings: ["Attempted conflict resolution."],
               conflictVerification: null
@@ -712,7 +712,7 @@ describe("agent worker", () => {
     const activities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
 
     expect(updatedJob?.status).toBe("failed");
-    expect(updatedPullRequest?.labels.map((label) => label.name)).toEqual(["コンフリクト修正中"]);
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toEqual(["resolving-conflicts"]);
     expect(activities.map((activity) => activity.title)).toContain("Merge conflicts remain");
 
     context.client.close();
@@ -731,7 +731,7 @@ describe("agent worker", () => {
       defaultBranch: "main",
       locale: "en"
     });
-    const implementationLabel = await repos.labels.findByName(project.id, "実装待ち");
+    const implementationLabel = await repos.labels.findByName(project.id, "ready-for-implementation");
     const issue = await repos.issues.create({
       projectId: project.id,
       title: "Add setup",
@@ -768,7 +768,7 @@ describe("agent worker", () => {
 
     expect(adapterCalled).toBe(false);
     expect(updatedJob?.status).toBe("waiting_human");
-    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["確認待ち"]);
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["needs-input"]);
     expect(comments[0].body).toContain("commit, stash, or discard");
     expect(activities.map((activity) => activity.title)).toContain("Implementation branch blocked");
     expect(currentBranch).toBe("main");

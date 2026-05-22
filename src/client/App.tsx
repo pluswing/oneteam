@@ -27,14 +27,19 @@ import type {
   RepositoryStatusDto
 } from "../shared/types";
 import { defaultCodexCommand } from "../shared/codex";
+import {
+  issueWorkflowLabelNames as issueWorkflowLabels,
+  pullRequestWorkflowLabelNames as pullRequestWorkflowLabels,
+  workflowLabelNames
+} from "../shared/workflow-labels";
 import { api } from "./api";
 import { t } from "./i18n";
 
 type View = "issues" | "pullRequests" | "repository" | "settings";
 const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running"]);
 const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
-const issueWorkflowLabelNames = new Set(["要件定義中", "確認待ち", "実装待ち", "実装中", "PR作成済み", "完了"]);
-const pullRequestWorkflowLabelNames = new Set(["レビュー中", "修正中", "コンフリクト修正中", "テスト中", "完了"]);
+const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
+const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
 
 function isActiveAgentJob(job: AgentJobDto): boolean {
   return activeAgentStatuses.has(job.status);
@@ -562,7 +567,7 @@ function IssuesView(props: { project: ProjectDto }) {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const requirementsLabel = labels.find((label) => label.name === "要件定義中");
+    const requirementsLabel = labels.find((label) => label.name === workflowLabelNames.requirements);
     const issue = await api.createIssue(props.project.id, {
       title,
       body,

@@ -18,6 +18,7 @@ import type {
   PullRequestStatus
 } from "../shared/types";
 import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
+import { workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
@@ -220,7 +221,7 @@ async function detectAndPersistCommands(
 
   const createdIssueIds: number[] = [];
   if (createIssuesForMissingCommands) {
-    const requirementsLabel = await repos.labels.findByName(projectId, "要件定義中");
+    const requirementsLabel = await repos.labels.findByName(projectId, workflowLabelNames.requirements);
     for (const command of detection.commands.filter((item) => !item.isAvailable)) {
       const issue = buildMissingCommandIssue({
         commandType: command.commandType,
@@ -258,11 +259,11 @@ async function detectAndPersistCommands(
 }
 
 const humanGateFallbackLabels: Partial<Record<AgentType, string>> = {
-  requirements: "要件定義中",
-  implementation: "実装中",
-  review: "レビュー中",
-  fix: "修正中",
-  qa: "テスト中"
+  requirements: workflowLabelNames.requirements,
+  implementation: workflowLabelNames.implementing,
+  review: workflowLabelNames.reviewing,
+  fix: workflowLabelNames.fixing,
+  qa: workflowLabelNames.testing
 };
 
 function readPreviousLabelIds(job: { output: Record<string, unknown> | null }): number[] | null {
@@ -584,7 +585,7 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
 
   app.post("/api/projects/:projectId/pull-requests", zValidator("json", createPullRequestSchema), async (c) => {
     const projectId = c.req.param("projectId");
-    const reviewLabel = await repos.labels.findByName(projectId, "レビュー中");
+    const reviewLabel = await repos.labels.findByName(projectId, workflowLabelNames.reviewing);
     const pullRequest = await repos.pullRequests.create({
       projectId,
       ...c.req.valid("json"),
@@ -720,7 +721,7 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     if (!previousPullRequest) {
       notFound("Pull request was not found.");
     }
-    const conflictLabel = await repos.labels.findByName(projectId, "コンフリクト修正中");
+    const conflictLabel = await repos.labels.findByName(projectId, workflowLabelNames.resolvingConflicts);
     let pullRequest = previousPullRequest;
     if (conflictLabel) {
       pullRequest =
@@ -734,7 +735,7 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
       labels: pullRequest.labels,
       triggerType: "conflict_detected"
     });
-    return c.json({ jobId: automationJobs[0]?.id ?? null, label: "コンフリクト修正中" });
+    return c.json({ jobId: automationJobs[0]?.id ?? null, label: workflowLabelNames.resolvingConflicts });
   });
 
   app.get("/api/projects/:projectId/agent-jobs", async (c) => {

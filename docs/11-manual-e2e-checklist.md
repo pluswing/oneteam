@@ -15,11 +15,11 @@ Use this checklist for a final MVP pass from setup through QA completion.
 ## 2. Issue workflow
 
 - Create an issue with a clear implementation request.
-- Apply `要件定義中` and confirm a requirements job is queued.
+- Apply `requirements` and confirm a requirements job is queued.
 - Add a user comment while a job is `waiting_human` and confirm the previous label is restored.
-- Move the issue to `実装待ち` and confirm an implementation job is queued.
+- Move the issue to `ready-for-implementation` and confirm an implementation job is queued.
 - Confirm the implementation job prepares `oneteam/issue-{issueId}-{slug}`.
-- Confirm dirty working tree protection moves the issue to `確認待ち`.
+- Confirm dirty working tree protection moves the issue to `needs-input`.
 - Confirm successful implementation records changed files and verification command results.
 - Confirm a local pull request is created from implementation output.
 
@@ -30,11 +30,11 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Open the Files tab and expand a large diff preview.
 - Open the Commits tab and confirm commits are listed.
 - Confirm merge conflicts show a visible resolve action when present.
-- Run review and confirm findings route the pull request to `修正中`.
-- Run fix and confirm completion routes the pull request to `レビュー中`.
-- Run review approval and confirm it routes the pull request to `テスト中`.
-- Run QA with a defect and confirm it routes the pull request to `修正中`.
-- Run QA with no defects and confirm it routes the pull request to `完了`.
+- Run review and confirm findings route the pull request to `fixing`.
+- Run fix and confirm completion routes the pull request to `reviewing`.
+- Run review approval and confirm it routes the pull request to `testing`.
+- Run QA with a defect and confirm it routes the pull request to `fixing`.
+- Run QA with no defects and confirm it routes the pull request to `done`.
 
 ## 4. CRUD and recovery
 

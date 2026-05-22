@@ -209,10 +209,10 @@ Tasks:
 
 Acceptance:
 
-- `要件定義中` label から agent が起動する。
+- `requirements` label から agent が起動する。
 - 不明点があれば質問して停止する。
 - 回答後に自動再開する。
-- 要件確定後 `実装待ち` になる。
+- 要件確定後 `ready-for-implementation` になる。
 
 ### M10. Implementation Agent
 
@@ -228,7 +228,7 @@ Tasks:
 
 Acceptance:
 
-- `実装待ち` label から branch 作成と実装が始まる。
+- `ready-for-implementation` label から branch 作成と実装が始まる。
 - 実装後に PR が作成される。
 - 変更ファイルとテスト結果が Activity に残る。
 
@@ -247,11 +247,11 @@ Tasks:
 
 Acceptance:
 
-- PR 作成後 `レビュー中` になる。
-- 指摘があれば `修正中` になる。
-- 修正後 `レビュー中` に戻る。
-- QA が通れば `完了` になる。
-- conflict があれば `コンフリクト修正中` から修正できる。
+- PR 作成後 `reviewing` になる。
+- 指摘があれば `fixing` になる。
+- 修正後 `reviewing` に戻る。
+- QA が通れば `done` になる。
+- conflict があれば `resolving-conflicts` から修正できる。
 
 ## 4. 実装済み Issue 分割
 

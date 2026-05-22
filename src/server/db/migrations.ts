@@ -5,6 +5,92 @@ type Migration = {
   statements: string[];
 };
 
+const legacyWorkflowLabelRenames = [
+  { oldName: "要件定義中", newName: "requirements" },
+  { oldName: "確認待ち", newName: "needs-input" },
+  { oldName: "実装待ち", newName: "ready-for-implementation" },
+  { oldName: "実装中", newName: "implementing" },
+  { oldName: "PR作成済み", newName: "pull-request-created" },
+  { oldName: "レビュー中", newName: "reviewing" },
+  { oldName: "修正中", newName: "fixing" },
+  { oldName: "コンフリクト修正中", newName: "resolving-conflicts" },
+  { oldName: "テスト中", newName: "testing" },
+  { oldName: "完了", newName: "done" }
+] as const;
+
+const migrationTimestamp = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function renameWorkflowLabelStatements(): string[] {
+  return legacyWorkflowLabelRenames.flatMap(({ oldName, newName }) => {
+    const oldNameSql = sqlString(oldName);
+    const newNameSql = sqlString(newName);
+    const duplicateLabelIds = `(select legacy.id
+          from labels legacy
+          inner join labels replacement
+            on replacement.project_id = legacy.project_id
+            and replacement.name = ${newNameSql}
+            and replacement.deleted_at is null
+            and replacement.id <> legacy.id
+          where legacy.name = ${oldNameSql}
+            and legacy.deleted_at is null)`;
+
+    return [
+      `insert or ignore into issue_labels (issue_id, label_id, created_at)
+        select issue_labels.issue_id, replacement.id, issue_labels.created_at
+        from issue_labels
+        inner join labels legacy on legacy.id = issue_labels.label_id
+        inner join labels replacement
+          on replacement.project_id = legacy.project_id
+          and replacement.name = ${newNameSql}
+          and replacement.deleted_at is null
+        where legacy.name = ${oldNameSql}
+          and legacy.deleted_at is null`,
+      `delete from issue_labels
+        where label_id in ${duplicateLabelIds}`,
+      `insert or ignore into pull_request_labels (pull_request_id, label_id, created_at)
+        select pull_request_labels.pull_request_id, replacement.id, pull_request_labels.created_at
+        from pull_request_labels
+        inner join labels legacy on legacy.id = pull_request_labels.label_id
+        inner join labels replacement
+          on replacement.project_id = legacy.project_id
+          and replacement.name = ${newNameSql}
+          and replacement.deleted_at is null
+        where legacy.name = ${oldNameSql}
+          and legacy.deleted_at is null`,
+      `delete from pull_request_labels
+        where label_id in ${duplicateLabelIds}`,
+      `update labels
+        set deleted_at = coalesce(deleted_at, ${migrationTimestamp}),
+            updated_at = ${migrationTimestamp}
+        where name = ${oldNameSql}
+          and deleted_at is null
+          and exists (
+            select 1
+            from labels replacement
+            where replacement.project_id = labels.project_id
+              and replacement.name = ${newNameSql}
+              and replacement.id <> labels.id
+          )`,
+      `update labels
+        set name = ${newNameSql},
+            updated_at = ${migrationTimestamp}
+        where name = ${oldNameSql}
+          and deleted_at is null
+          and not exists (
+            select 1
+            from labels replacement
+            where replacement.project_id = labels.project_id
+              and replacement.name = ${newNameSql}
+              and replacement.id <> labels.id
+          )`
+    ];
+  });
+}
+
 const migrations: Migration[] = [
   {
     id: "0001_initial_schema",
@@ -158,6 +244,10 @@ const migrations: Migration[] = [
     statements: [
       "create index if not exists idx_agent_jobs_lock_status on agent_jobs(project_id, lock_key, status, created_at asc)"
     ]
+  },
+  {
+    id: "0003_english_system_labels",
+    statements: renameWorkflowLabelStatements()
   }
 ];
 

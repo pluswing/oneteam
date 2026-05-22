@@ -23,8 +23,8 @@ describe("label automation", () => {
       locale: "en"
     });
     const labels = await repos.labels.list(project.id);
-    const requirementsLabel = labels.find((label) => label.name === "要件定義中");
-    const implementationLabel = labels.find((label) => label.name === "実装待ち");
+    const requirementsLabel = labels.find((label) => label.name === "requirements");
+    const implementationLabel = labels.find((label) => label.name === "ready-for-implementation");
     expect(requirementsLabel).toBeDefined();
     expect(implementationLabel).toBeDefined();
 
@@ -93,7 +93,7 @@ describe("label automation", () => {
       locale: "en"
     });
     const labels = await repos.labels.list(project.id);
-    const requirementsLabel = labels.find((label) => label.name === "要件定義中");
+    const requirementsLabel = labels.find((label) => label.name === "requirements");
     expect(requirementsLabel).toBeDefined();
 
     const issueResponse = await app.request(`/api/projects/${project.id}/issues`, {

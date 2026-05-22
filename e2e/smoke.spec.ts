@@ -29,7 +29,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await newIssuePanel.getByRole("button", { name: "Create" }).click();
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
-  await expect(page.locator(".label-pill", { hasText: "要件定義中" })).toBeVisible();
+  await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
 
   const agentPanel = page.locator(".side-panel").filter({ hasText: "Agent Jobs" });
   await agentPanel.getByTitle("Refresh").click();

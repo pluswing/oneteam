@@ -21,8 +21,8 @@ describe("human gate", () => {
       defaultBranch: "main",
       locale: "en"
     });
-    const requirementsLabel = await repos.labels.findByName(project.id, "要件定義中");
-    const confirmationLabel = await repos.labels.findByName(project.id, "確認待ち");
+    const requirementsLabel = await repos.labels.findByName(project.id, "requirements");
+    const confirmationLabel = await repos.labels.findByName(project.id, "needs-input");
     expect(requirementsLabel).toBeDefined();
     expect(confirmationLabel).toBeDefined();
 
@@ -67,7 +67,7 @@ describe("human gate", () => {
     expect(body.autoResumedJobId).toBe(job.id);
     expect(resumedJob?.status).toBe("queued");
     expect(resumedJob?.attempt).toBe(2);
-    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["要件定義中"]);
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["requirements"]);
     expect(activities.map((activity) => activity.title)).toContain("Human answer received");
 
     context.client.close();

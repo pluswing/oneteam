@@ -1,19 +1,20 @@
 import type { AgentJobDto, AgentJobStatus, AgentType, LabelDto } from "../../shared/types";
+import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import { resolveAgentJobLockKey } from "./agent-job-locks";
 
 const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_human"]);
 
 const issueLabelAgents = new Map<string, AgentType>([
-  ["要件定義中", "requirements"],
-  ["実装待ち", "implementation"]
+  [workflowLabelNames.requirements, "requirements"],
+  [workflowLabelNames.readyForImplementation, "implementation"]
 ]);
 
 const pullRequestLabelAgents = new Map<string, AgentType>([
-  ["レビュー中", "review"],
-  ["修正中", "fix"],
-  ["コンフリクト修正中", "fix"],
-  ["テスト中", "qa"]
+  [workflowLabelNames.reviewing, "review"],
+  [workflowLabelNames.fixing, "fix"],
+  [workflowLabelNames.resolvingConflicts, "fix"],
+  [workflowLabelNames.testing, "qa"]
 ]);
 
 export type LabelAutomationInput = {

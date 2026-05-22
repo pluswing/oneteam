@@ -1,4 +1,5 @@
 import type { AgentJobDto, LabelDto, ProjectDto } from "../../shared/types";
+import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import { detectMergeConflicts, getChangedFilesSince } from "../services/git-service";
 import { prepareImplementationBranch } from "../services/implementation-preflight";
@@ -218,7 +219,10 @@ export class AgentWorker {
     }
 
     const metadata: NonNullable<AgentRunResult["metadata"]> = { ...(result.metadata ?? {}) };
-    if (job.agentType === "fix" && pullRequest.labels.some((label) => label.name === "コンフリクト修正中")) {
+    if (
+      job.agentType === "fix" &&
+      pullRequest.labels.some((label) => label.name === workflowLabelNames.resolvingConflicts)
+    ) {
       const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
       if (conflicts.hasConflicts) {
         return {
@@ -397,7 +401,7 @@ export class AgentWorker {
     target: { targetType: "issue" | "pull_request"; targetId: number }
   ): Promise<AgentRunResult> {
     const previousLabels = await this.getTargetLabels(job);
-    const confirmationLabel = await this.repos.labels.findByName(job.projectId, "確認待ち");
+    const confirmationLabel = await this.repos.labels.findByName(job.projectId, workflowLabelNames.needsInput);
     if (confirmationLabel) {
       if (target.targetType === "issue") {
         await this.repos.issues.update(job.projectId, target.targetId, { labelIds: [confirmationLabel.id] });
@@ -482,7 +486,7 @@ export class AgentWorker {
         issueId?: unknown;
       };
       if (typeof pr.title === "string" && typeof pr.sourceBranch === "string" && typeof pr.targetBranch === "string") {
-        const reviewLabel = await this.repos.labels.findByName(job.projectId, "レビュー中");
+        const reviewLabel = await this.repos.labels.findByName(job.projectId, workflowLabelNames.reviewing);
         const pullRequest = await this.repos.pullRequests.create({
           projectId: job.projectId,
           issueId: typeof pr.issueId === "number" ? pr.issueId : job.targetType === "issue" ? job.targetId : null,
@@ -575,24 +579,24 @@ function derivePullRequestNextLabel(
   if (agentType === "review") {
     const verdict = stringValue(objectValue(metadata.review)?.verdict);
     if (verdict === "changes_requested") {
-      return "修正中";
+      return workflowLabelNames.fixing;
     }
     if (verdict === "approved") {
-      return "テスト中";
+      return workflowLabelNames.testing;
     }
   }
 
   if (agentType === "fix") {
-    return "レビュー中";
+    return workflowLabelNames.reviewing;
   }
 
   if (agentType === "qa") {
     const verdict = stringValue(objectValue(metadata.qa)?.verdict);
     if (verdict === "defects_found") {
-      return "修正中";
+      return workflowLabelNames.fixing;
     }
     if (verdict === "passed") {
-      return "完了";
+      return workflowLabelNames.done;
     }
   }
 

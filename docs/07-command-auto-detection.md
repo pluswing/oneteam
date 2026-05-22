@@ -186,7 +186,7 @@ review, and QA workflows.
 
 自動作成 issue には次を付与する。
 
-- `要件定義中`
+- `requirements`
 
 要件が十分明確な場合でも、Requirements Agent を通してから Implementation Agent に渡す。
 

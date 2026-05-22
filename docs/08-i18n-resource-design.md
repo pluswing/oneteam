@@ -140,22 +140,22 @@ agents.status.waitingHuman
 
 ## 8. Label Display
 
-system label の DB value は日本語でもよいが、UI 表示は key 経由にできるようにする。
+system label の DB value は英語の安定した slug とし、UI 表示は key 経由にできるようにする。
 
 推奨 mapping:
 
 ```ts
 const systemLabelKeys = {
-  "要件定義中": "labels.issue.requirements",
-  "確認待ち": "labels.shared.waitingHuman",
-  "実装待ち": "labels.issue.implementationWaiting",
-  "実装中": "labels.issue.implementing",
-  "PR作成済み": "labels.issue.pullRequestCreated",
-  "レビュー中": "labels.pullRequest.reviewing",
-  "修正中": "labels.pullRequest.fixing",
-  "コンフリクト修正中": "labels.pullRequest.conflictFixing",
-  "テスト中": "labels.pullRequest.testing",
-  "完了": "labels.shared.completed"
+  "requirements": "labels.issue.requirements",
+  "needs-input": "labels.shared.waitingHuman",
+  "ready-for-implementation": "labels.issue.implementationWaiting",
+  "implementing": "labels.issue.implementing",
+  "pull-request-created": "labels.issue.pullRequestCreated",
+  "reviewing": "labels.pullRequest.reviewing",
+  "fixing": "labels.pullRequest.fixing",
+  "resolving-conflicts": "labels.pullRequest.conflictFixing",
+  "testing": "labels.pullRequest.testing",
+  "done": "labels.shared.completed"
 };
 ```
 

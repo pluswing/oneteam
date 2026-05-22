@@ -77,25 +77,25 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 ### 6.1 Issue から Pull Request まで
 
 1. ユーザーが issue を作成する。
-2. ユーザー、または自動ルールにより `要件定義中` label が付与される。
+2. ユーザー、または自動ルールにより `requirements` label が付与される。
 3. 要件定義エージェントが起動する。
 4. 要件定義エージェントは issue 本文、コメント、repository の現状を確認する。
 5. 不明点がある場合、issue コメントに質問を書き、Agent Job を `waiting_human` にする。
 6. ユーザーが回答すると、要件定義エージェントが自動再開する。
 7. 不明点が解消されたら、要件定義エージェントが要件定義コメントを投稿する。
-8. issue の label を `実装待ち` に変更する。
+8. issue の label を `ready-for-implementation` に変更する。
 9. 実装エージェントが起動し、実装ブランチを作成する。
 10. 実装エージェントはファイル変更、テスト追加、テスト実行を行う。
 11. 実装中に不明点が出た場合、issue コメントで質問し、Human Gate に入る。
 12. 実装完了後、one team 内に pull request を作成する。
-13. pull request に `レビュー中` label を付与する。
+13. pull request に `reviewing` label を付与する。
 14. レビューエージェントがレビューする。
-15. 指摘があれば pull request コメントに記録し、`修正中` label に変更する。
-16. 修正エージェントが指摘を修正し、テスト後に `レビュー中` に戻す。
-17. レビュー指摘がなくなったら `テスト中` label に変更する。
+15. 指摘があれば pull request コメントに記録し、`fixing` label に変更する。
+16. 修正エージェントが指摘を修正し、テスト後に `reviewing` に戻す。
+17. レビュー指摘がなくなったら `testing` label に変更する。
 18. QA エージェントが UI を含む動作確認を実施する。
-19. 不具合があれば pull request コメントに記録し、`修正中` に戻す。
-20. 問題がなければ検証結果をコメントし、pull request と issue に `完了` label を付与する。
+19. 不具合があれば pull request コメントに記録し、`fixing` に戻す。
+20. 問題がなければ検証結果をコメントし、pull request と issue に `done` label を付与する。
 21. merge はユーザーが実行する。
 22. merge conflict が発生、または事前検出された場合、one team は修正エージェントで conflict 解消を支援する。
 
@@ -190,12 +190,12 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 | Label | 意味 | 主な担当 |
 | --- | --- | --- |
-| `要件定義中` | 要件定義エージェントが確認中 | 要件定義エージェント |
-| `確認待ち` | 人間の回答待ち | ユーザー |
-| `実装待ち` | 要件確定済み、実装開始待ち | 実装エージェント |
-| `実装中` | 実装中 | 実装エージェント |
-| `PR作成済み` | pull request が作成された | 実装エージェント |
-| `完了` | 対応完了 | QA エージェント / ユーザー |
+| `requirements` | 要件定義エージェントが確認中 | 要件定義エージェント |
+| `needs-input` | 人間の回答待ち | ユーザー |
+| `ready-for-implementation` | 要件確定済み、実装開始待ち | 実装エージェント |
+| `implementing` | 実装中 | 実装エージェント |
+| `pull-request-created` | pull request が作成された | 実装エージェント |
+| `done` | 対応完了 | QA エージェント / ユーザー |
 
 ### 8.3 Pull Request Status
 
@@ -206,12 +206,12 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 | Label | 意味 | 主な担当 |
 | --- | --- | --- |
-| `レビュー中` | レビューエージェントが確認中 | レビューエージェント |
-| `修正中` | 指摘修正中 | 修正エージェント |
-| `コンフリクト修正中` | merge conflict 修正中 | 修正エージェント |
-| `テスト中` | QA 実施中 | QA エージェント |
-| `確認待ち` | 人間の回答・承認待ち | ユーザー |
-| `完了` | 検証完了 | QA エージェント / ユーザー |
+| `reviewing` | レビューエージェントが確認中 | レビューエージェント |
+| `fixing` | 指摘修正中 | 修正エージェント |
+| `resolving-conflicts` | merge conflict 修正中 | 修正エージェント |
+| `testing` | QA 実施中 | QA エージェント |
+| `needs-input` | 人間の回答・承認待ち | ユーザー |
+| `done` | 検証完了 | QA エージェント / ユーザー |
 
 ### 8.5 Agent Job Status
 
@@ -243,7 +243,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 #### 起動条件
 
-- issue に `要件定義中` label が付与されたとき。
+- issue に `requirements` label が付与されたとき。
 - ユーザーが issue 詳細から手動実行したとき。
 - `waiting_human` の質問にユーザーが回答したとき。
 
@@ -284,7 +284,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 #### 起動条件
 
-- issue に `実装待ち` label が付与されたとき。
+- issue に `ready-for-implementation` label が付与されたとき。
 - ユーザーが手動実行したとき。
 
 #### 入力
@@ -323,7 +323,7 @@ oneteam/issue-{issueId}-{slug}
 
 #### 起動条件
 
-- pull request に `レビュー中` label が付与されたとき。
+- pull request に `reviewing` label が付与されたとき。
 - 修正エージェント完了後に再レビューが必要なとき。
 - ユーザーが手動実行したとき。
 
@@ -341,8 +341,8 @@ oneteam/issue-{issueId}-{slug}
 - 要件を満たしているか確認する。
 - 既存コードの設計・規約に反していないか確認する。
 - バグ、仕様漏れ、テスト不足、保守性の問題を指摘する。
-- 問題がある場合、指摘を pull request コメントに投稿し `修正中` label に変更する。
-- 問題がない場合、`テスト中` label に変更して QA エージェントへ渡す。
+- 問題がある場合、指摘を pull request コメントに投稿し `fixing` label に変更する。
+- 問題がない場合、`testing` label に変更して QA エージェントへ渡す。
 
 #### 出力
 
@@ -358,8 +358,8 @@ oneteam/issue-{issueId}-{slug}
 
 #### 起動条件
 
-- pull request に `修正中` label が付与されたとき。
-- pull request に `コンフリクト修正中` label が付与されたとき。
+- pull request に `fixing` label が付与されたとき。
+- pull request に `resolving-conflicts` label が付与されたとき。
 - レビューまたは QA で指摘が投稿されたとき。
 - merge conflict が検出されたとき。
 
@@ -379,7 +379,7 @@ oneteam/issue-{issueId}-{slug}
 - テストを追加・更新する。
 - build / test / lint を実行する。
 - 修正完了コメントを投稿する。
-- `レビュー中` label に戻す。
+- `reviewing` label に戻す。
 
 #### 出力
 
@@ -393,7 +393,7 @@ oneteam/issue-{issueId}-{slug}
 
 #### 起動条件
 
-- pull request に `テスト中` label が付与されたとき。
+- pull request に `testing` label が付与されたとき。
 - ユーザーが手動実行したとき。
 
 #### 入力
@@ -410,8 +410,8 @@ oneteam/issue-{issueId}-{slug}
 - 必要に応じて dev server を起動する。
 - unit / integration / e2e のうち、変更内容に応じた確認を実行する。
 - UI 変更がある場合、Playwright などで画面確認を行う。
-- 不具合があれば pull request コメントに詳細を投稿し `修正中` label に変更する。
-- 問題がなければ QA 結果を投稿し `完了` label を付与する。
+- 不具合があれば pull request コメントに詳細を投稿し `fixing` label に変更する。
+- 問題がなければ QA 結果を投稿し `done` label を付与する。
 
 #### 出力
 
@@ -439,7 +439,7 @@ MVP では次のどちらかで repository を登録できる。
 - 該当コマンドが存在する場合、検出結果を project commands として保存する。
 - 必須コマンドまたは推奨コマンドが不足している場合、one team は不足機能を実装するための issue を即座に自動作成する。
 - 自動作成された issue には不足している機能、検出結果、推奨される実装方針を本文に記録する。
-- 自動作成された issue は `要件定義中` または `実装待ち` に遷移し、AI が必要機能の実装を開始できるようにする。
+- 自動作成された issue は `requirements` または `ready-for-implementation` に遷移し、AI が必要機能の実装を開始できるようにする。
 
 #### 新規 Repository 作成
 
@@ -834,15 +834,15 @@ e2e             Playwright smoke tests
 
 ### 15.4 AI Workflow
 
-- `要件定義中` label から要件定義エージェントを起動できる。
+- `requirements` label から要件定義エージェントを起動できる。
 - 要件定義エージェントは不明点をコメントし、人間の回答待ちにできる。
 - 人間の回答後、要件定義を再開できる。
-- 要件定義完了後、実装待ちに遷移できる。
+- 要件定義完了後、`ready-for-implementation` に遷移できる。
 - 実装エージェントは branch 作成、実装、テスト実行、pull request 作成を行える。
 - レビューエージェントは pull request をレビューし、指摘または QA への遷移を行える。
 - 修正エージェントは指摘を修正し、再レビューへ戻せる。
 - 修正エージェントは merge conflict を修正できる。
-- QA エージェントはテスト結果をコメントし、完了または修正へ遷移できる。
+- QA エージェントはテスト結果をコメントし、`done` または `fixing` へ遷移できる。
 - Agent Job の Activity Log を issue / pull request から時系列で確認できる。
 
 ## 16. 非機能要件

@@ -16,7 +16,7 @@ Githubのissue, pull request機能を持ちます。
   - issueの一覧
   - issueの新規作成/更新/削除
   - 状態管理 ( Open / Closed )
-  - タグ管理 ( 要件定義中 / 実装待ち /  実装中 / テスト中 / 完了 など。 )
+  - タグ管理 ( requirements / ready-for-implementation / implementing / testing / done など。 )
     - 基本的にAIが次に行う仕事を決めるのに利用する。
   - コメント機能
     - AIからの要件定義のための質問
@@ -27,7 +27,7 @@ Githubのissue, pull request機能を持ちます。
   - pull requestの一覧
   - pull requestの新規作成/更新/削除
   - 状態管理 ( Open / Closed )
-  - タグ管理 ( レビュー中 / 修正中 / テスト中 / 完了 など。 )
+  - タグ管理 ( reviewing / fixing / testing / done など。 )
   - コメント機能
     - タグとコメントは、issueとほぼ同じ
   - コミット一覧
@@ -61,7 +61,7 @@ Githubのissue, pull request機能を持ちます。
   - 実行環境を自動で用意し、環境を立ち上げる
   - playwright などを利用し、追加・修正された機能をテストする
   - 不具合などがあった場合、コメントに不具合の詳細を書き込み、修正エージェントにバトンタッチ
-  - 問題なければ、検証結果をまとめてコメントし、完了タグをつける
+  - 問題なければ、検証結果をまとめてコメントし、`done` タグをつける
 
 # バックエンド、動作環境
 one teamは単独開発者向けのシステムです。
