@@ -8,16 +8,11 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  RotateCcw,
   Save,
-  Settings,
-  Square,
   Terminal
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type {
-  ActivityDto,
   AgentJobDto,
   CommentDto,
   IssueDto,
@@ -38,320 +33,23 @@ import {
   workflowLabelNames
 } from "../shared/workflow-labels";
 import { api } from "./api";
-import logoMarkUrl from "./assets/logo.svg";
-import oneTeamLogoUrl from "./assets/oneteam.svg";
+import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
+import { summarizeAgentJobs } from "./agent-status";
+import { AppShell } from "./components/AppShell";
+import { MarkdownContent } from "./components/MarkdownContent";
+import { SetupWizard } from "./components/SetupWizard";
+import { formatDateTime, formatPullRequestStatus } from "./formatters";
 import { t } from "./i18n";
+import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
+import { numberValue, recordValue } from "./value-parsers";
+import { AgentJobsView } from "./views/AgentJobsView";
 
-type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
-const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running", "waiting_human"]);
-const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
-type AgentHeaderStatus = "ready" | "queued" | "running" | "waiting" | "failed";
-type AgentHeaderState = {
-  status: AgentHeaderStatus;
-  label: string;
-  count: number;
-  title: string;
-};
-
-function isActiveAgentJob(job: AgentJobDto): boolean {
-  return activeAgentStatuses.has(job.status);
-}
-
-function canRetryAgentJob(job: AgentJobDto): boolean {
-  return retryableAgentStatuses.has(job.status);
-}
-
-function formatJobTarget(job: AgentJobDto): string {
-  return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
-}
-
-function summarizeAgentJobs(jobs: AgentJobDto[]): AgentHeaderState {
-  const runningJobs = jobs.filter((job) => job.status === "running");
-  if (runningJobs.length) {
-    return agentHeaderState("running", t("status.running"), runningJobs);
-  }
-
-  const waitingJobs = jobs.filter((job) => job.status === "waiting_human");
-  if (waitingJobs.length) {
-    return agentHeaderState("waiting", t("status.waiting"), waitingJobs);
-  }
-
-  const queuedJobs = jobs.filter((job) => job.status === "queued");
-  if (queuedJobs.length) {
-    return agentHeaderState("queued", t("status.queued"), queuedJobs);
-  }
-
-  const latestJob = jobs[0] ?? null;
-  if (latestJob?.status === "failed") {
-    return agentHeaderState("failed", t("status.failed"), [latestJob]);
-  }
-
-  return {
-    status: "ready",
-    label: t("status.ready"),
-    count: 0,
-    title: t("status.ready")
-  };
-}
-
-function agentHeaderState(status: AgentHeaderStatus, label: string, jobs: AgentJobDto[]): AgentHeaderState {
-  const firstJob = jobs[0];
-  const suffix = jobs.length > 1 ? ` ${jobs.length}` : "";
-  return {
-    status,
-    label: `${label}${suffix}`,
-    count: jobs.length,
-    title: firstJob ? `#${firstJob.id} ${firstJob.agentType} ${formatJobTarget(firstJob)}` : label
-  };
-}
-
-function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "-";
-}
-
-function formatPullRequestStatus(status: PullRequestDto["status"]): string {
-  if (status === "open") {
-    return t("pullRequests.open");
-  }
-  if (status === "merged") {
-    return t("pullRequests.merged");
-  }
-  return t("pullRequests.closed");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null;
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" ? value : null;
-}
-
-function stringArrayValue(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function recordArrayValue(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
 
 function labelsForTarget(labels: LabelDto[], targetType: "issue" | "pull_request"): LabelDto[] {
   const workflowLabels = targetType === "issue" ? issueWorkflowLabelNames : pullRequestWorkflowLabelNames;
   return labels.filter((label) => label.kind === "custom" || workflowLabels.has(label.name));
-}
-
-function MarkdownContent(props: { content: string; className?: string }) {
-  return (
-    <div className={["markdown-body", props.className].filter(Boolean).join(" ")}>
-      <ReactMarkdown>{props.content}</ReactMarkdown>
-    </div>
-  );
-}
-
-function AppShell(props: {
-  project: ProjectDto;
-  view: View;
-  onViewChange: (view: View) => void;
-  agentState: AgentHeaderState;
-  children: React.ReactNode;
-}) {
-  const [isSettingsMenuOpen, setSettingsMenuOpen] = useState(false);
-  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
-  const nav = [
-    { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
-    { view: "pullRequests" as const, label: t("nav.pullRequests"), icon: GitPullRequest },
-    { view: "agentJobs" as const, label: t("nav.agentJobs"), icon: Bot }
-  ];
-  const settingsNav = [
-    { view: "repository" as const, label: t("nav.repository"), icon: Terminal },
-    { view: "settings" as const, label: t("nav.settings"), icon: Settings }
-  ];
-
-  useEffect(() => {
-    if (!isSettingsMenuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (target instanceof Node && settingsMenuRef.current?.contains(target)) {
-        return;
-      }
-      setSettingsMenuOpen(false);
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isSettingsMenuOpen]);
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="header-logo" aria-hidden="true">
-          <img src={logoMarkUrl} alt="" />
-        </div>
-        <nav className="nav-tabs" aria-label="Primary">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={props.view === item.view ? "nav-tab active" : "nav-tab"}
-                key={item.view}
-                onClick={() => props.onViewChange(item.view)}
-                type="button"
-              >
-                <Icon size={16} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-        <div className={`agent-state agent-state-${props.agentState.status}`} title={props.agentState.title}>
-          {props.agentState.status === "ready" ? <CheckCircle2 size={16} /> : null}
-          {props.agentState.status === "running" ? <RotateCcw size={16} /> : null}
-          {props.agentState.status === "queued" ? <Bot size={16} /> : null}
-          {props.agentState.status === "waiting" || props.agentState.status === "failed" ? <CircleAlert size={16} /> : null}
-          {props.agentState.label}
-        </div>
-        <div className="settings-menu" ref={settingsMenuRef}>
-          <button
-            aria-expanded={isSettingsMenuOpen}
-            aria-haspopup="menu"
-            aria-label={t("nav.tools")}
-            className={props.view === "repository" || props.view === "settings" ? "settings-menu-button active" : "settings-menu-button"}
-            onClick={() => setSettingsMenuOpen((current) => !current)}
-            type="button"
-          >
-            <Settings size={18} />
-          </button>
-          {isSettingsMenuOpen ? (
-            <div className="settings-menu-popover" role="menu">
-              {settingsNav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={props.view === item.view ? "settings-menu-item active" : "settings-menu-item"}
-                    key={item.view}
-                    onClick={() => {
-                      props.onViewChange(item.view);
-                      setSettingsMenuOpen(false);
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <Icon size={16} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      </header>
-      <main className="main">{props.children}</main>
-    </div>
-  );
-}
-
-function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
-  const [mode, setMode] = useState<"import" | "create">("import");
-  const [name, setName] = useState("one team");
-  const [repoPath, setRepoPath] = useState("");
-  const [defaultBranch, setDefaultBranch] = useState("main");
-  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
-  const [codexModel, setCodexModel] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const project = await api.createProject({
-        mode,
-        name,
-        repoPath,
-        defaultBranch,
-        locale: "en",
-        codex: {
-          command: codexCommand,
-          model: codexModel || undefined,
-          fullAccess: true
-        }
-      });
-      props.onCreated(project);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Setup failed.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <main className="setup-screen">
-      <form className="setup-panel" onSubmit={handleSubmit}>
-        <div className="setup-logo">
-          <img src={oneTeamLogoUrl} alt={t("app.name")} />
-        </div>
-        <h1>{t("setup.title")}</h1>
-        <section className="form-section">
-          <h2>{t("setup.repository")}</h2>
-          <label>
-            {t("setup.mode")}
-            <select value={mode} onChange={(event) => setMode(event.target.value as "import" | "create")}>
-              <option value="import">{t("setup.importMode")}</option>
-              <option value="create">{t("setup.createMode")}</option>
-            </select>
-          </label>
-          <label>
-            {t("setup.name")}
-            <input value={name} onChange={(event) => setName(event.target.value)} required />
-          </label>
-          <label>
-            {t("setup.path")}
-            <input value={repoPath} onChange={(event) => setRepoPath(event.target.value)} required />
-          </label>
-          <label>
-            {t("setup.defaultBranch")}
-            <input value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
-          </label>
-        </section>
-
-        <section className="form-section">
-          <h2>{t("setup.codex")}</h2>
-          <label>
-            {t("setup.command")}
-            <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} required />
-          </label>
-          <label>
-            {t("setup.model")}
-            <input value={codexModel} onChange={(event) => setCodexModel(event.target.value)} />
-          </label>
-          <label className="checkbox-label">
-            <input checked readOnly type="checkbox" />
-            {t("setup.fullAccess")}
-          </label>
-        </section>
-
-        {error ? <div className="error-banner">{error}</div> : null}
-        <button className="primary-button" disabled={isSubmitting} type="submit">
-          <Save size={16} />
-          {t("setup.createProject")}
-        </button>
-      </form>
-    </main>
-  );
 }
 
 type ConversationEntry =
@@ -540,27 +238,6 @@ function ConversationTimeline(props: {
           />
         )
       )}
-    </div>
-  );
-}
-
-function ActivityLog(props: { activities: ActivityDto[] }) {
-  if (props.activities.length === 0) {
-    return <div className="empty-state">{t("issues.noActivity")}</div>;
-  }
-
-  return (
-    <div className="timeline">
-      {props.activities.map((activity) => (
-        <article className="timeline-item activity-item" key={activity.id}>
-          <header>
-            <strong>{activity.activityType}</strong>
-            <span>{new Date(activity.createdAt).toLocaleString()}</span>
-          </header>
-          <h3>{activity.title}</h3>
-          {activity.body ? <MarkdownContent content={activity.body} /> : null}
-        </article>
-      ))}
     </div>
   );
 }
@@ -1059,27 +736,30 @@ function IssueEditScreen(props: {
 
 function IssuesView(props: {
   project: ProjectDto;
-  openIssueId: number | null;
-  onOpenIssueHandled: () => void;
+  routeIssueId: number | null;
+  onOpenIssues: () => void;
+  onOpenIssue: (issueId: number) => void;
   onOpenAgentJob: (jobId: number) => void;
   onOpenPullRequest: (pullRequestId: number) => void;
 }) {
   const [screen, setScreen] = useState<IssueScreen>({ name: "list" });
 
   useEffect(() => {
-    if (props.openIssueId === null) {
-      return;
-    }
-    setScreen({ name: "detail", issueId: props.openIssueId });
-    props.onOpenIssueHandled();
-  }, [props.openIssueId, props.onOpenIssueHandled]);
+    setScreen(props.routeIssueId === null ? { name: "list" } : { name: "detail", issueId: props.routeIssueId });
+  }, [props.routeIssueId]);
 
   if (screen.name === "new") {
     return (
       <IssueNewScreen
         project={props.project}
-        onCancel={() => setScreen({ name: "list" })}
-        onCreated={(issueId) => setScreen({ name: "detail", issueId })}
+        onCancel={() => {
+          setScreen({ name: "list" });
+          props.onOpenIssues();
+        }}
+        onCreated={(issueId) => {
+          setScreen({ name: "detail", issueId });
+          props.onOpenIssue(issueId);
+        }}
       />
     );
   }
@@ -1101,9 +781,18 @@ function IssuesView(props: {
       <IssueEditScreen
         project={props.project}
         issueId={screen.issueId}
-        onCancel={() => setScreen({ name: "detail", issueId: screen.issueId })}
-        onDeleted={() => setScreen({ name: "list" })}
-        onSaved={(issueId) => setScreen({ name: "detail", issueId })}
+        onCancel={() => {
+          setScreen({ name: "detail", issueId: screen.issueId });
+          props.onOpenIssue(screen.issueId);
+        }}
+        onDeleted={() => {
+          setScreen({ name: "list" });
+          props.onOpenIssues();
+        }}
+        onSaved={(issueId) => {
+          setScreen({ name: "detail", issueId });
+          props.onOpenIssue(issueId);
+        }}
       />
     );
   }
@@ -1112,375 +801,9 @@ function IssuesView(props: {
     <IssuesListScreen
       project={props.project}
       onNew={() => setScreen({ name: "new" })}
-      onOpen={(issueId) => setScreen({ name: "detail", issueId })}
+      onOpen={props.onOpenIssue}
     />
   );
-}
-
-type AgentJobScreen = { name: "list" } | { name: "detail"; jobId: number };
-
-function AgentJobActions(props: {
-  job: AgentJobDto;
-  busyJobId: number | null;
-  onCancel: (jobId: number) => Promise<void>;
-  onRetry: (jobId: number) => Promise<void>;
-}) {
-  return (
-    <div className="job-actions">
-      {isActiveAgentJob(props.job) ? (
-        <button
-          className="danger-button"
-          disabled={props.busyJobId === props.job.id}
-          onClick={(event) => {
-            event.stopPropagation();
-            void props.onCancel(props.job.id);
-          }}
-          title={t("agents.cancelJob")}
-          type="button"
-        >
-          <Square size={14} />
-          {t("actions.cancel")}
-        </button>
-      ) : null}
-      {canRetryAgentJob(props.job) ? (
-        <button
-          className="secondary-button"
-          disabled={props.busyJobId === props.job.id}
-          onClick={(event) => {
-            event.stopPropagation();
-            void props.onRetry(props.job.id);
-          }}
-          title={t("agents.retryJob")}
-          type="button"
-        >
-          <RotateCcw size={14} />
-          {t("agents.retryJob")}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-const noisyAgentActivityTitles = new Set([
-  "Agent job queued",
-  "Started Codex CLI",
-  "Codex thread started",
-  "Codex turn started",
-  "Codex turn completed",
-  "Codex CLI completed",
-  "Codex CLI failed",
-  "Codex error",
-  "Codex turn failed",
-  "Codex command started",
-  "Codex command completed",
-  "Codex thinking summary"
-]);
-
-function isNoisyCodexText(text: string): boolean {
-  return (
-    text.length > 1000 &&
-    (text.includes("<html>") || text.includes("codex_core_plugins") || text.includes("codex_core_skills"))
-  );
-}
-
-function agentJobFailureMessage(activities: ActivityDto[]): string | null {
-  const meaningfulError = [...activities]
-    .reverse()
-    .find((activity) => ["Codex turn failed", "Codex error", "Agent job failed"].includes(activity.title) && activity.body);
-  return meaningfulError?.body ?? null;
-}
-
-function agentJobMessage(job: AgentJobDto, activities: ActivityDto[]): string | null {
-  const output = job.output ?? {};
-  if (job.status === "failed") {
-    const activityMessage = agentJobFailureMessage(activities);
-    if (activityMessage) {
-      return activityMessage;
-    }
-  }
-
-  const outputMessage = stringValue(output.message);
-  if (outputMessage && !isNoisyCodexText(outputMessage)) {
-    return outputMessage;
-  }
-
-  if (job.error && !isNoisyCodexText(job.error)) {
-    return job.error;
-  }
-
-  return job.status === "failed" ? "Agent job failed. No concise error message was captured." : null;
-}
-
-function isRelevantAgentActivity(job: AgentJobDto, activity: ActivityDto): boolean {
-  if (activity.title === `${job.agentType} agent started`) {
-    return false;
-  }
-
-  if (noisyAgentActivityTitles.has(activity.title)) {
-    return false;
-  }
-
-  return true;
-}
-
-function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDto[] }) {
-  const output = props.job.output ?? {};
-  const message = agentJobMessage(props.job, props.activities);
-  const comment = recordValue(output.comment);
-  const commentBody = stringValue(comment?.body);
-  const questions = stringArrayValue(output.questions);
-  const changedFiles = stringArrayValue(output.changedFiles);
-  const testResults = recordArrayValue(output.testResults);
-  const hasSummary = message || commentBody || questions.length || changedFiles.length || testResults.length;
-
-  if (!hasSummary) {
-    return <div className="empty-state">{t("agents.noSummary")}</div>;
-  }
-
-  return (
-    <div className="agent-job-result">
-      {message ? (
-        <MarkdownContent
-          className={props.job.status === "failed" ? "job-error" : "agent-job-message"}
-          content={message}
-        />
-      ) : null}
-      {commentBody ? <MarkdownContent content={commentBody} /> : null}
-      {questions.length ? (
-        <div className="result-block">
-          <h3>{t("agents.questions")}</h3>
-          <ul className="result-list">
-            {questions.map((question) => (
-              <li key={question}>{question}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {changedFiles.length ? (
-        <div className="result-block">
-          <h3>{t("agents.changedFiles")}</h3>
-          <ul className="result-list">
-            {changedFiles.map((file) => (
-              <li key={file}>{file}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {testResults.length ? (
-        <div className="result-block">
-          <h3>{t("agents.tests")}</h3>
-          <div className="test-result-list">
-            {testResults.map((result, index) => {
-              const command = stringValue(result.command) ?? `${t("agents.test")} ${index + 1}`;
-              const status = stringValue(result.status) ?? "-";
-              const exitCode = numberValue(result.exitCode);
-              const outputText = stringValue(result.output);
-              return (
-                <article className="test-result-row" key={`${command}-${index}`}>
-                  <header>
-                    <strong>{command}</strong>
-                    <span className={`status-pill status-${status}`}>{status}</span>
-                  </header>
-                  {exitCode !== null ? <span className="muted-text">exit code: {exitCode}</span> : null}
-                  {outputText ? <p>{outputText}</p> : null}
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: number) => void }) {
-  const [jobs, setJobs] = useState<AgentJobDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    setJobs(await api.listAgentJobs(props.project.id));
-  }
-
-  useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
-  }, [props.project.id]);
-
-  const hasActiveJobs = jobs.some(isActiveAgentJob);
-  useEffect(() => {
-    if (!hasActiveJobs) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, [hasActiveJobs, props.project.id]);
-
-  return (
-    <section className="page-section">
-      <div className="section-header">
-        <h1>{t("agents.title")}</h1>
-      </div>
-      {error ? <div className="error-banner">{error}</div> : null}
-      <div className="agent-job-list">
-        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
-        {jobs.map((job) => (
-          <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
-            <span className="agent-job-title">#{job.id} {job.agentType}</span>
-            <span className={`status-pill status-${job.status}`}>{job.status}</span>
-            <span>{formatJobTarget(job)}</span>
-            <span>{formatDateTime(job.createdAt)}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AgentJobDetailScreen(props: {
-  project: ProjectDto;
-  jobId: number;
-  onOpen: (jobId: number) => void;
-}) {
-  const [job, setJob] = useState<AgentJobDto | null>(null);
-  const [activities, setActivities] = useState<ActivityDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [busyJobId, setBusyJobId] = useState<number | null>(null);
-
-  async function load() {
-    const [jobResponse, activityResponse] = await Promise.all([
-      api.getAgentJob(props.project.id, props.jobId),
-      api.listAgentJobActivities(props.project.id, props.jobId)
-    ]);
-    setJob(jobResponse);
-    setActivities(activityResponse.filter((activity) => activity.agentJobId === jobResponse.id));
-  }
-
-  useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
-  }, [props.project.id, props.jobId]);
-
-  const isActive = job ? isActiveAgentJob(job) : false;
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, [isActive, props.project.id, props.jobId]);
-
-  async function cancelJob(jobId: number) {
-    setBusyJobId(jobId);
-    setError(null);
-    try {
-      setJob(await api.cancelAgentJob(props.project.id, jobId));
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel agent job.");
-    } finally {
-      setBusyJobId(null);
-    }
-  }
-
-  async function retryJob(jobId: number) {
-    setBusyJobId(jobId);
-    setError(null);
-    try {
-      const retriedJobId = await api.retryAgentJob(props.project.id, jobId);
-      props.onOpen(retriedJobId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to retry agent job.");
-    } finally {
-      setBusyJobId(null);
-    }
-  }
-
-  const visibleActivities = useMemo(
-    () => (job ? activities.filter((activity) => isRelevantAgentActivity(job, activity)) : []),
-    [activities, job]
-  );
-
-  return (
-    <div className="detail-page">
-      <div className="page-toolbar">
-        <div className="page-title-block">
-          <h1>{job ? `#${job.id} ${job.agentType}` : t("agents.detail")}</h1>
-          {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
-        </div>
-      </div>
-      {error ? <div className="error-banner">{error}</div> : null}
-      <section className="page-section agent-job-detail-section">
-        {job ? (
-          <>
-            <div className="agent-job-details-summary">
-              <div className="agent-job-details-header">
-                <h2>{t("agents.details")}</h2>
-                <AgentJobActions job={job} busyJobId={busyJobId} onCancel={cancelJob} onRetry={retryJob} />
-              </div>
-              <dl className="agent-job-detail-facts">
-                <div>
-                  <dt>{t("agents.target")}</dt>
-                  <dd>{formatJobTarget(job)}</dd>
-                </div>
-                <div>
-                  <dt>{t("agents.trigger")}</dt>
-                  <dd>{job.triggerType}</dd>
-                </div>
-                <div>
-                  <dt>{t("agents.attempt")}</dt>
-                  <dd>{job.attempt}</dd>
-                </div>
-                <div>
-                  <dt>{t("agents.created")}</dt>
-                  <dd>{formatDateTime(job.createdAt)}</dd>
-                </div>
-                <div>
-                  <dt>{t("agents.started")}</dt>
-                  <dd>{formatDateTime(job.startedAt)}</dd>
-                </div>
-                <div>
-                  <dt>{t("agents.finished")}</dt>
-                  <dd>{formatDateTime(job.finishedAt)}</dd>
-                </div>
-              </dl>
-            </div>
-            <div className="agent-job-main-content">
-              <h2>{t("agents.result")}</h2>
-              <AgentJobResultSummary job={job} activities={activities} />
-              <h2>{t("agents.activities")}</h2>
-              <ActivityLog activities={visibleActivities} />
-            </div>
-          </>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function AgentJobsView(props: { project: ProjectDto; openJobId: number | null; onOpenJobHandled: () => void }) {
-  const [screen, setScreen] = useState<AgentJobScreen>({ name: "list" });
-
-  useEffect(() => {
-    if (props.openJobId === null) {
-      return;
-    }
-    setScreen({ name: "detail", jobId: props.openJobId });
-    props.onOpenJobHandled();
-  }, [props.openJobId, props.onOpenJobHandled]);
-
-  if (screen.name === "detail") {
-    return (
-      <AgentJobDetailScreen
-        project={props.project}
-        jobId={screen.jobId}
-        onOpen={(jobId) => setScreen({ name: "detail", jobId })}
-      />
-    );
-  }
-
-  return <AgentJobsListScreen project={props.project} onOpen={(jobId) => setScreen({ name: "detail", jobId })} />;
 }
 
 function RepositoryView(props: { project: ProjectDto }) {
@@ -2303,27 +1626,40 @@ function PullRequestEditScreen(props: {
 
 function PullRequestsView(props: {
   project: ProjectDto;
-  openPullRequestId: number | null;
-  onOpenPullRequestHandled: () => void;
+  routePullRequestId: number | null;
+  routePullRequestScreen: "detail" | "conflicts" | null;
+  onOpenPullRequests: () => void;
+  onOpenPullRequest: (pullRequestId: number) => void;
+  onOpenPullRequestConflicts: (pullRequestId: number) => void;
   onOpenAgentJob: (jobId: number) => void;
   onOpenIssue: (issueId: number) => void;
 }) {
   const [screen, setScreen] = useState<PullRequestScreen>({ name: "list" });
 
   useEffect(() => {
-    if (props.openPullRequestId === null) {
+    if (props.routePullRequestId === null) {
+      setScreen({ name: "list" });
       return;
     }
-    setScreen({ name: "detail", pullRequestId: props.openPullRequestId });
-    props.onOpenPullRequestHandled();
-  }, [props.openPullRequestId, props.onOpenPullRequestHandled]);
+    setScreen(
+      props.routePullRequestScreen === "conflicts"
+        ? { name: "conflicts", pullRequestId: props.routePullRequestId }
+        : { name: "detail", pullRequestId: props.routePullRequestId }
+    );
+  }, [props.routePullRequestId, props.routePullRequestScreen]);
 
   if (screen.name === "new") {
     return (
       <PullRequestNewScreen
         project={props.project}
-        onCancel={() => setScreen({ name: "list" })}
-        onCreated={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+        onCancel={() => {
+          setScreen({ name: "list" });
+          props.onOpenPullRequests();
+        }}
+        onCreated={(pullRequestId) => {
+          setScreen({ name: "detail", pullRequestId });
+          props.onOpenPullRequest(pullRequestId);
+        }}
       />
     );
   }
@@ -2334,7 +1670,10 @@ function PullRequestsView(props: {
         project={props.project}
         pullRequestId={screen.pullRequestId}
         onEdit={(pullRequestId) => setScreen({ name: "edit", pullRequestId })}
-        onOpenConflicts={(pullRequestId) => setScreen({ name: "conflicts", pullRequestId })}
+        onOpenConflicts={(pullRequestId) => {
+          setScreen({ name: "conflicts", pullRequestId });
+          props.onOpenPullRequestConflicts(pullRequestId);
+        }}
         onOpenAgentJob={props.onOpenAgentJob}
         onOpenIssue={props.onOpenIssue}
       />
@@ -2346,7 +1685,10 @@ function PullRequestsView(props: {
       <PullRequestConflictScreen
         project={props.project}
         pullRequestId={screen.pullRequestId}
-        onBack={() => setScreen({ name: "detail", pullRequestId: screen.pullRequestId })}
+        onBack={() => {
+          setScreen({ name: "detail", pullRequestId: screen.pullRequestId });
+          props.onOpenPullRequest(screen.pullRequestId);
+        }}
         onOpenAgentJob={props.onOpenAgentJob}
       />
     );
@@ -2357,9 +1699,18 @@ function PullRequestsView(props: {
       <PullRequestEditScreen
         project={props.project}
         pullRequestId={screen.pullRequestId}
-        onCancel={() => setScreen({ name: "detail", pullRequestId: screen.pullRequestId })}
-        onDeleted={() => setScreen({ name: "list" })}
-        onSaved={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+        onCancel={() => {
+          setScreen({ name: "detail", pullRequestId: screen.pullRequestId });
+          props.onOpenPullRequest(screen.pullRequestId);
+        }}
+        onDeleted={() => {
+          setScreen({ name: "list" });
+          props.onOpenPullRequests();
+        }}
+        onSaved={(pullRequestId) => {
+          setScreen({ name: "detail", pullRequestId });
+          props.onOpenPullRequest(pullRequestId);
+        }}
       />
     );
   }
@@ -2368,7 +1719,7 @@ function PullRequestsView(props: {
     <PullRequestsListScreen
       project={props.project}
       onNew={() => setScreen({ name: "new" })}
-      onOpen={(pullRequestId) => setScreen({ name: "detail", pullRequestId })}
+      onOpen={props.onOpenPullRequest}
     />
   );
 }
@@ -2463,26 +1814,40 @@ export function App() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [isLoading, setLoading] = useState(true);
   const [agentJobs, setAgentJobs] = useState<AgentJobDto[]>([]);
-  const [view, setView] = useState<View>("issues");
-  const [openIssueId, setOpenIssueId] = useState<number | null>(null);
-  const [openAgentJobId, setOpenAgentJobId] = useState<number | null>(null);
-  const [openPullRequestId, setOpenPullRequestId] = useState<number | null>(null);
+  const [route, setRoute] = useState<AppRoute>(() => parseRoute());
   const project = useMemo(() => projects[0] ?? null, [projects]);
-  const handleOpenIssue = useCallback((issueId: number) => {
-    setOpenIssueId(issueId);
-    setView("issues");
+  const view = viewForRoute(route);
+  const routeIssueId = route.name === "issue" ? route.issueId : null;
+  const routeAgentJobId = route.name === "agentJob" ? route.jobId : null;
+  const routePullRequestId = route.name === "pullRequest" || route.name === "pullRequestConflicts" ? route.pullRequestId : null;
+  const routePullRequestScreen =
+    route.name === "pullRequestConflicts" ? "conflicts" : route.name === "pullRequest" ? "detail" : null;
+
+  const navigate = useCallback((nextRoute: AppRoute, mode: "push" | "replace" = "push") => {
+    const path = routeToPath(nextRoute);
+    setRoute(nextRoute);
+    if (window.location.pathname === path) {
+      return;
+    }
+    if (mode === "replace") {
+      window.history.replaceState(null, "", path);
+      return;
+    }
+    window.history.pushState(null, "", path);
   }, []);
-  const handleOpenAgentJob = useCallback((jobId: number) => {
-    setOpenAgentJobId(jobId);
-    setView("agentJobs");
-  }, []);
-  const handleOpenPullRequest = useCallback((pullRequestId: number) => {
-    setOpenPullRequestId(pullRequestId);
-    setView("pullRequests");
-  }, []);
-  const handleOpenAgentJobHandled = useCallback(() => setOpenAgentJobId(null), []);
-  const handleOpenIssueHandled = useCallback(() => setOpenIssueId(null), []);
-  const handleOpenPullRequestHandled = useCallback(() => setOpenPullRequestId(null), []);
+  const handleViewChange = useCallback((nextView: View) => navigate(listRouteForView(nextView)), [navigate]);
+  const handleOpenIssues = useCallback(() => navigate({ name: "issues" }), [navigate]);
+  const handleOpenIssue = useCallback((issueId: number) => navigate({ name: "issue", issueId }), [navigate]);
+  const handleOpenAgentJob = useCallback((jobId: number) => navigate({ name: "agentJob", jobId }), [navigate]);
+  const handleOpenPullRequests = useCallback(() => navigate({ name: "pullRequests" }), [navigate]);
+  const handleOpenPullRequest = useCallback(
+    (pullRequestId: number) => navigate({ name: "pullRequest", pullRequestId }),
+    [navigate]
+  );
+  const handleOpenPullRequestConflicts = useCallback(
+    (pullRequestId: number) => navigate({ name: "pullRequestConflicts", pullRequestId }),
+    [navigate]
+  );
 
   useEffect(() => {
     api
@@ -2490,6 +1855,21 @@ export function App() {
       .then(setProjects)
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      setRoute(parseRoute());
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (project && window.location.pathname === "/") {
+      navigate({ name: "issues" }, "replace");
+    }
+  }, [project, navigate]);
 
   useEffect(() => {
     if (!project) {
@@ -2532,12 +1912,13 @@ export function App() {
   }
 
   return (
-    <AppShell project={project} view={view} onViewChange={setView} agentState={summarizeAgentJobs(agentJobs)}>
+    <AppShell view={view} onViewChange={handleViewChange} agentState={summarizeAgentJobs(agentJobs)}>
       {view === "issues" ? (
         <IssuesView
           project={project}
-          openIssueId={openIssueId}
-          onOpenIssueHandled={handleOpenIssueHandled}
+          routeIssueId={routeIssueId}
+          onOpenIssues={handleOpenIssues}
+          onOpenIssue={handleOpenIssue}
           onOpenAgentJob={handleOpenAgentJob}
           onOpenPullRequest={handleOpenPullRequest}
         />
@@ -2545,8 +1926,11 @@ export function App() {
       {view === "pullRequests" ? (
         <PullRequestsView
           project={project}
-          openPullRequestId={openPullRequestId}
-          onOpenPullRequestHandled={handleOpenPullRequestHandled}
+          routePullRequestId={routePullRequestId}
+          routePullRequestScreen={routePullRequestScreen}
+          onOpenPullRequests={handleOpenPullRequests}
+          onOpenPullRequest={handleOpenPullRequest}
+          onOpenPullRequestConflicts={handleOpenPullRequestConflicts}
           onOpenAgentJob={handleOpenAgentJob}
           onOpenIssue={handleOpenIssue}
         />
@@ -2554,8 +1938,8 @@ export function App() {
       {view === "agentJobs" ? (
         <AgentJobsView
           project={project}
-          openJobId={openAgentJobId}
-          onOpenJobHandled={handleOpenAgentJobHandled}
+          routeJobId={routeAgentJobId}
+          onOpenAgentJob={handleOpenAgentJob}
         />
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
