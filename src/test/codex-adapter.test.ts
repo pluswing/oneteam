@@ -138,6 +138,53 @@ setInterval(() => {}, 1000);
     expect(result.activities?.map((activity) => activity.title)).toContain("Codex CLI canceled");
   });
 
+  it("parses structured output when comment markdown contains fenced code", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-fenced-"));
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const outputPath = args[args.indexOf("--output-last-message") + 1];
+await import("node:fs/promises").then(({ writeFile }) => writeFile(outputPath, JSON.stringify({
+  status: "succeeded",
+  message: "Implemented test command.",
+  comment: {
+    targetType: "issue",
+    targetId: 2,
+    body: "Run this command:\\n\\n\`\`\`sh\\nnpm test\\n\`\`\`"
+  },
+  metadata: {
+    nextLabel: null,
+    pullRequest: {
+      title: "Add npm test command",
+      body: "Adds a test command.",
+      sourceBranch: "oneteam/issue-2-add-test-command",
+      targetBranch: "main",
+      issueId: 2
+    },
+    review: null,
+    fix: null,
+    qa: null
+  }
+})));
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+
+    const adapter = new CodexAdapter({ command: fakeCodexPath });
+    const result = await adapter.run({
+      job: fakeJob,
+      repoPath: dir,
+      prompt: "Implement the issue."
+    });
+
+    expect(result.message).toBe("Implemented test command.");
+    expect(result.comment?.body).toContain("```sh");
+    expect(result.metadata?.pullRequest?.title).toBe("Add npm test command");
+  });
+
   it("prefers structured Codex errors over noisy stderr output", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-error-"));
     const fakeCodexPath = join(dir, "fake-codex.mjs");

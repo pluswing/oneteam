@@ -31,11 +31,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
-  await page.getByRole("button", { name: "Back" }).click();
 
   await page.getByRole("button", { name: "Agent Jobs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
-  await page.getByRole("button", { name: "Refresh" }).click();
   const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();
   await expect(requirementsJob).toContainText("queued");
   await requirementsJob.click();
@@ -44,7 +42,6 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".page-title-block")).toContainText("canceled");
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator(".page-title-block")).toContainText("queued");
-  await page.getByRole("button", { name: "Back" }).click();
 
   await page.getByRole("button", { name: "Repository and settings" }).click();
   await page.getByRole("menuitem", { name: "Repository" }).click();

@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { getBranches, getCommitCount, getCommits, getDiffFiles, getRepositoryStatus } from "../server/services/git-service";
+import {
+  commitAllChanges,
+  detectMergeConflicts,
+  getBranches,
+  getCommitCount,
+  getCommits,
+  getDiffFiles,
+  getRepositoryStatus
+} from "../server/services/git-service";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,5 +45,33 @@ describe("git service", () => {
     expect(commits[0].subject).toBe("change readme");
     expect(commitCount).toBe(1);
     expect(files[0]).toMatchObject({ path: "README.md", status: "M" });
+  });
+
+  it("commits dirty worktrees and reads merge conflict contents", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "oneteam-git-conflict-"));
+    await git(repo, ["init", "-b", "main"]);
+    await git(repo, ["config", "user.name", "Test User"]);
+    await git(repo, ["config", "user.email", "test@example.com"]);
+    await writeFile(join(repo, "README.md"), "base\n");
+    await git(repo, ["add", "README.md"]);
+    await git(repo, ["commit", "-m", "initial"]);
+    await git(repo, ["checkout", "-b", "feature"]);
+    await writeFile(join(repo, "README.md"), "feature\n");
+
+    const commit = await commitAllChanges(repo, "feature change");
+    await git(repo, ["checkout", "main"]);
+    await writeFile(join(repo, "README.md"), "main\n");
+    await git(repo, ["commit", "-am", "main change"]);
+
+    const conflicts = await detectMergeConflicts(repo, "feature", "main");
+
+    expect(commit.commitHash).toMatch(/[0-9a-f]{40}/);
+    expect(conflicts.hasConflicts).toBe(true);
+    expect(conflicts.files[0]).toMatchObject({
+      path: "README.md",
+      baseContent: "base",
+      targetContent: "main",
+      sourceContent: "feature"
+    });
   });
 });

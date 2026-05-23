@@ -684,7 +684,7 @@ export function createRepositories(db: Database) {
             status: input.status,
             sourceBranch: input.sourceBranch,
             targetBranch: input.targetBranch,
-            closedAt: input.status === "closed" ? timestamp : input.status === "open" ? null : undefined,
+            closedAt: input.status && input.status !== "open" ? timestamp : input.status === "open" ? null : undefined,
             updatedAt: timestamp
           })
           .where(

@@ -293,6 +293,10 @@ export const api = {
     return request<MergeConflictDto>(`/api/projects/${projectId}/repository/merge-conflicts?${params.toString()}`);
   },
 
+  async getPullRequestMergeConflicts(projectId: string, pullRequestId: number): Promise<MergeConflictDto> {
+    return request<MergeConflictDto>(`/api/projects/${projectId}/pull-requests/${pullRequestId}/conflicts`);
+  },
+
   async resolvePullRequestConflicts(projectId: string, pullRequestId: number): Promise<number | null> {
     const response = await request<{ jobId: number | null }>(
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/resolve-conflicts`,

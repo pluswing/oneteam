@@ -1,5 +1,5 @@
 export type IssueStatus = "open" | "closed";
-export type PullRequestStatus = "open" | "closed";
+export type PullRequestStatus = "open" | "closed" | "merged";
 export type LabelKind = "system" | "custom";
 export type AgentType =
   | "requirements"
@@ -185,6 +185,9 @@ export type MergeConflictDto = {
   files: Array<{
     path: string;
     reason: string;
+    baseContent?: string | null;
+    targetContent?: string | null;
+    sourceContent?: string | null;
   }>;
 };
 

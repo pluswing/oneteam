@@ -1,7 +1,7 @@
 import type { AgentJobDto, LabelDto, ProjectDto } from "../../shared/types";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
-import { detectMergeConflicts, getChangedFilesSince } from "../services/git-service";
+import { commitAllChanges, detectMergeConflicts, getChangedFilesSince } from "../services/git-service";
 import { prepareImplementationBranch } from "../services/implementation-preflight";
 import { runLabelAutomation } from "../services/label-automation";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
@@ -192,9 +192,24 @@ export class AgentWorker {
       };
     }
 
+    const commitResult = await commitAllChanges(project.repoPath, `Implement issue #${job.targetId}`);
+    const commitActivity = commitResult.commitHash
+      ? [
+          {
+            type: "command" as const,
+            title: "Implementation changes committed",
+            body: `Committed ${commitResult.changedFiles.length} changed file(s).\n\nCommit: ${commitResult.commitHash.slice(0, 12)}`,
+            payload: {
+              commitHash: commitResult.commitHash,
+              changedFiles: commitResult.changedFiles
+            }
+          }
+        ]
+      : [];
+
     return {
       ...result,
-      activities,
+      activities: [...activities, ...commitActivity],
       changedFiles,
       testResults
     };

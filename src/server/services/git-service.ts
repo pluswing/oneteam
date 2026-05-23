@@ -18,6 +18,16 @@ async function git(repoPath: string, args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
+function gitOutput(error: unknown): string {
+  if (typeof error !== "object" || error === null) {
+    return "";
+  }
+  const output = error as { message?: unknown; stdout?: unknown; stderr?: unknown };
+  return [output.stdout, output.stderr, output.message]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+}
+
 function parseAheadBehind(branchLine: string): { ahead: number; behind: number } {
   const aheadMatch = branchLine.match(/ahead (\d+)/);
   const behindMatch = branchLine.match(/behind (\d+)/);
@@ -96,6 +106,30 @@ export async function mergeBranch(
   const output = await git(repoPath, ["merge", "--no-ff", "--no-edit", sourceBranch]);
   const mergeCommit = await git(repoPath, ["rev-parse", "HEAD"]);
   return { mergeCommit, output };
+}
+
+export async function commitAllChanges(
+  repoPath: string,
+  message: string
+): Promise<{ commitHash: string | null; changedFiles: string[] }> {
+  const status = await getRepositoryStatus(repoPath);
+  if (status.clean) {
+    return { commitHash: null, changedFiles: [] };
+  }
+
+  await git(repoPath, ["add", "--all"]);
+  const stagedOutput = await git(repoPath, ["diff", "--cached", "--name-only"]);
+  const stagedFiles = stagedOutput.split("\n").filter(Boolean);
+  if (!stagedFiles.length) {
+    return { commitHash: null, changedFiles: status.changedFiles };
+  }
+
+  await git(repoPath, ["commit", "-m", message]);
+  const commitHash = await git(repoPath, ["rev-parse", "HEAD"]);
+  return {
+    commitHash,
+    changedFiles: Array.from(new Set([...status.changedFiles, ...stagedFiles]))
+  };
 }
 
 export async function getChangedFilesSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<string[]> {
@@ -184,14 +218,79 @@ export async function detectMergeConflicts(
     await git(repoPath, ["merge-tree", "--write-tree", targetBranch, sourceBranch]);
     return { hasConflicts: false, files: [] };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    const files = Array.from(message.matchAll(/CONFLICT.* in (.+)/g)).map((match) => ({
-      path: match[1],
-      reason: "content"
-    }));
+    const output = gitOutput(error);
+    const conflicts = parseMergeTreeConflicts(output);
+    const files = await Promise.all(
+      conflicts.map(async (conflict) => ({
+        path: conflict.path,
+        reason: conflict.reason,
+        baseContent: await showBlob(repoPath, conflict.baseHash),
+        targetContent: await showBlob(repoPath, conflict.targetHash),
+        sourceContent: await showBlob(repoPath, conflict.sourceHash)
+      }))
+    );
     return {
       hasConflicts: true,
       files
     };
   }
+}
+
+function parseMergeTreeConflicts(output: string): Array<{
+  path: string;
+  reason: string;
+  baseHash: string | null;
+  targetHash: string | null;
+  sourceHash: string | null;
+}> {
+  const paths = new Map<
+    string,
+    { path: string; reason: string; baseHash: string | null; targetHash: string | null; sourceHash: string | null }
+  >();
+
+  for (const line of output.split("\n")) {
+    const stageMatch = line.match(/^\d{6}\s+([0-9a-f]{40,64})\s+([123])\t(.+)$/);
+    if (stageMatch) {
+      const [, hash, stage, path] = stageMatch;
+      const item = paths.get(path) ?? {
+        path,
+        reason: "content",
+        baseHash: null,
+        targetHash: null,
+        sourceHash: null
+      };
+      if (stage === "1") {
+        item.baseHash = hash;
+      } else if (stage === "2") {
+        item.targetHash = hash;
+      } else {
+        item.sourceHash = hash;
+      }
+      paths.set(path, item);
+      continue;
+    }
+
+    const conflictMatch = line.match(/^CONFLICT \(([^)]+)\): .* in (.+)$/);
+    if (conflictMatch) {
+      const [, reason, path] = conflictMatch;
+      const item = paths.get(path) ?? {
+        path,
+        reason,
+        baseHash: null,
+        targetHash: null,
+        sourceHash: null
+      };
+      item.reason = reason;
+      paths.set(path, item);
+    }
+  }
+
+  return Array.from(paths.values());
+}
+
+async function showBlob(repoPath: string, hash: string | null): Promise<string | null> {
+  if (!hash) {
+    return null;
+  }
+  return git(repoPath, ["show", hash]).catch(() => null);
 }

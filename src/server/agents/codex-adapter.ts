@@ -13,23 +13,41 @@ export type CodexAdapterOptions = {
 
 function extractJson(text: string): AgentRunResult {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  const candidate = fenced?.[1] ?? trimmed;
+  const parsed = parseAgentRunResult(trimmed);
+  if (parsed) {
+    return parsed;
+  }
 
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fenced) {
+    const parsedFenced = parseAgentRunResult(fenced[1]);
+    if (parsedFenced) {
+      return parsedFenced;
+    }
+  }
+
+  return {
+    status: "succeeded",
+    message: trimmed || "Codex completed without a structured response.",
+    activities: [
+      {
+        type: "progress",
+        title: "Codex response captured",
+        body: trimmed
+      }
+    ]
+  };
+}
+
+function parseAgentRunResult(candidate: string): AgentRunResult | null {
   try {
-    return JSON.parse(candidate) as AgentRunResult;
+    const parsed = JSON.parse(candidate) as unknown;
+    if (typeof parsed === "string") {
+      return parseAgentRunResult(parsed);
+    }
+    return isRecord(parsed) ? (parsed as AgentRunResult) : null;
   } catch {
-    return {
-      status: "succeeded",
-      message: trimmed || "Codex completed without a structured response.",
-      activities: [
-        {
-          type: "progress",
-          title: "Codex response captured",
-          body: trimmed
-        }
-      ]
-    };
+    return null;
   }
 }
 

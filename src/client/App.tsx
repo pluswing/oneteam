@@ -14,7 +14,7 @@ import {
   Square,
   Terminal
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type {
   ActivityDto,
@@ -43,10 +43,17 @@ import oneTeamLogoUrl from "./assets/oneteam.svg";
 import { t } from "./i18n";
 
 type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
-const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running"]);
+const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running", "waiting_human"]);
 const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
+type AgentHeaderStatus = "ready" | "queued" | "running" | "waiting" | "failed";
+type AgentHeaderState = {
+  status: AgentHeaderStatus;
+  label: string;
+  count: number;
+  title: string;
+};
 
 function isActiveAgentJob(job: AgentJobDto): boolean {
   return activeAgentStatuses.has(job.status);
@@ -60,8 +67,58 @@ function formatJobTarget(job: AgentJobDto): string {
   return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
 }
 
+function summarizeAgentJobs(jobs: AgentJobDto[]): AgentHeaderState {
+  const runningJobs = jobs.filter((job) => job.status === "running");
+  if (runningJobs.length) {
+    return agentHeaderState("running", t("status.running"), runningJobs);
+  }
+
+  const waitingJobs = jobs.filter((job) => job.status === "waiting_human");
+  if (waitingJobs.length) {
+    return agentHeaderState("waiting", t("status.waiting"), waitingJobs);
+  }
+
+  const queuedJobs = jobs.filter((job) => job.status === "queued");
+  if (queuedJobs.length) {
+    return agentHeaderState("queued", t("status.queued"), queuedJobs);
+  }
+
+  const latestJob = jobs[0] ?? null;
+  if (latestJob?.status === "failed") {
+    return agentHeaderState("failed", t("status.failed"), [latestJob]);
+  }
+
+  return {
+    status: "ready",
+    label: t("status.ready"),
+    count: 0,
+    title: t("status.ready")
+  };
+}
+
+function agentHeaderState(status: AgentHeaderStatus, label: string, jobs: AgentJobDto[]): AgentHeaderState {
+  const firstJob = jobs[0];
+  const suffix = jobs.length > 1 ? ` ${jobs.length}` : "";
+  return {
+    status,
+    label: `${label}${suffix}`,
+    count: jobs.length,
+    title: firstJob ? `#${firstJob.id} ${firstJob.agentType} ${formatJobTarget(firstJob)}` : label
+  };
+}
+
 function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "-";
+}
+
+function formatPullRequestStatus(status: PullRequestDto["status"]): string {
+  if (status === "open") {
+    return t("pullRequests.open");
+  }
+  if (status === "merged") {
+    return t("pullRequests.merged");
+  }
+  return t("pullRequests.closed");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,9 +162,11 @@ function AppShell(props: {
   project: ProjectDto;
   view: View;
   onViewChange: (view: View) => void;
+  agentState: AgentHeaderState;
   children: React.ReactNode;
 }) {
   const [isSettingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const nav = [
     { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
     { view: "pullRequests" as const, label: t("nav.pullRequests"), icon: GitPullRequest },
@@ -117,6 +176,23 @@ function AppShell(props: {
     { view: "repository" as const, label: t("nav.repository"), icon: Terminal },
     { view: "settings" as const, label: t("nav.settings"), icon: Settings }
   ];
+
+  useEffect(() => {
+    if (!isSettingsMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && settingsMenuRef.current?.contains(target)) {
+        return;
+      }
+      setSettingsMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isSettingsMenuOpen]);
 
   return (
     <div className="app-shell">
@@ -140,11 +216,14 @@ function AppShell(props: {
             );
           })}
         </nav>
-        <div className="agent-state">
-          <CheckCircle2 size={16} />
-          {t("status.ready")}
+        <div className={`agent-state agent-state-${props.agentState.status}`} title={props.agentState.title}>
+          {props.agentState.status === "ready" ? <CheckCircle2 size={16} /> : null}
+          {props.agentState.status === "running" ? <RotateCcw size={16} /> : null}
+          {props.agentState.status === "queued" ? <Bot size={16} /> : null}
+          {props.agentState.status === "waiting" || props.agentState.status === "failed" ? <CircleAlert size={16} /> : null}
+          {props.agentState.label}
         </div>
-        <div className="settings-menu">
+        <div className="settings-menu" ref={settingsMenuRef}>
           <button
             aria-expanded={isSettingsMenuOpen}
             aria-haspopup="menu"
@@ -590,10 +669,6 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
       <div className="section-header">
         <h1>{t("issues.title")}</h1>
         <div className="header-actions">
-          <button className="secondary-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
-            <RefreshCw size={16} />
-            {t("actions.refresh")}
-          </button>
           <button className="primary-button" onClick={props.onNew} type="button">
             <Plus size={16} />
             {t("issues.newIssue")}
@@ -713,6 +788,12 @@ function IssueRelatedLinks(props: {
                 type="button"
               >
                 <span className="related-link-title">#{pullRequest.id} {pullRequest.title}</span>
+                <span className="related-link-meta">
+                  <span className={`status-pill status-${pullRequest.status}`}>
+                    {formatPullRequestStatus(pullRequest.status)}
+                  </span>
+                  <span>{formatDateTime(pullRequest.closedAt ?? pullRequest.updatedAt)}</span>
+                </span>
               </button>
             ))}
           </div>
@@ -725,7 +806,6 @@ function IssueRelatedLinks(props: {
 function IssueDetailScreen(props: {
   project: ProjectDto;
   issueId: number;
-  onBack: () => void;
   onEdit: (issueId: number) => void;
   onOpenAgentJob: (jobId: number) => void;
   onOpenPullRequest: (pullRequestId: number) => void;
@@ -735,6 +815,7 @@ function IssueDetailScreen(props: {
   const [relatedPullRequests, setRelatedPullRequests] = useState<PullRequestDto[]>([]);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isClosing, setClosing] = useState(false);
 
   async function load() {
     const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse] = await Promise.all([
@@ -772,22 +853,42 @@ function IssueDetailScreen(props: {
     await load();
   }
 
+  async function closeIssue() {
+    if (!issue || issue.status === "closed") {
+      return;
+    }
+    setClosing(true);
+    setError(null);
+    try {
+      const response = await api.updateIssue(props.project.id, issue.id, { status: "closed" });
+      setIssue(response.issue);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to close issue.");
+    } finally {
+      setClosing(false);
+    }
+  }
+
   return (
     <div className="detail-page">
       <div className="page-toolbar">
-        <button className="secondary-button" onClick={props.onBack} type="button">
-          <ArrowLeft size={16} />
-          {t("actions.back")}
-        </button>
         <div className="page-title-block">
           <h1>{issue ? `#${issue.id} ${issue.title}` : "Issue"}</h1>
           {issue ? <span className={`status-pill status-${issue.status}`}>{issue.status}</span> : null}
         </div>
         {issue ? (
-          <button className="secondary-button" onClick={() => props.onEdit(issue.id)} type="button">
-            <Pencil size={16} />
-            {t("actions.edit")}
-          </button>
+          <div className="header-actions">
+            {issue.status === "open" ? (
+              <button className="secondary-button" disabled={isClosing} onClick={() => void closeIssue()} type="button">
+                <CheckCircle2 size={16} />
+                {t("issues.closeIssue")}
+              </button>
+            ) : null}
+            <button className="secondary-button" onClick={() => props.onEdit(issue.id)} type="button">
+              <Pencil size={16} />
+              {t("actions.edit")}
+            </button>
+          </div>
         ) : null}
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
@@ -988,7 +1089,6 @@ function IssuesView(props: {
       <IssueDetailScreen
         project={props.project}
         issueId={screen.issueId}
-        onBack={() => setScreen({ name: "list" })}
         onEdit={(issueId) => setScreen({ name: "edit", issueId })}
         onOpenAgentJob={props.onOpenAgentJob}
         onOpenPullRequest={props.onOpenPullRequest}
@@ -1220,12 +1320,6 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
     <section className="page-section">
       <div className="section-header">
         <h1>{t("agents.title")}</h1>
-        <div className="header-actions">
-          <button className="secondary-button" onClick={() => void load()} title={t("actions.refresh")} type="button">
-            <RefreshCw size={16} />
-            {t("actions.refresh")}
-          </button>
-        </div>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       <div className="agent-job-list">
@@ -1246,7 +1340,6 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
 function AgentJobDetailScreen(props: {
   project: ProjectDto;
   jobId: number;
-  onBack: () => void;
   onOpen: (jobId: number) => void;
 }) {
   const [job, setJob] = useState<AgentJobDto | null>(null);
@@ -1312,10 +1405,6 @@ function AgentJobDetailScreen(props: {
   return (
     <div className="detail-page">
       <div className="page-toolbar">
-        <button className="secondary-button" onClick={props.onBack} type="button">
-          <ArrowLeft size={16} />
-          {t("actions.back")}
-        </button>
         <div className="page-title-block">
           <h1>{job ? `#${job.id} ${job.agentType}` : t("agents.detail")}</h1>
           {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
@@ -1386,7 +1475,6 @@ function AgentJobsView(props: { project: ProjectDto; openJobId: number | null; o
       <AgentJobDetailScreen
         project={props.project}
         jobId={screen.jobId}
-        onBack={() => setScreen({ name: "list" })}
         onOpen={(jobId) => setScreen({ name: "detail", jobId })}
       />
     );
@@ -1478,6 +1566,7 @@ type PullRequestScreen =
   | { name: "list" }
   | { name: "new" }
   | { name: "detail"; pullRequestId: number }
+  | { name: "conflicts"; pullRequestId: number }
   | { name: "edit"; pullRequestId: number };
 
 function PullRequestsListScreen(props: {
@@ -1502,10 +1591,6 @@ function PullRequestsListScreen(props: {
       <div className="section-header">
         <h1>{t("pullRequests.title")}</h1>
         <div className="header-actions">
-          <button className="secondary-button" onClick={() => void load()} type="button" title={t("actions.refresh")}>
-            <RefreshCw size={16} />
-            {t("actions.refresh")}
-          </button>
           <button className="primary-button" onClick={props.onNew} type="button">
             <Plus size={16} />
             {t("pullRequests.newPullRequest")}
@@ -1523,7 +1608,7 @@ function PullRequestsListScreen(props: {
             type="button"
           >
             <span className="work-item-title">#{pullRequest.id} {pullRequest.title}</span>
-            <span className={`status-pill status-${pullRequest.status}`}>{pullRequest.status}</span>
+            <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
             <span>{pullRequest.commentCount} {t("issues.comments")}</span>
             <span>{formatDateTime(pullRequest.updatedAt)}</span>
           </button>
@@ -1602,12 +1687,12 @@ function PullRequestNewScreen(props: {
           </label>
           <div className="form-grid two-columns">
             <label>
-              {t("pullRequests.sourceBranch")}
-              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
-            </label>
-            <label>
               {t("pullRequests.targetBranch")}
               <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
+            </label>
+            <label>
+              {t("pullRequests.sourceBranch")}
+              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
             </label>
           </div>
           <label>
@@ -1664,16 +1749,16 @@ function PullRequestRelatedLinks(props: {
 function BranchCompare(props: { sourceBranch: string; targetBranch: string }) {
   return (
     <div className="branch-compare" aria-label={t("pullRequests.branchComparison")}>
-      <div className="branch-card source-branch">
-        <span>{t("pullRequests.sourceBranch")}</span>
-        <code>{props.sourceBranch}</code>
-      </div>
-      <div className="branch-merge-arrow" aria-hidden="true">
-        -&gt;
-      </div>
       <div className="branch-card target-branch">
         <span>{t("pullRequests.targetBranch")}</span>
         <code>{props.targetBranch}</code>
+      </div>
+      <div className="branch-merge-arrow" aria-hidden="true">
+        <ArrowLeft size={18} strokeWidth={2.5} />
+      </div>
+      <div className="branch-card source-branch">
+        <span>{t("pullRequests.sourceBranch")}</span>
+        <code>{props.sourceBranch}</code>
       </div>
     </div>
   );
@@ -1682,8 +1767,8 @@ function BranchCompare(props: { sourceBranch: string; targetBranch: string }) {
 function PullRequestDetailScreen(props: {
   project: ProjectDto;
   pullRequestId: number;
-  onBack: () => void;
   onEdit: (pullRequestId: number) => void;
+  onOpenConflicts: (pullRequestId: number) => void;
   onOpenAgentJob: (jobId: number) => void;
   onOpenIssue: (issueId: number) => void;
 }) {
@@ -1712,7 +1797,7 @@ function PullRequestDetailScreen(props: {
     const [filesResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
       api.listPullRequestFiles(props.project.id, props.pullRequestId),
       api.listPullRequestCommits(props.project.id, props.pullRequestId),
-      api.getMergeConflicts(props.project.id, pullRequestResponse.sourceBranch, pullRequestResponse.targetBranch),
+      api.getPullRequestMergeConflicts(props.project.id, props.pullRequestId),
       linkedIssuePromise
     ]);
     setPullRequest(pullRequestResponse);
@@ -1751,7 +1836,11 @@ function PullRequestDetailScreen(props: {
     setResolvingConflicts(true);
     setError(null);
     try {
-      await api.resolvePullRequestConflicts(props.project.id, props.pullRequestId);
+      const jobId = await api.resolvePullRequestConflicts(props.project.id, props.pullRequestId);
+      if (jobId) {
+        props.onOpenAgentJob(jobId);
+        return;
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to queue conflict resolution.");
@@ -1792,13 +1881,11 @@ function PullRequestDetailScreen(props: {
   return (
     <div className="detail-page">
       <div className="page-toolbar">
-        <button className="secondary-button" onClick={props.onBack} type="button">
-          <ArrowLeft size={16} />
-          {t("actions.back")}
-        </button>
         <div className="page-title-block">
           <h1>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : "Pull request"}</h1>
-          {pullRequest ? <span className={`status-pill status-${pullRequest.status}`}>{pullRequest.status}</span> : null}
+          {pullRequest ? (
+            <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
+          ) : null}
         </div>
         {pullRequest ? (
           <button className="secondary-button" onClick={() => props.onEdit(pullRequest.id)} type="button">
@@ -1830,15 +1917,21 @@ function PullRequestDetailScreen(props: {
                 <strong>{t("pullRequests.conflictsDetected")}</strong>
                 <p>{mergeConflicts.files.map((file) => file.path).join(", ")}</p>
               </div>
-              <button
-                className="secondary-button"
-                disabled={isResolvingConflicts}
-                onClick={() => void resolveConflicts()}
-                type="button"
-              >
-                <CircleAlert size={16} />
-                {t("pullRequests.resolveConflicts")}
-              </button>
+              <div className="action-row">
+                <button className="secondary-button" onClick={() => props.onOpenConflicts(props.pullRequestId)} type="button">
+                  <CircleAlert size={16} />
+                  {t("pullRequests.viewConflicts")}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={isResolvingConflicts}
+                  onClick={() => void resolveConflicts()}
+                  type="button"
+                >
+                  <Bot size={16} />
+                  {t("pullRequests.resolveConflictsWithAi")}
+                </button>
+              </div>
             </div>
           ) : null}
           <div className="subtabs">
@@ -1948,6 +2041,122 @@ function PullRequestDetailScreen(props: {
   );
 }
 
+function ConflictContentBlock(props: { title: string; content?: string | null }) {
+  return (
+    <div className="conflict-version">
+      <h3>{props.title}</h3>
+      {props.content ? (
+        <pre className="conflict-content">
+          <code>{props.content}</code>
+        </pre>
+      ) : (
+        <p className="muted-text">{t("pullRequests.noConflictContent")}</p>
+      )}
+    </div>
+  );
+}
+
+function PullRequestConflictScreen(props: {
+  project: ProjectDto;
+  pullRequestId: number;
+  onBack: () => void;
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  const [conflicts, setConflicts] = useState<MergeConflictDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isResolvingConflicts, setResolvingConflicts] = useState(false);
+
+  async function load() {
+    const [pullRequestResponse, conflictsResponse] = await Promise.all([
+      api.getPullRequest(props.project.id, props.pullRequestId),
+      api.getPullRequestMergeConflicts(props.project.id, props.pullRequestId)
+    ]);
+    setPullRequest(pullRequestResponse);
+    setConflicts(conflictsResponse);
+  }
+
+  useEffect(() => {
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load conflicts."));
+  }, [props.project.id, props.pullRequestId]);
+
+  async function resolveConflicts() {
+    setResolvingConflicts(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const jobId = await api.resolvePullRequestConflicts(props.project.id, props.pullRequestId);
+      if (jobId) {
+        props.onOpenAgentJob(jobId);
+        return;
+      }
+      setMessage(t("pullRequests.resolveConflictsQueued"));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to queue conflict resolution.");
+    } finally {
+      setResolvingConflicts(false);
+    }
+  }
+
+  return (
+    <div className="detail-page">
+      <div className="page-toolbar">
+        <button className="secondary-button" onClick={props.onBack} type="button">
+          <ArrowLeft size={16} />
+          {t("actions.back")}
+        </button>
+        <div className="page-title-block">
+          <h1>{t("pullRequests.conflictDetails")}</h1>
+          {pullRequest ? <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span> : null}
+        </div>
+        {conflicts?.hasConflicts ? (
+          <button
+            className="secondary-button"
+            disabled={isResolvingConflicts}
+            onClick={() => void resolveConflicts()}
+            type="button"
+          >
+            <Bot size={16} />
+            {t("pullRequests.resolveConflictsWithAi")}
+          </button>
+        ) : null}
+      </div>
+      {error ? <div className="error-banner">{error}</div> : null}
+      {message ? <div className="success-banner">{message}</div> : null}
+      <section className="page-section conflict-screen">
+        {pullRequest ? <BranchCompare sourceBranch={pullRequest.sourceBranch} targetBranch={pullRequest.targetBranch} /> : null}
+        {!conflicts ? <div className="empty-state">{t("status.running")}</div> : null}
+        {conflicts && !conflicts.hasConflicts ? <div className="empty-state">{t("pullRequests.noConflicts")}</div> : null}
+        {conflicts?.hasConflicts ? (
+          <div className="conflict-list">
+            {conflicts.files.map((file) => (
+              <article className="conflict-file" key={file.path}>
+                <header>
+                  <strong>{file.path}</strong>
+                  <span>{file.reason}</span>
+                </header>
+                <div className="conflict-version-grid">
+                  <ConflictContentBlock title={t("pullRequests.conflictBase")} content={file.baseContent} />
+                  <ConflictContentBlock
+                    title={`${t("pullRequests.conflictTarget")} ${pullRequest?.targetBranch ?? ""}`}
+                    content={file.targetContent}
+                  />
+                  <ConflictContentBlock
+                    title={`${t("pullRequests.conflictSource")} ${pullRequest?.sourceBranch ?? ""}`}
+                    content={file.sourceContent}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
 function PullRequestEditScreen(props: {
   project: ProjectDto;
   pullRequestId: number;
@@ -2051,12 +2260,12 @@ function PullRequestEditScreen(props: {
           </label>
           <div className="form-grid two-columns">
             <label>
-              {t("pullRequests.sourceBranch")}
-              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
-            </label>
-            <label>
               {t("pullRequests.targetBranch")}
               <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} required />
+            </label>
+            <label>
+              {t("pullRequests.sourceBranch")}
+              <input value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} required />
             </label>
           </div>
           <label>
@@ -2068,8 +2277,9 @@ function PullRequestEditScreen(props: {
           <label>
             {t("issues.status")}
             <select value={status} onChange={(event) => setStatus(event.target.value as PullRequestDto["status"])}>
-              <option value="open">{t("issues.open")}</option>
-              <option value="closed">{t("issues.closed")}</option>
+              <option value="open">{t("pullRequests.open")}</option>
+              <option value="closed">{t("pullRequests.closed")}</option>
+              <option value="merged">{t("pullRequests.merged")}</option>
             </select>
           </label>
           <LabelPicker
@@ -2123,10 +2333,21 @@ function PullRequestsView(props: {
       <PullRequestDetailScreen
         project={props.project}
         pullRequestId={screen.pullRequestId}
-        onBack={() => setScreen({ name: "list" })}
         onEdit={(pullRequestId) => setScreen({ name: "edit", pullRequestId })}
+        onOpenConflicts={(pullRequestId) => setScreen({ name: "conflicts", pullRequestId })}
         onOpenAgentJob={props.onOpenAgentJob}
         onOpenIssue={props.onOpenIssue}
+      />
+    );
+  }
+
+  if (screen.name === "conflicts") {
+    return (
+      <PullRequestConflictScreen
+        project={props.project}
+        pullRequestId={screen.pullRequestId}
+        onBack={() => setScreen({ name: "detail", pullRequestId: screen.pullRequestId })}
+        onOpenAgentJob={props.onOpenAgentJob}
       />
     );
   }
@@ -2241,6 +2462,7 @@ function SettingsView(props: { project: ProjectDto }) {
 export function App() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [isLoading, setLoading] = useState(true);
+  const [agentJobs, setAgentJobs] = useState<AgentJobDto[]>([]);
   const [view, setView] = useState<View>("issues");
   const [openIssueId, setOpenIssueId] = useState<number | null>(null);
   const [openAgentJobId, setOpenAgentJobId] = useState<number | null>(null);
@@ -2269,6 +2491,38 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!project) {
+      setAgentJobs([]);
+      return;
+    }
+
+    let disposed = false;
+    async function loadAgentJobs() {
+      const jobs = await api.listAgentJobs(project.id);
+      if (!disposed) {
+        setAgentJobs(jobs);
+      }
+    }
+
+    void loadAgentJobs().catch(() => {
+      if (!disposed) {
+        setAgentJobs([]);
+      }
+    });
+    const interval = window.setInterval(() => {
+      void loadAgentJobs().catch(() => {
+        if (!disposed) {
+          setAgentJobs([]);
+        }
+      });
+    }, 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [project]);
+
   if (isLoading) {
     return <div className="loading-screen">{t("status.running")}</div>;
   }
@@ -2278,7 +2532,7 @@ export function App() {
   }
 
   return (
-    <AppShell project={project} view={view} onViewChange={setView}>
+    <AppShell project={project} view={view} onViewChange={setView} agentState={summarizeAgentJobs(agentJobs)}>
       {view === "issues" ? (
         <IssuesView
           project={project}

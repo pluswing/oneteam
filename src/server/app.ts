@@ -23,6 +23,7 @@ import type { Repositories } from "./db/repositories";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
+  commitAllChanges,
   detectMergeConflicts,
   getBranches,
   getCommitCount,
@@ -85,7 +86,7 @@ const createPullRequestSchema = z.object({
 const updatePullRequestSchema = createPullRequestSchema
   .partial()
   .extend({
-    status: z.enum(["open", "closed"]).optional()
+    status: z.enum(["open", "closed", "merged"]).optional()
   });
 
 const createAgentJobSchema = z.object({
@@ -743,6 +744,15 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     return c.json({ files });
   });
 
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/conflicts", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    return c.json(await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch));
+  });
+
   app.post("/api/projects/:projectId/pull-requests/:pullRequestId/merge", async (c) => {
     const project = await getProjectOr404(repos, c.req.param("projectId"));
     const pullRequestId = Number(c.req.param("pullRequestId"));
@@ -756,7 +766,18 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
 
     const status = await getRepositoryStatus(project.repoPath);
     if (!status.clean) {
-      conflict(`Working tree must be clean before merge. Changed files: ${status.changedFiles.join(", ")}`);
+      if (status.branch !== pullRequest.sourceBranch) {
+        conflict(`Working tree must be clean before merge. Changed files: ${status.changedFiles.join(", ")}`);
+      }
+      try {
+        await commitAllChanges(project.repoPath, `Prepare pull request #${pullRequest.id}: ${pullRequest.title}`);
+      } catch (error) {
+        conflict(`Unable to auto-commit source branch changes before merge. ${errorMessage(error, "Commit failed.")}`);
+      }
+      const updatedStatus = await getRepositoryStatus(project.repoPath);
+      if (!updatedStatus.clean) {
+        conflict(`Working tree must be clean before merge. Changed files: ${updatedStatus.changedFiles.join(", ")}`);
+      }
     }
 
     const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
@@ -771,7 +792,7 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
       conflict(errorMessage(error, "Merge failed."));
     }
 
-    const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, { status: "closed" });
+    const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, { status: "merged" });
     if (!mergedPullRequest) {
       notFound("Pull request was not found.");
     }

@@ -363,6 +363,8 @@ describe("agent worker", () => {
     const activities = await repos.activities.list(project.id, "issue", issue.id);
     const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
     const output = updatedJob?.output as AgentRunResult | null | undefined;
+    const worktreeStatus = await git(repoPath, ["status", "--porcelain"]);
+    const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", "main...HEAD"]);
 
     expect(updatedJob?.status).toBe("succeeded");
     expect(output?.changedFiles).toContain("feature.txt");
@@ -374,6 +376,8 @@ describe("agent worker", () => {
     );
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
+    expect(worktreeStatus).toBe("");
+    expect(sourceDiffFiles).toContain("feature.txt");
 
     context.client.close();
   });
