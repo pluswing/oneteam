@@ -4,6 +4,11 @@ OneTeam is a local web application for solo developers who want to work with AI 
 
 It provides a GitHub-like local workflow for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam can help clarify requirements, prepare an implementation branch, run Codex CLI, collect verification results, create a local pull request, review changes, route fixes, and support QA.
 
+## Website
+
+- [English](https://pluswing.github.io/oneteam/)
+- [日本語](https://pluswing.github.io/oneteam/ja.html)
+
 ## What It Does
 
 - Manage one local Git repository per OneTeam instance.
