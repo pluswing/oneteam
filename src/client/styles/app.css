@@ -1377,8 +1377,36 @@ textarea {
   font-size: 15px;
 }
 
+.activity-list {
+  display: grid;
+  gap: 10px;
+}
+
 .activity-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
   background: #f6f8fa;
+}
+
+.activity-item header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.activity-item header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-item header span {
+  color: #57606a;
+  font-size: 13px;
 }
 
 .comment-form {

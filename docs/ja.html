@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>One Team | ローカルIssue駆動AI開発ツール</title>
+    <meta
+      name="description"
+      content="One Teamは、単独開発者がローカル環境でIssueからPull Request、レビュー、QAまでをAIと進めるためのWebアプリケーションです。"
+    />
+    <style>
+      :root {
+        color: #202a33;
+        background: #f5f7f8;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        letter-spacing: 0;
+        --ink: #202a33;
+        --muted: #5d6a72;
+        --line: #d7dee2;
+        --paper: #ffffff;
+        --band: #eef4f2;
+        --green: #1f7a4d;
+        --blue: #1b6ca8;
+        --yellow: #936c12;
+        --red: #b33a3a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      .site-header {
+        position: fixed;
+        z-index: 10;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        min-height: 64px;
+        padding: 0 32px;
+        color: #f8fbfb;
+        background: rgba(26, 35, 42, 0.86);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(10px);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: #ffffff;
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .brand-icon {
+        width: 34px;
+        height: 38px;
+        padding: 4px;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .brand-word {
+        width: 118px;
+        height: auto;
+        filter: brightness(0) invert(1);
+      }
+
+      .site-nav {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: rgba(248, 251, 251, 0.86);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .site-nav a {
+        text-decoration: none;
+      }
+
+      .hero {
+        position: relative;
+        display: grid;
+        align-items: end;
+        min-height: 82vh;
+        padding: 120px 32px 72px;
+        color: #ffffff;
+        background-color: #202a33;
+        background-image: url("assets/screenshots/overview.png");
+        background-position: center top;
+        background-size: cover;
+        overflow: hidden;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: rgba(18, 27, 34, 0.68);
+      }
+
+      .hero-content {
+        position: relative;
+        width: min(1100px, 100%);
+        margin: 0 auto;
+      }
+
+      .eyebrow {
+        margin: 0 0 16px;
+        color: #9ee3bf;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        overflow-wrap: anywhere;
+      }
+
+      h1 {
+        width: min(760px, 100%);
+        margin: 0;
+        font-size: 58px;
+        line-height: 1.05;
+      }
+
+      .hero-copy {
+        width: min(680px, 100%);
+        margin: 22px 0 0;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 20px;
+        line-height: 1.7;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 8px;
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.12);
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: #2fa66b;
+        background: #1f7a4d;
+      }
+
+      .section {
+        padding: 78px 32px;
+      }
+
+      .section.band {
+        background: var(--band);
+      }
+
+      .section-inner {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+      }
+
+      .section-heading {
+        display: grid;
+        gap: 12px;
+        width: min(780px, 100%);
+        margin-bottom: 30px;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+        color: var(--ink);
+        font-size: 34px;
+        line-height: 1.2;
+      }
+
+      .section-heading p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.8;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .feature-card {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        min-height: 190px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      .feature-card h3 {
+        margin: 0;
+        font-size: 19px;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .tag.green {
+        background: var(--green);
+      }
+
+      .tag.blue {
+        background: var(--blue);
+      }
+
+      .tag.yellow {
+        background: var(--yellow);
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .workflow li {
+        min-height: 150px;
+        padding: 18px;
+        border-left: 4px solid var(--green);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .workflow strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .workflow span {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .screenshot-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 36px;
+      }
+
+      .screenshot-grid figure {
+        margin: 0;
+      }
+
+      .screenshot-frame {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        overflow: hidden;
+        box-shadow: 0 16px 40px rgba(32, 42, 51, 0.12);
+      }
+
+      .screenshot-frame img {
+        width: 100%;
+        height: auto;
+      }
+
+      .screenshot-grid figcaption {
+        margin-top: 12px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .screenshot-grid figcaption strong {
+        color: var(--ink);
+      }
+
+      .setup-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+        gap: 28px;
+        align-items: start;
+      }
+
+      .command-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .command-list code {
+        display: block;
+        padding: 13px 14px;
+        border: 1px solid #cad6dc;
+        border-radius: 8px;
+        color: #172027;
+        background: #ffffff;
+        font-size: 14px;
+        overflow-x: auto;
+      }
+
+      .usage-list {
+        display: grid;
+        gap: 14px;
+        margin: 0;
+        padding-left: 24px;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .usage-list strong {
+        color: var(--ink);
+      }
+
+      .note {
+        margin: 24px 0 0;
+        padding: 16px 18px;
+        border: 1px solid #d9ca8a;
+        border-radius: 8px;
+        color: #5c4712;
+        background: #fff8d7;
+        line-height: 1.7;
+      }
+
+      .site-footer {
+        padding: 30px 32px;
+        color: #dbe6e8;
+        background: #202a33;
+      }
+
+      .site-footer .section-inner {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .site-header {
+          position: absolute;
+          padding: 0 18px;
+        }
+
+        .site-nav {
+          display: none;
+        }
+
+        .hero {
+          min-height: 82vh;
+          padding: 104px 20px 56px;
+        }
+
+        h1 {
+          font-size: 42px;
+        }
+
+        .hero-copy {
+          font-size: 18px;
+        }
+
+        .section {
+          padding: 58px 20px;
+        }
+
+        .feature-grid,
+        .workflow,
+        .screenshot-grid,
+        .setup-panel {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 520px) {
+        h1 {
+          font-size: 36px;
+        }
+
+        .section-heading h2 {
+          font-size: 28px;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .brand-word {
+          width: 104px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="One Team">
+        <img class="brand-icon" src="assets/brand/logo.svg" alt="" />
+        <img class="brand-word" src="assets/brand/oneteam.svg" alt="One Team" />
+      </a>
+      <nav class="site-nav" aria-label="ページ内ナビゲーション">
+        <a href="#overview">概要</a>
+        <a href="#workflow">利用方法</a>
+        <a href="#screens">画面</a>
+        <a href="#setup">起動</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-label="One Team">
+        <div class="hero-content">
+          <p class="eyebrow">Issue-driven development with AI for solo developers</p>
+          <h1>One Team</h1>
+          <p class="hero-copy">
+            ローカルのGitリポジトリを対象に、Issue作成から要件定義、実装、Pull Request、レビュー、QAまでを
+            AIエージェントと一緒に進める開発支援ツールです。
+          </p>
+          <div class="hero-actions" aria-label="主要リンク">
+            <a class="button primary" href="#setup">使い始める</a>
+            <a class="button" href="#screens">画面を見る</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="overview">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>ローカルで完結する、GitHubライクなAI開発フロー</h2>
+            <p>
+              One TeamはGitHub連携を前提にせず、手元のリポジトリを1つ登録して使います。Issue、Pull Request、
+              コメント、ラベル、Agent Job、Activity LogをローカルDBに保存し、AIの進行状況を追える形にします。
+            </p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span class="tag green">Issue</span>
+              <h3>要望をIssueにまとめる</h3>
+              <p>
+                やりたいことや不具合をMarkdownで記録します。ラベルに応じて要件定義や実装のAgent Jobを開始できます。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag blue">Pull Request</span>
+              <h3>差分をローカルPRで確認</h3>
+              <p>
+                実装ブランチとmainの差分、コミット、関連Issue、レビュー結果を同じ画面で確認できます。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag yellow">Agent Job</span>
+              <h3>AIの作業履歴を残す</h3>
+              <p>
+                Codex CLIの実行結果、変更ファイル、検証コマンド、エラー、Human Gateの質問を追跡できます。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="workflow">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>利用方法</h2>
+            <p>
+              One Teamの基本操作は、Issueを起点にしてAIへ次の作業を渡し、Pull Requestで確認する流れです。
+            </p>
+          </div>
+          <ol class="workflow">
+            <li>
+              <strong>1. リポジトリを登録</strong>
+              <span>初回Setupで既存のGitリポジトリを指定し、Codex CLIと検出コマンドを保存します。</span>
+            </li>
+            <li>
+              <strong>2. Issueを作成</strong>
+              <span>実装したい内容を書き、requirementsラベルで要件定義Agentを動かします。</span>
+            </li>
+            <li>
+              <strong>3. AIが実装と検証</strong>
+              <span>実装Agentがブランチを作り、変更、テスト、Pull Request作成まで進めます。</span>
+            </li>
+            <li>
+              <strong>4. PRを確認してMerge</strong>
+              <span>レビューAgentとQA Agentの結果を見て、最後のMergeはユーザーが実行します。</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" id="screens">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>主要画面</h2>
+          </div>
+          <div class="screenshot-grid">
+            <figure>
+              <figcaption>
+                <strong>Issue詳細</strong><br />
+                要件、コメント、Agent Job、Human Gateの質問を同じタイムラインで確認できます。
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/issue-detail.png"
+                  alt="One TeamのIssue詳細画面。本文、会話、AIの質問、ラベル、Agent操作が表示されている。"
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Pull Request差分</strong><br />
+                source branchとtarget branchを比較し、変更ファイル、diff、関連Issueを追えます。
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/pull-request-files.png"
+                  alt="One TeamのPull Request詳細画面。ブランチ比較と変更ファイルのdiffが表示されている。"
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Agent Job詳細</strong><br />
+                AIが何を変え、どの検証を実行し、どこで止まったかをActivity Logとして残します。
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/agent-job-detail.png"
+                  alt="One TeamのAgent Job詳細画面。実装Agentの結果、変更ファイル、テスト結果、Activity Logが表示されている。"
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Repository</strong><br />
+                build、test、lintなどのコマンド検出結果と、Gitの現在状態を確認できます。
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/repository.png"
+                  alt="One TeamのRepository画面。リポジトリパス、現在のブランチ、作業ツリー、検出コマンドが表示されている。"
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="setup">
+        <div class="section-inner setup-panel">
+          <div>
+            <div class="section-heading">
+              <h2>ローカルでの起動</h2>
+              <p>
+                Node.js、npm、git、Codex CLIの認証があれば起動できます。GitHub Pagesは紹介用の静的ページで、
+                実際のOne Team本体は手元で動かします。
+              </p>
+            </div>
+            <ol class="usage-list">
+              <li><strong>依存関係をインストール</strong>して、Codex CLIにログインします。</li>
+              <li><strong>npm run dev</strong>でAPIとVite UIを起動します。</li>
+              <li><strong>http://127.0.0.1:3579</strong>を開き、Setupからリポジトリを登録します。</li>
+              <li><strong>Issueを作成</strong>し、ラベルやAgent操作でAIに作業を渡します。</li>
+            </ol>
+          </div>
+
+          <ul class="command-list" aria-label="起動コマンド">
+            <li><code>npm install</code></li>
+            <li><code>npm run codex:login</code></li>
+            <li><code>npm run dev</code></li>
+            <li><code>open http://127.0.0.1:3579</code></li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-inner">
+        <span>One Team</span>
+        <span>Local AI development workflow for solo developers.</span>
+      </div>
+    </footer>
+  </body>
+</html>

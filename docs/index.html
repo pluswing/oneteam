@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>One Team | Local Issue-Driven AI Development</title>
+    <meta
+      name="description"
+      content="One Team is a local web app for solo developers who want to move from issues to pull requests, review, and QA with AI agents."
+    />
+    <style>
+      :root {
+        color: #202a33;
+        background: #f5f7f8;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        letter-spacing: 0;
+        --ink: #202a33;
+        --muted: #5d6a72;
+        --line: #d7dee2;
+        --paper: #ffffff;
+        --band: #eef4f2;
+        --green: #1f7a4d;
+        --blue: #1b6ca8;
+        --yellow: #936c12;
+        --red: #b33a3a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      .site-header {
+        position: fixed;
+        z-index: 10;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        min-height: 64px;
+        padding: 0 32px;
+        color: #f8fbfb;
+        background: rgba(26, 35, 42, 0.86);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(10px);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: #ffffff;
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .brand-icon {
+        width: 34px;
+        height: 38px;
+        padding: 4px;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .brand-word {
+        width: 118px;
+        height: auto;
+        filter: brightness(0) invert(1);
+      }
+
+      .site-nav {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: rgba(248, 251, 251, 0.86);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .site-nav a {
+        text-decoration: none;
+      }
+
+      .hero {
+        position: relative;
+        display: grid;
+        align-items: end;
+        min-height: 82vh;
+        padding: 120px 32px 72px;
+        color: #ffffff;
+        background-color: #202a33;
+        background-image: url("assets/screenshots/overview.png");
+        background-position: center top;
+        background-size: cover;
+        overflow: hidden;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: rgba(18, 27, 34, 0.68);
+      }
+
+      .hero-content {
+        position: relative;
+        width: min(1100px, 100%);
+        margin: 0 auto;
+      }
+
+      .eyebrow {
+        margin: 0 0 16px;
+        color: #9ee3bf;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        overflow-wrap: anywhere;
+      }
+
+      h1 {
+        width: min(760px, 100%);
+        margin: 0;
+        font-size: 58px;
+        line-height: 1.05;
+      }
+
+      .hero-copy {
+        width: min(680px, 100%);
+        margin: 22px 0 0;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 20px;
+        line-height: 1.7;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 8px;
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.12);
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: #2fa66b;
+        background: #1f7a4d;
+      }
+
+      .section {
+        padding: 78px 32px;
+      }
+
+      .section.band {
+        background: var(--band);
+      }
+
+      .section-inner {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+      }
+
+      .section-heading {
+        display: grid;
+        gap: 12px;
+        width: min(780px, 100%);
+        margin-bottom: 30px;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+        color: var(--ink);
+        font-size: 34px;
+        line-height: 1.2;
+      }
+
+      .section-heading p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.8;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .feature-card {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        min-height: 190px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      .feature-card h3 {
+        margin: 0;
+        font-size: 19px;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .tag.green {
+        background: var(--green);
+      }
+
+      .tag.blue {
+        background: var(--blue);
+      }
+
+      .tag.yellow {
+        background: var(--yellow);
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .workflow li {
+        min-height: 150px;
+        padding: 18px;
+        border-left: 4px solid var(--green);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .workflow strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .workflow span {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .screenshot-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 36px;
+      }
+
+      .screenshot-grid figure {
+        margin: 0;
+      }
+
+      .screenshot-frame {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        overflow: hidden;
+        box-shadow: 0 16px 40px rgba(32, 42, 51, 0.12);
+      }
+
+      .screenshot-frame img {
+        width: 100%;
+        height: auto;
+      }
+
+      .screenshot-grid figcaption {
+        margin-top: 12px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .screenshot-grid figcaption strong {
+        color: var(--ink);
+      }
+
+      .setup-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+        gap: 28px;
+        align-items: start;
+      }
+
+      .command-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .command-list code {
+        display: block;
+        padding: 13px 14px;
+        border: 1px solid #cad6dc;
+        border-radius: 8px;
+        color: #172027;
+        background: #ffffff;
+        font-size: 14px;
+        overflow-x: auto;
+      }
+
+      .usage-list {
+        display: grid;
+        gap: 14px;
+        margin: 0;
+        padding-left: 24px;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .usage-list strong {
+        color: var(--ink);
+      }
+
+      .note {
+        margin: 24px 0 0;
+        padding: 16px 18px;
+        border: 1px solid #d9ca8a;
+        border-radius: 8px;
+        color: #5c4712;
+        background: #fff8d7;
+        line-height: 1.7;
+      }
+
+      .site-footer {
+        padding: 30px 32px;
+        color: #dbe6e8;
+        background: #202a33;
+      }
+
+      .site-footer .section-inner {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .site-header {
+          position: absolute;
+          padding: 0 18px;
+        }
+
+        .site-nav {
+          display: none;
+        }
+
+        .hero {
+          min-height: 82vh;
+          padding: 104px 20px 56px;
+        }
+
+        h1 {
+          font-size: 42px;
+        }
+
+        .hero-copy {
+          font-size: 18px;
+        }
+
+        .section {
+          padding: 58px 20px;
+        }
+
+        .feature-grid,
+        .workflow,
+        .screenshot-grid,
+        .setup-panel {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 520px) {
+        h1 {
+          font-size: 36px;
+        }
+
+        .section-heading h2 {
+          font-size: 28px;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .brand-word {
+          width: 104px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="One Team">
+        <img class="brand-icon" src="assets/brand/logo.svg" alt="" />
+        <img class="brand-word" src="assets/brand/oneteam.svg" alt="One Team" />
+      </a>
+      <nav class="site-nav" aria-label="Page navigation">
+        <a href="#overview">Overview</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#screens">Screens</a>
+        <a href="#setup">Setup</a>
+        <a href="ja.html">Japanese</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-label="One Team">
+        <div class="hero-content">
+          <p class="eyebrow">Issue-driven development with AI for solo developers</p>
+          <h1>One Team</h1>
+          <p class="hero-copy">
+            A local web app that helps you move work from issue creation to requirements, implementation,
+            pull request review, and QA with AI agents.
+          </p>
+          <div class="hero-actions" aria-label="Primary links">
+            <a class="button primary" href="#setup">Get started</a>
+            <a class="button" href="#screens">View screens</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="overview">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>A GitHub-like AI workflow that stays local</h2>
+            <p>
+              One Team works with a single Git repository on your machine. It stores issues, pull requests,
+              comments, labels, agent jobs, and activity logs locally so you can see what the AI is doing.
+            </p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span class="tag green">Issue</span>
+              <h3>Capture work as issues</h3>
+              <p>
+                Write requests, bugs, or improvements in Markdown. Labels can trigger requirements and implementation jobs.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag blue">Pull Request</span>
+              <h3>Review local pull requests</h3>
+              <p>
+                Compare the implementation branch with main, inspect commits and files, and keep the linked issue nearby.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag yellow">Agent Job</span>
+              <h3>Track AI execution</h3>
+              <p>
+                Follow Codex CLI results, changed files, verification commands, errors, and Human Gate questions.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="workflow">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>How It Works</h2>
+            <p>
+              The core flow starts from an issue, hands the next step to an AI agent, and ends with a pull request you can inspect.
+            </p>
+          </div>
+          <ol class="workflow">
+            <li>
+              <strong>1. Register a repository</strong>
+              <span>Use Setup to import a Git repository, configure Codex CLI, and save detected commands.</span>
+            </li>
+            <li>
+              <strong>2. Create an issue</strong>
+              <span>Describe the work and use the requirements label to start requirements clarification.</span>
+            </li>
+            <li>
+              <strong>3. Let AI implement and verify</strong>
+              <span>The implementation agent creates a branch, changes files, runs checks, and opens a local pull request.</span>
+            </li>
+            <li>
+              <strong>4. Review and merge</strong>
+              <span>Read review and QA results, inspect the diff, and perform the final merge yourself.</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" id="screens">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2>Key Screens</h2>
+          </div>
+          <div class="screenshot-grid">
+            <figure>
+              <figcaption>
+                <strong>Issue detail</strong><br />
+                Requirements, comments, agent jobs, and Human Gate questions are visible in the same workflow.
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/issue-detail.png"
+                  alt="One Team issue detail screen showing the body, conversation, AI question, labels, and agent actions."
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Pull request diff</strong><br />
+                Compare source and target branches, then inspect changed files, diffs, and the linked issue.
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/pull-request-files.png"
+                  alt="One Team pull request screen showing branch comparison and changed file diffs."
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Agent job detail</strong><br />
+                See what the AI changed, which checks ran, and what happened during execution.
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/agent-job-detail.png"
+                  alt="One Team agent job detail screen showing implementation output, changed files, tests, and activity log."
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+
+            <figure>
+              <figcaption>
+                <strong>Repository</strong><br />
+                Check detected build, test, and lint commands alongside the current Git state.
+              </figcaption>
+              <div class="screenshot-frame">
+                <img
+                  src="assets/screenshots/repository.png"
+                  alt="One Team repository screen showing repository path, current branch, working tree state, and detected commands."
+                  width="1440"
+                  height="960"
+                />
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="setup">
+        <div class="section-inner setup-panel">
+          <div>
+            <div class="section-heading">
+              <h2>Run It Locally</h2>
+              <p>
+                One Team runs with Node.js, npm, git, and Codex CLI authentication. This GitHub Pages site is only the
+                product overview; the app itself runs on your machine.
+              </p>
+            </div>
+            <ol class="usage-list">
+              <li><strong>Install dependencies</strong> and log in to Codex CLI.</li>
+              <li><strong>Run npm run dev</strong> to start the API and Vite UI.</li>
+              <li><strong>Open http://127.0.0.1:3579</strong> and register a repository from Setup.</li>
+              <li><strong>Create an issue</strong>, then use labels or agent actions to hand work to AI.</li>
+            </ol>
+          </div>
+
+          <ul class="command-list" aria-label="Startup commands">
+            <li><code>npm install</code></li>
+            <li><code>npm run codex:login</code></li>
+            <li><code>npm run dev</code></li>
+            <li><code>open http://127.0.0.1:3579</code></li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-inner">
+        <span>One Team</span>
+        <span>Local AI development workflow for solo developers.</span>
+      </div>
+    </footer>
+  </body>
+</html>
