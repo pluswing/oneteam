@@ -13,6 +13,7 @@ import type {
   AgentType,
   IssueDto,
   IssueStatus,
+  KnownRepositoryDto,
   ProjectDto,
   ProjectSettingsDto,
   PullRequestDto,
@@ -21,6 +22,7 @@ import type {
 import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
 import { workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
+import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
@@ -34,7 +36,7 @@ import {
   getRepositoryStatus,
   mergeBranch
 } from "./services/git-service";
-import { listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
+import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
 import { runLabelAutomation } from "./services/label-automation";
 import { startLoopRun } from "./services/loop-runner";
 
@@ -43,6 +45,7 @@ const execFileAsync = promisify(execFile);
 export type AppDependencies = {
   repos: Repositories;
   runtime?: ProjectSettingsDto["runtime"];
+  switchDatabaseForRepository?: (repoPath: string, name?: string) => Promise<KnownRepositoryDto | null>;
 };
 
 const createProjectSchema = z.object({
@@ -58,6 +61,11 @@ const createProjectSchema = z.object({
       fullAccess: z.boolean().default(true)
     })
     .optional()
+});
+
+const switchRepositorySchema = z.object({
+  repoPath: z.string().min(1),
+  name: z.string().optional()
 });
 
 const createIssueSchema = z.object({
@@ -245,14 +253,14 @@ async function validateCodexCommand(command: string): Promise<void> {
   }
 }
 
-function runtimeDefaults(runtime?: ProjectSettingsDto["runtime"]): ProjectSettingsDto["runtime"] {
+function runtimeDefaults(project: ProjectDto, runtime?: ProjectSettingsDto["runtime"]): ProjectSettingsDto["runtime"] {
   return {
     server: {
       host: runtime?.server.host ?? "127.0.0.1",
       port: runtime?.server.port ?? 3580
     },
     database: {
-      url: runtime?.database.url ?? "file:./data/oneteam.db"
+      url: runtime?.database.url ?? repositoryDatabaseUrl(project.repoPath)
     }
   };
 }
@@ -272,7 +280,7 @@ async function readProjectSettings(
       model: typeof ai?.model === "string" ? ai.model : null,
       fullAccess: typeof ai?.fullAccess === "boolean" ? ai.fullAccess : true
     },
-    runtime: runtimeDefaults(runtime)
+    runtime: runtimeDefaults(project, runtime)
   };
 }
 
@@ -419,7 +427,7 @@ async function resumeWaitingJobForComment(
   return repos.agentJobs.resume(input.projectId, waitingJob.id);
 }
 
-export function createApp({ repos, runtime }: AppDependencies): Hono {
+export function createApp({ repos, runtime, switchDatabaseForRepository }: AppDependencies): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -459,10 +467,29 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     return c.json({ items });
   });
 
+  app.get("/api/repositories", async (c) => {
+    return c.json({ items: listSelectableRepositories() });
+  });
+
+  app.post("/api/repositories/switch", zValidator("json", switchRepositorySchema), async (c) => {
+    const input = c.req.valid("json");
+    const repository =
+      (await switchDatabaseForRepository?.(input.repoPath, input.name)) ?? {
+        repoPath: input.repoPath,
+        name: input.name ?? input.repoPath,
+        databaseUrl: repositoryDatabaseUrl(input.repoPath),
+        lastOpenedAt: new Date().toISOString()
+      };
+    const projects = await repos.projects.list();
+    return c.json({ repository, projects });
+  });
+
   app.post("/api/projects", zValidator("json", createProjectSchema), async (c) => {
     const input = c.req.valid("json");
     await ensureRepository(input);
+    await switchDatabaseForRepository?.(input.repoPath, input.name);
     const project = await repos.projects.create(input);
+    await ensureKnowledgeFiles(project.repoPath);
     if (input.codex) {
       await repos.settings.set("ai", {
         provider: "codex-cli",

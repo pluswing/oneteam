@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, CircleAlert, GitPullRequest, ListTodo, RefreshCw, RotateCcw, Settings, Terminal } from "lucide-react";
+import { Bot, CheckCircle2, CircleAlert, FolderOpen, GitPullRequest, ListTodo, RefreshCw, RotateCcw, Settings, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentHeaderState } from "../agent-status";
 import logoMarkUrl from "../assets/logo.svg";
@@ -8,6 +8,7 @@ import type { View } from "../routes";
 export function AppShell(props: {
   view: View;
   onViewChange: (view: View) => void;
+  onSwitchProject: () => void;
   agentState: AgentHeaderState;
   children: React.ReactNode;
 }) {
@@ -83,6 +84,18 @@ export function AppShell(props: {
           </button>
           {isSettingsMenuOpen ? (
             <div className="settings-menu-popover" role="menu">
+              <button
+                className="settings-menu-item"
+                onClick={() => {
+                  props.onSwitchProject();
+                  setSettingsMenuOpen(false);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <FolderOpen size={16} />
+                <span>{t("nav.projects")}</span>
+              </button>
               {settingsNav.map((item) => {
                 const Icon = item.icon;
                 return (

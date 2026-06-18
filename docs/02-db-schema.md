@@ -6,8 +6,8 @@ libSQL に保存するデータ構造を定義する。MVP 実装では、この
 
 ## 2. 基本方針
 
-- database は one team instance ごとに 1 つ。
-- one team instance は 1 repository を管理するが、将来の拡張余地として `project_id` を各 table に持つ。
+- database は import / create した repository ごとに `<repo>/.oneteam/data/oneteam.db` として 1 つ持つ。
+- one team instance は選択中の 1 repository DB を開くが、将来の拡張余地として `project_id` を各 table に持つ。
 - datetime は ISO 8601 text として保存する。
 - boolean は `0` / `1` integer として保存する。
 - issue / pull request / label は論理削除し、`deleted_at is null` を通常 query の条件に含める。

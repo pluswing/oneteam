@@ -75,7 +75,7 @@ The API runs at:
 http://127.0.0.1:3580
 ```
 
-On first launch, use the setup screen to import or create a repository project. OneTeam will run command detection and store project settings in the local libSQL database.
+On first launch, use the setup screen to import or create a repository project. OneTeam will run command detection, store project settings in `<imported-repo>/.oneteam/data/oneteam.db`, and create skills/memory files under `<imported-repo>/.oneteam/`. To force a repository database on startup, set `ONETEAM_REPOSITORY_PATH=/path/to/repo`.
 
 ## Common Commands
 

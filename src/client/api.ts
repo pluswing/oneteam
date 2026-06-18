@@ -3,6 +3,7 @@ import type {
   ActivityDto,
   CommentDto,
   IssueDto,
+  KnownRepositoryDto,
   LabelDto,
   LoopDto,
   LoopMemoryEntryDto,
@@ -66,6 +67,11 @@ type LoopRunDetailResponse = {
   steps: LoopStepDto[];
 };
 
+type RepositorySwitchResponse = {
+  repository: KnownRepositoryDto;
+  projects: ProjectDto[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -84,6 +90,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async listRepositories(): Promise<KnownRepositoryDto[]> {
+    const response = await request<ListResponse<KnownRepositoryDto>>("/api/repositories");
+    return response.items;
+  },
+
+  async switchRepository(input: { repoPath: string; name?: string }): Promise<RepositorySwitchResponse> {
+    return request<RepositorySwitchResponse>("/api/repositories/switch", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
   async listProjects(): Promise<ProjectDto[]> {
     const response = await request<ListResponse<ProjectDto>>("/api/projects");
     return response.items;

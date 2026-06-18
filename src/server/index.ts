@@ -1,25 +1,70 @@
 import { serve } from "@hono/node-server";
 import { normalizeCodexCommand } from "../shared/codex";
-import { loadConfig } from "./config";
+import { loadConfig, rememberRepositoryPath, repositoryDatabaseUrl } from "./config";
+import type { KnownRepositoryDto } from "../shared/types";
 import { createApp } from "./app";
-import { createDatabaseContext } from "./db/client";
+import { createDatabaseContext, type DatabaseContext } from "./db/client";
 import { runMigrations } from "./db/migrations";
-import { createRepositories } from "./db/repositories";
+import { createRepositories, type Repositories } from "./db/repositories";
 import { CodexAdapter } from "./agents/codex-adapter";
 import { AgentWorker } from "./agents/worker";
 
 const config = loadConfig();
+let activeDatabase: {
+  context: DatabaseContext;
+  repos: Repositories;
+  url: string;
+};
+
 const database = createDatabaseContext(config.database.url);
-
 await runMigrations(database.client);
+activeDatabase = {
+  context: database,
+  repos: createRepositories(database.db),
+  url: config.database.url
+};
 
-const repos = createRepositories(database.db);
+const runtime = {
+  server: config.server,
+  database: {
+    url: activeDatabase.url
+  }
+};
+const repos = new Proxy({} as Repositories, {
+  get(_target, property: keyof Repositories) {
+    return activeDatabase.repos[property];
+  }
+});
+
+async function switchDatabaseForRepository(repoPath: string, name?: string): Promise<KnownRepositoryDto | null> {
+  if (process.env.ONETEAM_DATABASE_URL) {
+    return null;
+  }
+
+  const nextUrl = repositoryDatabaseUrl(repoPath);
+  const repository = rememberRepositoryPath(repoPath, name);
+  if (nextUrl === activeDatabase.url) {
+    runtime.database.url = nextUrl;
+    return repository;
+  }
+
+  const nextContext = createDatabaseContext(nextUrl);
+  await runMigrations(nextContext.client);
+  const previousContext = activeDatabase.context;
+  activeDatabase = {
+    context: nextContext,
+    repos: createRepositories(nextContext.db),
+    url: nextUrl
+  };
+  runtime.database.url = nextUrl;
+  previousContext.client.close();
+  return repository;
+}
+
 const app = createApp({
   repos,
-  runtime: {
-    server: config.server,
-    database: config.database
-  }
+  runtime,
+  switchDatabaseForRepository
 });
 
 let worker: AgentWorker | null = null;
@@ -47,7 +92,7 @@ if (config.agents.workerEnabled) {
 
 function shutdown() {
   worker?.stop();
-  database.client.close();
+  activeDatabase.context.client.close();
   process.exit(0);
 }
 

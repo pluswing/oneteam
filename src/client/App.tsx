@@ -3,6 +3,7 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
+  FolderOpen,
   GitPullRequest,
   ListTodo,
   Pencil,
@@ -16,6 +17,7 @@ import type {
   AgentJobDto,
   CommentDto,
   IssueDto,
+  KnownRepositoryDto,
   LabelDto,
   MergeConflictDto,
   ProjectCommandDto,
@@ -1817,8 +1819,62 @@ function SettingsView(props: { project: ProjectDto }) {
   );
 }
 
+function ProjectSelector(props: {
+  repositories: KnownRepositoryDto[];
+  onAddProject: () => void;
+  onSelect: (repository: KnownRepositoryDto) => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [openingRepoPath, setOpeningRepoPath] = useState<string | null>(null);
+
+  async function openRepository(repository: KnownRepositoryDto) {
+    setError(null);
+    setOpeningRepoPath(repository.repoPath);
+    try {
+      await props.onSelect(repository);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open repository.");
+    } finally {
+      setOpeningRepoPath(null);
+    }
+  }
+
+  return (
+    <main className="setup-screen">
+      <section className="setup-panel project-selector">
+        <h1>{t("projects.title")}</h1>
+        <p className="muted-text">{t("projects.subtitle")}</p>
+        {error ? <div className="error-banner">{error}</div> : null}
+        <div className="work-item-list">
+          {props.repositories.length === 0 ? <div className="empty-state">{t("projects.noProjects")}</div> : null}
+          {props.repositories.map((repository) => (
+            <button
+              className="work-item-summary"
+              disabled={openingRepoPath !== null}
+              key={repository.repoPath}
+              onClick={() => void openRepository(repository)}
+              type="button"
+            >
+              <span className="work-item-title">{repository.name}</span>
+              <span>{repository.repoPath}</span>
+              <span>{formatDateTime(repository.lastOpenedAt)}</span>
+              <span>{openingRepoPath === repository.repoPath ? t("status.running") : t("projects.openProject")}</span>
+            </button>
+          ))}
+        </div>
+        <button className="primary-button" disabled={openingRepoPath !== null} onClick={props.onAddProject} type="button">
+          <FolderOpen size={16} />
+          {t("projects.addProject")}
+        </button>
+      </section>
+    </main>
+  );
+}
+
 export function App() {
+  const [repositories, setRepositories] = useState<KnownRepositoryDto[]>([]);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [screen, setScreen] = useState<"select" | "setup" | "app">("select");
   const [isLoading, setLoading] = useState(true);
   const [agentJobs, setAgentJobs] = useState<AgentJobDto[]>([]);
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
@@ -1855,13 +1911,41 @@ export function App() {
     (pullRequestId: number) => navigate({ name: "pullRequestConflicts", pullRequestId }),
     [navigate]
   );
+  const refreshRepositories = useCallback(async () => {
+    setRepositories(await api.listRepositories());
+  }, []);
+  const handleSelectRepository = useCallback(
+    async (repository: KnownRepositoryDto) => {
+      const response = await api.switchRepository({ repoPath: repository.repoPath, name: repository.name });
+      setProjects(response.projects);
+      setAgentJobs([]);
+      setScreen(response.projects.length ? "app" : "setup");
+      navigate({ name: "issues" }, "replace");
+      await refreshRepositories();
+    },
+    [navigate, refreshRepositories]
+  );
+  const handleProjectCreated = useCallback(
+    async (created: ProjectDto) => {
+      setProjects([created]);
+      setAgentJobs([]);
+      setScreen("app");
+      navigate({ name: "issues" }, "replace");
+      await refreshRepositories();
+    },
+    [navigate, refreshRepositories]
+  );
+  const handleSwitchProject = useCallback(() => {
+    setProjects([]);
+    setAgentJobs([]);
+    setScreen("select");
+    navigate({ name: "issues" }, "replace");
+    void refreshRepositories();
+  }, [navigate, refreshRepositories]);
 
   useEffect(() => {
-    api
-      .listProjects()
-      .then(setProjects)
-      .finally(() => setLoading(false));
-  }, []);
+    refreshRepositories().finally(() => setLoading(false));
+  }, [refreshRepositories]);
 
   useEffect(() => {
     function handlePopState() {
@@ -1873,13 +1957,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (project && window.location.pathname === "/") {
+    if (screen === "app" && project && window.location.pathname === "/") {
       navigate({ name: "issues" }, "replace");
     }
-  }, [project, navigate]);
+  }, [project, navigate, screen]);
 
   useEffect(() => {
-    if (!project) {
+    if (!project || screen !== "app") {
       setAgentJobs([]);
       return;
     }
@@ -1908,18 +1992,40 @@ export function App() {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [project]);
+  }, [project, screen]);
 
   if (isLoading) {
     return <div className="loading-screen">{t("status.running")}</div>;
   }
 
-  if (!project) {
-    return <SetupWizard onCreated={(created) => setProjects([created])} />;
+  if (screen === "select") {
+    return (
+      <ProjectSelector
+        onAddProject={() => setScreen("setup")}
+        onSelect={handleSelectRepository}
+        repositories={repositories}
+      />
+    );
+  }
+
+  if (screen === "setup" || !project) {
+    return (
+      <SetupWizard
+        onCancel={repositories.length ? () => setScreen("select") : undefined}
+        onCreated={(created) => {
+          void handleProjectCreated(created);
+        }}
+      />
+    );
   }
 
   return (
-    <AppShell view={view} onViewChange={handleViewChange} agentState={summarizeAgentJobs(agentJobs)}>
+    <AppShell
+      agentState={summarizeAgentJobs(agentJobs)}
+      onSwitchProject={handleSwitchProject}
+      onViewChange={handleViewChange}
+      view={view}
+    >
       {view === "issues" ? (
         <IssuesView
           project={project}

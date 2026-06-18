@@ -7,6 +7,7 @@ export const en = {
     pullRequests: "Pull Requests",
     loops: "Loops",
     agentJobs: "Agent Jobs",
+    projects: "Projects",
     repository: "Repository",
     settings: "Settings",
     tools: "Repository and settings"
@@ -36,6 +37,14 @@ export const en = {
     fullAccess: "Full access",
     locale: "Locale",
     createProject: "Create project"
+  },
+  projects: {
+    title: "Choose project",
+    subtitle: "Select the repository database to open.",
+    noProjects: "No repositories yet",
+    addProject: "Add repository",
+    openProject: "Open",
+    database: "Database"
   },
   issues: {
     title: "Issues",

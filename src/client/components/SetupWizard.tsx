@@ -1,4 +1,4 @@
-import { Save } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import { FormEvent, useState } from "react";
 import type { ProjectDto } from "../../shared/types";
 import { defaultCodexCommand } from "../../shared/codex";
@@ -6,7 +6,7 @@ import { api } from "../api";
 import oneTeamLogoUrl from "../assets/oneteam.svg";
 import { t } from "../i18n";
 
-export function SetupWizard(props: { onCreated: (project: ProjectDto) => void }) {
+export function SetupWizard(props: { onCancel?: () => void; onCreated: (project: ProjectDto) => void }) {
   const [mode, setMode] = useState<"import" | "create">("import");
   const [name, setName] = useState("one team");
   const [repoPath, setRepoPath] = useState("");
@@ -88,10 +88,18 @@ export function SetupWizard(props: { onCreated: (project: ProjectDto) => void })
         </section>
 
         {error ? <div className="error-banner">{error}</div> : null}
-        <button className="primary-button" disabled={isSubmitting} type="submit">
-          <Save size={16} />
-          {t("setup.createProject")}
-        </button>
+        <div className="action-row">
+          {props.onCancel ? (
+            <button className="secondary-button" disabled={isSubmitting} onClick={props.onCancel} type="button">
+              <ArrowLeft size={16} />
+              {t("actions.cancel")}
+            </button>
+          ) : null}
+          <button className="primary-button" disabled={isSubmitting} type="submit">
+            <Save size={16} />
+            {t("setup.createProject")}
+          </button>
+        </div>
       </form>
     </main>
   );

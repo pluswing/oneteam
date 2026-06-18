@@ -39,6 +39,13 @@ export type ProjectDto = {
   updatedAt: string;
 };
 
+export type KnownRepositoryDto = {
+  repoPath: string;
+  name: string;
+  databaseUrl: string;
+  lastOpenedAt: string;
+};
+
 export type ProjectSettingsDto = {
   project: {
     locale: string;

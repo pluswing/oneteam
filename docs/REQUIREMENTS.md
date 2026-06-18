@@ -508,7 +508,7 @@ MVP では次のどちらかで repository を登録できる。
     "rootDir": "~/.oneteam/workspaces"
   },
   "database": {
-    "url": "file:~/.oneteam/oneteam.db"
+    "url": "file:/absolute/path/to/imported-repo/.oneteam/data/oneteam.db"
   },
   "ai": {
     "provider": "codex-cli",
