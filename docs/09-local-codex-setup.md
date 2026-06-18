@@ -9,7 +9,7 @@ npm run codex:version
 npm run codex:login
 ```
 
-`npm run codex:login` runs `node_modules/.bin/codex login`, so authentication is configured for the local Codex CLI package used by one team.
+On startup, one team runs `codex login status` for the managed Codex CLI command. If authentication is missing, it starts `codex login` automatically. `npm run codex:login` remains available as a manual fallback.
 
 ## Default one team setting
 
@@ -19,7 +19,7 @@ The default Codex command is:
 node_modules/.bin/codex
 ```
 
-If an older setup stored `codex` as the command, one team normalizes it to `node_modules/.bin/codex` before running agent jobs.
+The Codex command is managed by the application runtime and is no longer editable from the Settings screen. In packaged Electron builds, one team points this value at the bundled Codex binary.
 
 ## Agent execution
 

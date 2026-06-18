@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { isAbsolute, resolve as resolvePath } from "node:path";
 import { promisify } from "node:util";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { zValidator } from "@hono/zod-validator";
@@ -19,7 +18,7 @@ import type {
   PullRequestDto,
   PullRequestStatus
 } from "../shared/types";
-import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
+import { defaultCodexCommand } from "../shared/codex";
 import { workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
 import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
@@ -43,8 +42,10 @@ import { startLoopRun } from "./services/loop-runner";
 const execFileAsync = promisify(execFile);
 
 export type AppDependencies = {
+  ai?: ProjectSettingsDto["ai"];
   repos: Repositories;
   runtime?: ProjectSettingsDto["runtime"];
+  staticRoot?: string;
   switchDatabaseForRepository?: (repoPath: string, name?: string) => Promise<KnownRepositoryDto | null>;
 };
 
@@ -53,14 +54,7 @@ const createProjectSchema = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1),
   defaultBranch: z.string().min(1).default("main"),
-  locale: z.string().min(2).default("en"),
-  codex: z
-    .object({
-      command: z.string().min(1).default(defaultCodexCommand),
-      model: z.string().optional(),
-      fullAccess: z.boolean().default(true)
-    })
-    .optional()
+  locale: z.string().min(2).default("en")
 });
 
 const switchRepositorySchema = z.object({
@@ -113,10 +107,8 @@ const detectCommandsSchema = z.object({
 });
 
 const updateProjectSettingsSchema = z.object({
-  locale: z.string().min(2),
-  codexCommand: z.string().min(1),
-  model: z.string().optional()
-});
+  locale: z.string().min(2)
+}).strict();
 
 const createLoopSchema = z.object({
   name: z.string().min(1),
@@ -233,26 +225,6 @@ async function enrichPullRequestWithGitStats(project: ProjectDto, pullRequest: P
   }
 }
 
-function resolveCommandPath(command: string): string {
-  if (command.includes("/") || command.includes("\\")) {
-    return isAbsolute(command) ? command : resolvePath(process.cwd(), command);
-  }
-  return command;
-}
-
-async function validateCodexCommand(command: string): Promise<void> {
-  try {
-    await execFileAsync(resolveCommandPath(command), ["--version"], {
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024
-    });
-  } catch {
-    throw new HTTPException(400, {
-      message: "Codex command could not be executed with --version."
-    });
-  }
-}
-
 function runtimeDefaults(project: ProjectDto, runtime?: ProjectSettingsDto["runtime"]): ProjectSettingsDto["runtime"] {
   return {
     server: {
@@ -266,19 +238,18 @@ function runtimeDefaults(project: ProjectDto, runtime?: ProjectSettingsDto["runt
 }
 
 async function readProjectSettings(
-  repos: Repositories,
   project: ProjectDto,
-  runtime?: ProjectSettingsDto["runtime"]
+  runtime?: ProjectSettingsDto["runtime"],
+  ai?: ProjectSettingsDto["ai"]
 ): Promise<ProjectSettingsDto> {
-  const ai = await repos.settings.get("ai");
   return {
     project: {
       locale: project.locale
     },
-    ai: {
-      codexCommand: normalizeCodexCommand(typeof ai?.codexCommand === "string" ? ai.codexCommand : defaultCodexCommand),
-      model: typeof ai?.model === "string" ? ai.model : null,
-      fullAccess: typeof ai?.fullAccess === "boolean" ? ai.fullAccess : true
+    ai: ai ?? {
+      codexCommand: defaultCodexCommand,
+      model: null,
+      fullAccess: true
     },
     runtime: runtimeDefaults(project, runtime)
   };
@@ -427,7 +398,13 @@ async function resumeWaitingJobForComment(
   return repos.agentJobs.resume(input.projectId, waitingJob.id);
 }
 
-export function createApp({ repos, runtime, switchDatabaseForRepository }: AppDependencies): Hono {
+export function createApp({
+  ai,
+  repos,
+  runtime,
+  staticRoot = "./dist/client",
+  switchDatabaseForRepository
+}: AppDependencies): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -490,14 +467,6 @@ export function createApp({ repos, runtime, switchDatabaseForRepository }: AppDe
     await switchDatabaseForRepository?.(input.repoPath, input.name);
     const project = await repos.projects.create(input);
     await ensureKnowledgeFiles(project.repoPath);
-    if (input.codex) {
-      await repos.settings.set("ai", {
-        provider: "codex-cli",
-        codexCommand: input.codex.command,
-        model: input.codex.model,
-        fullAccess: input.codex.fullAccess
-      });
-    }
     const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, true);
     return c.json(
       {
@@ -526,25 +495,17 @@ export function createApp({ repos, runtime, switchDatabaseForRepository }: AppDe
 
   app.get("/api/projects/:projectId/settings", async (c) => {
     const project = await getProjectOr404(repos, c.req.param("projectId"));
-    return c.json(await readProjectSettings(repos, project, runtime));
+    return c.json(await readProjectSettings(project, runtime, ai));
   });
 
   app.put("/api/projects/:projectId/settings", zValidator("json", updateProjectSettingsSchema), async (c) => {
     const project = await getProjectOr404(repos, c.req.param("projectId"));
     const input = c.req.valid("json");
-    const codexCommand = normalizeCodexCommand(input.codexCommand);
-    await validateCodexCommand(codexCommand);
     const updatedProject = await repos.projects.update(project.id, { locale: input.locale });
     if (!updatedProject) {
       notFound("Project was not found.");
     }
-    await repos.settings.set("ai", {
-      provider: "codex-cli",
-      codexCommand,
-      model: input.model || undefined,
-      fullAccess: true
-    });
-    return c.json(await readProjectSettings(repos, updatedProject, runtime));
+    return c.json(await readProjectSettings(updatedProject, runtime, ai));
   });
 
   app.get("/api/projects/:projectId/labels", async (c) => {
@@ -1217,8 +1178,8 @@ export function createApp({ repos, runtime, switchDatabaseForRepository }: AppDe
     return c.json(await detectMergeConflicts(project.repoPath, sourceBranch, targetBranch));
   });
 
-  app.use("/*", serveStatic({ root: "./dist/client" }));
-  app.get("*", serveStatic({ path: "./dist/client/index.html" }));
+  app.use("/*", serveStatic({ root: staticRoot }));
+  app.get("*", serveStatic({ path: `${staticRoot}/index.html` }));
 
   return app;
 }

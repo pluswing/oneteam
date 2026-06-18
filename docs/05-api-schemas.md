@@ -128,12 +128,7 @@ Request:
   "name": "example-app",
   "repoPath": "/Users/me/example-app",
   "defaultBranch": "main",
-  "locale": "en",
-  "codex": {
-    "command": "node_modules/.bin/codex",
-    "model": "model-name",
-    "fullAccess": true
-  }
+  "locale": "en"
 }
 ```
 

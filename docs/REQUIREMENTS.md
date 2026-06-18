@@ -543,12 +543,11 @@ MVP では次のどちらかで repository を登録できる。
 - UI port
 - workspace root
 - libSQL database path
-- Codex CLI command path
-- Codex CLI の実行設定
+- Codex CLI のログイン状態
 - default locale
 - command auto-detection の結果確認
 
-Codex CLI の認証情報は、原則として Codex CLI が管理する認証状態を利用する。one team 側では CLI command path、model、実行オプションなど、one team から起動するために必要な設定を保存する。
+Codex CLI の認証情報は、原則として Codex CLI が管理する認証状態を利用する。one team は起動時に `codex login status` を確認し、未ログインなら `codex login` を起動する。CLI command path、model、実行オプションは runtime 管理とし、Settings から変更できない。
 
 ### 11.3 Tables
 
@@ -798,7 +797,7 @@ type AgentActivity = {
 - Agent Job の停止理由を `stopReason` として返せる。
 - Agent Job の完了判定に使う証拠を `evidence` として返せる。
 - MVP では Codex CLI adapter を実装する。
-- Codex CLI adapter は初回起動時に command path、model、実行オプションを設定できる。
+- Codex CLI adapter は runtime 管理の command path、model、実行オプションを使用する。
 - Codex CLI adapter は full access 実行を前提にする。
 - 将来的に他の CLI 型、API 型、ローカルモデル型を差し替えられる。
 
@@ -929,7 +928,7 @@ e2e             Playwright smoke tests
 - 自動検出で不足コマンドが見つかった場合、one team は必要機能実装用の issue を作成し、AI が実装を開始できるようにする。
 - 新規 repository では、要件定義時に build / test / lint / dev server / install コマンドを必須要件へ追加する。
 - Agent Job の Activity Log をコメントとは別に時系列で保存する。
-- Codex CLI の command path、model、実行オプションは one team 初回起動時に設定できるようにする。
+- Codex CLI の command path、model、実行オプションは runtime 管理とし、起動時に必要な Codex login を自動開始する。
 - UI は多言語対応可能な設計とし、初期実装は英語 UI とする。
 - package manager は npm とする。
 - API framework は Hono とする。

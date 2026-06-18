@@ -1,7 +1,6 @@
 import { ArrowLeft, Save } from "lucide-react";
 import { FormEvent, useState } from "react";
 import type { ProjectDto } from "../../shared/types";
-import { defaultCodexCommand } from "../../shared/codex";
 import { api } from "../api";
 import oneTeamLogoUrl from "../assets/oneteam.svg";
 import { t } from "../i18n";
@@ -11,8 +10,6 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
   const [name, setName] = useState("one team");
   const [repoPath, setRepoPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
-  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
-  const [codexModel, setCodexModel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setSubmitting] = useState(false);
 
@@ -26,12 +23,7 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
         name,
         repoPath,
         defaultBranch,
-        locale: "en",
-        codex: {
-          command: codexCommand,
-          model: codexModel || undefined,
-          fullAccess: true
-        }
+        locale: "en"
       });
       props.onCreated(project);
     } catch (err) {
@@ -68,22 +60,6 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
           <label>
             {t("setup.defaultBranch")}
             <input value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
-          </label>
-        </section>
-
-        <section className="form-section">
-          <h2>{t("setup.codex")}</h2>
-          <label>
-            {t("setup.command")}
-            <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} required />
-          </label>
-          <label>
-            {t("setup.model")}
-            <input value={codexModel} onChange={(event) => setCodexModel(event.target.value)} />
-          </label>
-          <label className="checkbox-label">
-            <input checked readOnly type="checkbox" />
-            {t("setup.fullAccess")}
           </label>
         </section>
 

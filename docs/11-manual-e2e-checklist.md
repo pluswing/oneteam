@@ -9,8 +9,8 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Create or import a repository project.
 - Confirm command detection runs after setup.
 - Confirm missing command issues are created when build/test/lint/dev commands are unavailable.
-- Open Settings and confirm Codex command, model, locale, server, and database values are shown.
-- Save Settings with a valid Codex command and confirm the success message appears.
+- Open Settings and confirm locale can be edited while Codex command, model, server, and database values are read-only.
+- Save Settings with a valid locale and confirm the success message appears.
 
 ## 2. Issue workflow
 

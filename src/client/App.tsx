@@ -28,7 +28,6 @@ import type {
   RepositoryFileChangeDto,
   RepositoryStatusDto
 } from "../shared/types";
-import { defaultCodexCommand } from "../shared/codex";
 import {
   issueWorkflowLabelNames as issueWorkflowLabels,
   pullRequestWorkflowLabelNames as pullRequestWorkflowLabels,
@@ -1736,8 +1735,6 @@ function PullRequestsView(props: {
 function SettingsView(props: { project: ProjectDto }) {
   const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
   const [locale, setLocale] = useState(props.project.locale);
-  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
-  const [codexModel, setCodexModel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -1746,8 +1743,6 @@ function SettingsView(props: { project: ProjectDto }) {
     const response = await api.getSettings(props.project.id);
     setSettings(response);
     setLocale(response.project.locale);
-    setCodexCommand(response.ai.codexCommand);
-    setCodexModel(response.ai.model ?? "");
   }
 
   useEffect(() => {
@@ -1761,9 +1756,7 @@ function SettingsView(props: { project: ProjectDto }) {
     setSavedMessage(null);
     try {
       const response = await api.updateSettings(props.project.id, {
-        locale,
-        codexCommand,
-        model: codexModel || undefined
+        locale
       });
       setSettings(response);
       setSavedMessage(t("settings.saved"));
@@ -1783,14 +1776,6 @@ function SettingsView(props: { project: ProjectDto }) {
       {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
       <form className="settings-form" onSubmit={saveSettings}>
         <label>
-          {t("settings.codexCommand")}
-          <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} required />
-        </label>
-        <label>
-          {t("settings.model")}
-          <input value={codexModel} onChange={(event) => setCodexModel(event.target.value)} />
-        </label>
-        <label>
           {t("settings.locale")}
           <input value={locale} onChange={(event) => setLocale(event.target.value)} required />
         </label>
@@ -1809,6 +1794,14 @@ function SettingsView(props: { project: ProjectDto }) {
         <div>
           <dt>{t("settings.database")}</dt>
           <dd>{settings?.runtime.database.url ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("settings.codexCommand")}</dt>
+          <dd>{settings?.ai.codexCommand ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("settings.model")}</dt>
+          <dd>{settings?.ai.model ?? "-"}</dd>
         </div>
         <div>
           <dt>{t("settings.fullAccess")}</dt>

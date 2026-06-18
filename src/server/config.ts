@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
 import type { KnownRepositoryDto } from "../shared/types";
 
@@ -14,6 +13,7 @@ export type AppConfig = {
   };
   agents: {
     workerEnabled: boolean;
+    codexAutoLogin: boolean;
     pollIntervalMs: number;
     codexCommand: string;
     codexModel?: string;
@@ -31,6 +31,7 @@ export function loadConfig(): AppConfig {
     },
     agents: {
       workerEnabled: process.env.ONETEAM_AGENT_WORKER !== "false",
+      codexAutoLogin: process.env.ONETEAM_CODEX_AUTO_LOGIN !== "false",
       pollIntervalMs: Number(process.env.ONETEAM_AGENT_POLL_INTERVAL_MS ?? "3000"),
       codexCommand: normalizeCodexCommand(process.env.ONETEAM_CODEX_COMMAND ?? defaultCodexCommand),
       codexModel: process.env.ONETEAM_CODEX_MODEL || undefined
@@ -39,7 +40,7 @@ export function loadConfig(): AppConfig {
 }
 
 export function applicationRoot(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  return resolve(process.env.ONETEAM_HOME ?? process.cwd());
 }
 
 function activeRepositoryPathFile(): string {

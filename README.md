@@ -41,7 +41,7 @@ It provides a GitHub-like local control plane for issues, pull requests, labels,
 - Node.js
 - npm
 - git
-- Codex CLI authentication, configured through the project-local Codex package
+- Codex CLI authentication. OneTeam checks this on launch and starts `codex login` when needed.
 
 ## Getting Started
 
@@ -49,12 +49,6 @@ Install dependencies:
 
 ```sh
 npm install
-```
-
-Log in to the project-local Codex CLI:
-
-```sh
-npm run codex:login
 ```
 
 Start the development server:
@@ -77,11 +71,28 @@ http://127.0.0.1:3580
 
 On first launch, use the setup screen to import or create a repository project. OneTeam will run command detection, store project settings in `<imported-repo>/.oneteam/data/oneteam.db`, and create skills/memory files under `<imported-repo>/.oneteam/`. To force a repository database on startup, set `ONETEAM_REPOSITORY_PATH=/path/to/repo`.
 
+When the agent worker starts, OneTeam runs `codex login status`. If Codex is not authenticated yet, OneTeam starts `codex login` automatically.
+
+Run the desktop app in development:
+
+```sh
+npm run app:dev
+```
+
+Create a local packaged app directory:
+
+```sh
+npm run app:dir
+```
+
 ## Common Commands
 
 ```sh
 npm run dev
 npm run build
+npm run app:dev
+npm run app:dir
+npm run app:pack
 npm run start
 npm run typecheck
 npm run lint

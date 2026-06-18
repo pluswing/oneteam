@@ -10,7 +10,7 @@ UI は GitHub の issue / pull request 体験に寄せる。初期表示は英�
 
 | Route | 画面 | 目的 |
 | --- | --- | --- |
-| `/setup` | Setup Wizard | 初回設定、repository 登録、Codex CLI 設定 |
+| `/setup` | Setup Wizard | 初回設定、repository 登録、command detection |
 | `/issues` | Issue List | issue の一覧、検索、絞り込み |
 | `/issues/new` | New Issue | issue 作成 |
 | `/issues/:issueId` | Issue Detail | issue 本文、コメント、Activity Log、AI 操作 |
@@ -66,12 +66,7 @@ UI は GitHub の issue / pull request 体験に寄せる。初期表示は英�
 |   ( ) Create new repository                                                     |
 |       Name [ example-app ]                                                      |
 |                                                                                |
-| Step 2  Codex CLI                                                              |
-|   Command [ node_modules/.bin/codex                            ] [Test]         |
-|   Model   [ model-name                                         ]                |
-|   Access  [x] Full access                                                       |
-|                                                                                |
-| Step 3  Commands                                                               |
+| Step 2  Commands                                                               |
 |   [Detect commands]                                                             |
 |   install  npm install      detected                                            |
 |   dev      npm run dev      detected                                            |
@@ -79,7 +74,7 @@ UI は GitHub の issue / pull request 体験に寄せる。初期表示は英�
 |   test     npm test         detected                                            |
 |   lint     missing          issue will be created                               |
 |                                                                                |
-| Step 4  Preferences                                                            |
+| Step 3  Preferences                                                            |
 |   Locale [ English ]                                                            |
 |   Port   [ 3579 ]                                                               |
 |                                                                                |
@@ -90,7 +85,7 @@ UI は GitHub の issue / pull request 体験に寄せる。初期表示は英�
 ### 4.1 完了時の挙動
 
 - project を作成する。
-- Codex CLI 設定を保存する。
+- Codex CLI のログイン状態は起動時に確認し、未ログインなら `codex login` を起動する。
 - command auto-detection を実行する。
 - 不足コマンドがある場合、issue を自動作成する。
 - 自動作成 issue に `requirements` agent job を enqueue する。
@@ -280,9 +275,9 @@ Merge conflict detected between source branch and main.
 |   Port [ 3579      ]                                                           |
 |                                                                                |
 | Codex CLI                                                                      |
-|   Command [ node_modules/.bin/codex ] [Test]                                   |
-|   Model   [ model-name ]                                                       |
-|   [x] Full access                                                              |
+|   Command node_modules/.bin/codex                                              |
+|   Model   -                                                                    |
+|   Full access ready                                                            |
 |                                                                                |
 | Locale                                                                         |
 |   Default locale [ English ]                                                   |
@@ -322,5 +317,5 @@ Merge conflict detected between source branch and main.
 - PR detail で commits / files changed / diff を確認できる。
 - issue / PR detail で comments と Activity Log を別 tab として確認できる。
 - Repository 画面で command detection 結果を確認できる。
-- Settings で Codex CLI と locale を確認・変更できる。
+- Settings で locale は変更でき、Codex CLI command / model は runtime 管理の read-only 値として確認できる。
 - 固定文言は i18n resource key 経由で表示される。

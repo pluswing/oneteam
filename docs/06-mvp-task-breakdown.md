@@ -67,7 +67,7 @@ Tasks:
 
 1. `/setup` route を作る。
 2. repository import / create form を作る。
-3. Codex CLI command path / model / full access 設定を作る。
+3. Codex CLI は runtime 管理にし、起動時に login status を確認する。
 4. locale と port 設定 UI を作る。
 5. setup 完了時に project を作成する。
 6. command auto-detection を起動する。
@@ -76,7 +76,7 @@ Acceptance:
 
 - project がない場合 `/setup` に遷移する。
 - setup 完了後 `/issues` に遷移する。
-- Codex CLI 設定が保存される。
+- Codex CLI login が必要な場合に起動される。
 
 ### M3. Command Auto-Detection
 

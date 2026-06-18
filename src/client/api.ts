@@ -113,11 +113,6 @@ export const api = {
     repoPath: string;
     defaultBranch: string;
     locale: string;
-    codex: {
-      command: string;
-      model?: string;
-      fullAccess: boolean;
-    };
   }): Promise<ProjectDto> {
     const response = await request<{ project: ProjectDto }>("/api/projects", {
       method: "POST",
@@ -208,8 +203,6 @@ export const api = {
     projectId: string,
     input: {
       locale: string;
-      codexCommand: string;
-      model?: string;
     }
   ): Promise<ProjectSettingsDto> {
     return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`, {
