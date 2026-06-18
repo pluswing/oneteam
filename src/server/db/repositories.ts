@@ -11,10 +11,19 @@ import type {
   IssueDto,
   IssueStatus,
   LabelDto,
+  LoopDto,
+  LoopMemoryEntryDto,
+  LoopRunDto,
+  LoopRunStatus,
+  LoopStepDto,
+  LoopStepStatus,
+  LoopStatus,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
-  PullRequestStatus
+  PullRequestStatus,
+  TriageItemDto,
+  TriageItemStatus
 } from "../../shared/types";
 import { systemLabels } from "./system-labels";
 import {
@@ -25,10 +34,15 @@ import {
   issueLabels,
   issues,
   labels,
+  loopMemoryEntries,
+  loopRuns,
+  loopSteps,
+  loops,
   projectCommands,
   projects,
   pullRequestLabels,
-  pullRequests
+  pullRequests,
+  triageItems
 } from "./schema";
 import type { Database } from "./client";
 import { parseJsonObject, stringifyJson } from "./json";
@@ -41,6 +55,11 @@ type PullRequestRow = typeof pullRequests.$inferSelect;
 type CommentRow = typeof comments.$inferSelect;
 type ActivityRow = typeof agentActivities.$inferSelect;
 type AgentJobRow = typeof agentJobs.$inferSelect;
+type LoopRow = typeof loops.$inferSelect;
+type LoopRunRow = typeof loopRuns.$inferSelect;
+type LoopStepRow = typeof loopSteps.$inferSelect;
+type LoopMemoryEntryRow = typeof loopMemoryEntries.$inferSelect;
+type TriageItemRow = typeof triageItems.$inferSelect;
 
 function now(): string {
   return new Date().toISOString();
@@ -134,6 +153,112 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
   };
 }
 
+function parseStringArray(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function stringifyStringArray(value: string[] | null | undefined): string {
+  return JSON.stringify(value ?? []);
+}
+
+function mapLoop(row: LoopRow): LoopDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    name: row.name,
+    purpose: row.purpose,
+    triggerType: row.triggerType,
+    cadence: row.cadence,
+    targetScope: row.targetScope,
+    status: row.status,
+    maxRounds: row.maxRounds,
+    timeBudgetMinutes: row.timeBudgetMinutes,
+    costBudget: row.costBudget,
+    stopCondition: parseJsonObject(row.stopConditionJson),
+    riskPolicy: parseJsonObject(row.riskPolicyJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapLoopRun(row: LoopRunRow): LoopRunDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopId: row.loopId,
+    status: row.status,
+    triggerType: row.triggerType,
+    targetType: row.targetType ?? null,
+    targetId: row.targetId,
+    worktreePath: row.worktreePath,
+    summary: row.summary,
+    stopReason: row.stopReason,
+    evidence: parseJsonObject(row.evidenceJson),
+    createdAt: row.createdAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt
+  };
+}
+
+function mapLoopStep(row: LoopStepRow): LoopStepDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopRunId: row.loopRunId,
+    agentJobId: row.agentJobId,
+    agentType: row.agentType,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    status: row.status,
+    input: parseJsonObject(row.inputJson),
+    output: parseJsonObject(row.outputJson),
+    evidence: parseJsonObject(row.evidenceJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapLoopMemoryEntry(row: LoopMemoryEntryRow): LoopMemoryEntryDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopId: row.loopId,
+    loopRunId: row.loopRunId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    title: row.title,
+    body: row.body,
+    tags: parseStringArray(row.tagsJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapTriageItem(row: TriageItemRow): TriageItemDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    priority: row.priority,
+    metadata: parseJsonObject(row.metadataJson),
+    issueId: row.issueId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
 async function getIssueLabels(db: Database, issueIds: number[]): Promise<Map<number, LabelDto[]>> {
   const result = new Map<number, LabelDto[]>();
   if (issueIds.length === 0) {
@@ -188,6 +313,8 @@ function mapIssue(row: IssueRow, labelMap: Map<number, LabelDto[]>, commentCount
     status: row.status,
     labels: labelMap.get(row.id) ?? [],
     commentCount: commentCounts.get(row.id) ?? 0,
+    lastAgentStatus: null,
+    lastAgentStopReason: null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     closedAt: row.closedAt
@@ -258,6 +385,8 @@ function mapPullRequest(
     commentCount: commentCounts.get(row.id) ?? 0,
     changedFileCount: stats?.changedFileCount ?? 0,
     commitCount: stats?.commitCount ?? 0,
+    lastAgentStatus: null,
+    lastAgentStopReason: null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     closedAt: row.closedAt
@@ -948,6 +1077,336 @@ export function createRepositories(db: Database) {
           .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "waiting_human")))
           .returning();
         return rows[0] ? mapAgentJob(rows[0]) : null;
+      }
+    },
+
+    loops: {
+      async list(projectId: string): Promise<LoopDto[]> {
+        const rows = await db
+          .select()
+          .from(loops)
+          .where(eq(loops.projectId, projectId))
+          .orderBy(desc(loops.updatedAt));
+        return rows.map(mapLoop);
+      },
+
+      async get(projectId: string, loopId: number): Promise<LoopDto | null> {
+        const rows = await db
+          .select()
+          .from(loops)
+          .where(and(eq(loops.projectId, projectId), eq(loops.id, loopId)))
+          .limit(1);
+        return rows[0] ? mapLoop(rows[0]) : null;
+      },
+
+      async create(input: {
+        projectId: string;
+        name: string;
+        purpose?: string;
+        triggerType?: string;
+        cadence?: string | null;
+        targetScope?: string;
+        status?: LoopStatus;
+        maxRounds?: number;
+        timeBudgetMinutes?: number | null;
+        costBudget?: number | null;
+        stopCondition?: Record<string, unknown> | null;
+        riskPolicy?: Record<string, unknown> | null;
+      }): Promise<LoopDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loops)
+          .values({
+            projectId: input.projectId,
+            name: input.name,
+            purpose: input.purpose ?? "",
+            triggerType: input.triggerType ?? "manual",
+            cadence: input.cadence,
+            targetScope: input.targetScope ?? "project",
+            status: input.status ?? "enabled",
+            maxRounds: input.maxRounds ?? 3,
+            timeBudgetMinutes: input.timeBudgetMinutes,
+            costBudget: input.costBudget,
+            stopConditionJson: stringifyJson(input.stopCondition),
+            riskPolicyJson: stringifyJson(input.riskPolicy),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoop(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        loopId: number,
+        input: Partial<
+          Pick<
+            LoopDto,
+            "name" | "purpose" | "triggerType" | "cadence" | "targetScope" | "status" | "maxRounds" | "timeBudgetMinutes" | "costBudget"
+          >
+        > & {
+          stopCondition?: Record<string, unknown> | null;
+          riskPolicy?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopDto | null> {
+        const rows = await db
+          .update(loops)
+          .set({
+            name: input.name,
+            purpose: input.purpose,
+            triggerType: input.triggerType,
+            cadence: input.cadence,
+            targetScope: input.targetScope,
+            status: input.status,
+            maxRounds: input.maxRounds,
+            timeBudgetMinutes: input.timeBudgetMinutes,
+            costBudget: input.costBudget,
+            stopConditionJson: input.stopCondition === undefined ? undefined : stringifyJson(input.stopCondition),
+            riskPolicyJson: input.riskPolicy === undefined ? undefined : stringifyJson(input.riskPolicy),
+            updatedAt: now()
+          })
+          .where(and(eq(loops.projectId, projectId), eq(loops.id, loopId)))
+          .returning();
+        return rows[0] ? mapLoop(rows[0]) : null;
+      }
+    },
+
+    loopRuns: {
+      async list(projectId: string, loopId?: number): Promise<LoopRunDto[]> {
+        const filters: SQL[] = [eq(loopRuns.projectId, projectId)];
+        if (typeof loopId === "number") {
+          filters.push(eq(loopRuns.loopId, loopId));
+        }
+        const rows = await db.select().from(loopRuns).where(and(...filters)).orderBy(desc(loopRuns.createdAt));
+        return rows.map(mapLoopRun);
+      },
+
+      async get(projectId: string, loopRunId: number): Promise<LoopRunDto | null> {
+        const rows = await db
+          .select()
+          .from(loopRuns)
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .limit(1);
+        return rows[0] ? mapLoopRun(rows[0]) : null;
+      },
+
+      async create(input: {
+        projectId: string;
+        loopId: number;
+        triggerType?: string;
+        targetType?: "issue" | "pull_request" | "project" | null;
+        targetId?: number | null;
+        worktreePath?: string | null;
+      }): Promise<LoopRunDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopRuns)
+          .values({
+            projectId: input.projectId,
+            loopId: input.loopId,
+            status: "queued",
+            triggerType: input.triggerType ?? "manual",
+            targetType: input.targetType,
+            targetId: input.targetId,
+            worktreePath: input.worktreePath,
+            createdAt: timestamp
+          })
+          .returning();
+        return mapLoopRun(rows[0]);
+      },
+
+      async updateStatus(
+        projectId: string,
+        loopRunId: number,
+        status: LoopRunStatus,
+        patch?: {
+          summary?: string;
+          stopReason?: string | null;
+          evidence?: Record<string, unknown> | null;
+          worktreePath?: string | null;
+        }
+      ): Promise<LoopRunDto | null> {
+        const timestamp = now();
+        const rows = await db
+          .update(loopRuns)
+          .set({
+            status,
+            summary: patch?.summary,
+            stopReason: patch?.stopReason,
+            evidenceJson: patch?.evidence === undefined ? undefined : stringifyJson(patch.evidence),
+            worktreePath: patch?.worktreePath,
+            startedAt: status === "running" ? timestamp : undefined,
+            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined
+          })
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .returning();
+        return rows[0] ? mapLoopRun(rows[0]) : null;
+      }
+    },
+
+    loopSteps: {
+      async list(projectId: string, loopRunId: number): Promise<LoopStepDto[]> {
+        const rows = await db
+          .select()
+          .from(loopSteps)
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.loopRunId, loopRunId)))
+          .orderBy(loopSteps.createdAt);
+        return rows.map(mapLoopStep);
+      },
+
+      async create(input: {
+        projectId: string;
+        loopRunId: number;
+        agentJobId?: number | null;
+        agentType: AgentType;
+        targetType: "issue" | "pull_request" | "project";
+        targetId: number;
+        status?: LoopStepStatus;
+        input?: Record<string, unknown> | null;
+      }): Promise<LoopStepDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopSteps)
+          .values({
+            projectId: input.projectId,
+            loopRunId: input.loopRunId,
+            agentJobId: input.agentJobId,
+            agentType: input.agentType,
+            targetType: input.targetType,
+            targetId: input.targetId,
+            status: input.status ?? "queued",
+            inputJson: stringifyJson(input.input),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoopStep(rows[0]);
+      },
+
+      async updateForAgentJob(
+        projectId: string,
+        agentJobId: number,
+        patch: {
+          status?: LoopStepStatus;
+          output?: Record<string, unknown> | null;
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopStepDto | null> {
+        const rows = await db
+          .update(loopSteps)
+          .set({
+            status: patch.status,
+            outputJson: patch.output === undefined ? undefined : stringifyJson(patch.output),
+            evidenceJson: patch.evidence === undefined ? undefined : stringifyJson(patch.evidence),
+            updatedAt: now()
+          })
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.agentJobId, agentJobId)))
+          .returning();
+        return rows[0] ? mapLoopStep(rows[0]) : null;
+      },
+
+      async getByAgentJob(projectId: string, agentJobId: number): Promise<LoopStepDto | null> {
+        const rows = await db
+          .select()
+          .from(loopSteps)
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.agentJobId, agentJobId)))
+          .limit(1);
+        return rows[0] ? mapLoopStep(rows[0]) : null;
+      }
+    },
+
+    loopMemory: {
+      async list(projectId: string): Promise<LoopMemoryEntryDto[]> {
+        const rows = await db
+          .select()
+          .from(loopMemoryEntries)
+          .where(eq(loopMemoryEntries.projectId, projectId))
+          .orderBy(desc(loopMemoryEntries.createdAt));
+        return rows.map(mapLoopMemoryEntry);
+      },
+
+      async create(input: {
+        projectId: string;
+        loopId?: number | null;
+        loopRunId?: number | null;
+        sourceType?: "manual" | "loop_run" | "agent_job" | "triage";
+        sourceId?: number | null;
+        title: string;
+        body?: string;
+        tags?: string[];
+      }): Promise<LoopMemoryEntryDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopMemoryEntries)
+          .values({
+            projectId: input.projectId,
+            loopId: input.loopId,
+            loopRunId: input.loopRunId,
+            sourceType: input.sourceType ?? "manual",
+            sourceId: input.sourceId,
+            title: input.title,
+            body: input.body ?? "",
+            tagsJson: stringifyStringArray(input.tags),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoopMemoryEntry(rows[0]);
+      }
+    },
+
+    triage: {
+      async list(projectId: string, status?: TriageItemStatus): Promise<TriageItemDto[]> {
+        const filters: SQL[] = [eq(triageItems.projectId, projectId)];
+        if (status) {
+          filters.push(eq(triageItems.status, status));
+        }
+        const rows = await db.select().from(triageItems).where(and(...filters)).orderBy(desc(triageItems.createdAt));
+        return rows.map(mapTriageItem);
+      },
+
+      async create(input: {
+        projectId: string;
+        sourceType: string;
+        sourceId?: number | null;
+        title: string;
+        body?: string;
+        priority?: string;
+        metadata?: Record<string, unknown> | null;
+      }): Promise<TriageItemDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(triageItems)
+          .values({
+            projectId: input.projectId,
+            sourceType: input.sourceType,
+            sourceId: input.sourceId,
+            title: input.title,
+            body: input.body ?? "",
+            priority: input.priority ?? "normal",
+            metadataJson: stringifyJson(input.metadata),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapTriageItem(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        triageItemId: number,
+        input: { status?: TriageItemStatus; issueId?: number | null }
+      ): Promise<TriageItemDto | null> {
+        const rows = await db
+          .update(triageItems)
+          .set({
+            status: input.status,
+            issueId: input.issueId,
+            updatedAt: now()
+          })
+          .where(and(eq(triageItems.projectId, projectId), eq(triageItems.id, triageItemId)))
+          .returning();
+        return rows[0] ? mapTriageItem(rows[0]) : null;
       }
     },
 

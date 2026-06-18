@@ -51,7 +51,22 @@ writeFileSync(outputPath, JSON.stringify({
 
     const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
     const schema = JSON.parse(await readFile(schemaCopyPath, "utf8")) as {
+      required?: string[];
       properties: {
+        evidence: {
+          anyOf: Array<{
+            items?: {
+              properties?: {
+                payload?: {
+                  anyOf: Array<{
+                    type?: string;
+                    additionalProperties?: boolean;
+                  }>;
+                };
+              };
+            };
+          }>;
+        };
         metadata: {
           anyOf: Array<{
             properties?: {
@@ -75,6 +90,10 @@ writeFileSync(outputPath, JSON.stringify({
       };
     };
     const metadataObjectSchema = schema.properties.metadata.anyOf.find((item) => item.properties);
+    const evidenceItemSchema = schema.properties.evidence.anyOf.find((item) => item.items)?.items;
+    const evidencePayloadObjectSchema = evidenceItemSchema?.properties?.payload?.anyOf.find(
+      (item) => item.type === "object"
+    );
     const reviewObjectSchema = metadataObjectSchema?.properties?.review?.anyOf.find((item) => item.properties);
     const findingItemSchema = reviewObjectSchema?.properties?.findings?.anyOf.find((item) => item.items)?.items;
     expect(args).toEqual(
@@ -91,7 +110,11 @@ writeFileSync(outputPath, JSON.stringify({
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--sandbox");
     expect(args.at(-1)).toBe("-");
-    expect(metadataObjectSchema?.required).toEqual(["nextLabel", "pullRequest", "review", "fix", "qa"]);
+    expect(metadataObjectSchema?.required).toEqual(["nextLabel", "pullRequest", "review", "fix", "qa", "verifier"]);
+    expect(schema.required).toEqual(
+      expect.arrayContaining(["status", "message", "stopReason", "evidence", "metadata"])
+    );
+    expect(evidencePayloadObjectSchema?.additionalProperties).toBe(false);
     expect(findingItemSchema?.required).toEqual(["severity", "path", "line", "title", "body"]);
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Codex completed.");
@@ -135,6 +158,7 @@ setInterval(() => {}, 1000);
     });
 
     expect(result.status).toBe("canceled");
+    expect(result.stopReason).toBe("canceled");
     expect(result.activities?.map((activity) => activity.title)).toContain("Codex CLI canceled");
   });
 
@@ -165,7 +189,8 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(outputPath, J
     },
     review: null,
     fix: null,
-    qa: null
+    qa: null,
+    verifier: null
   }
 })));
 `,

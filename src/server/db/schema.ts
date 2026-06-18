@@ -1,5 +1,17 @@
 import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import type { ActivityType, AgentJobStatus, AgentType, CommandType, IssueStatus, LabelKind, PullRequestStatus } from "../../shared/types";
+import type {
+  ActivityType,
+  AgentJobStatus,
+  AgentType,
+  CommandType,
+  IssueStatus,
+  LabelKind,
+  LoopRunStatus,
+  LoopStatus,
+  LoopStepStatus,
+  PullRequestStatus,
+  TriageItemStatus
+} from "../../shared/types";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -160,4 +172,84 @@ export const repositoryEvents = sqliteTable("repository_events", {
   targetBranch: text("target_branch"),
   payloadJson: text("payload_json"),
   createdAt: text("created_at").notNull()
+});
+
+export const loops = sqliteTable("loops", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  purpose: text("purpose").notNull().default(""),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  cadence: text("cadence"),
+  targetScope: text("target_scope").notNull().default("project"),
+  status: text("status").notNull().default("enabled").$type<LoopStatus>(),
+  maxRounds: integer("max_rounds").notNull().default(3),
+  timeBudgetMinutes: integer("time_budget_minutes"),
+  costBudget: integer("cost_budget"),
+  stopConditionJson: text("stop_condition_json"),
+  riskPolicyJson: text("risk_policy_json"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const loopRuns = sqliteTable("loop_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopId: integer("loop_id").notNull().references(() => loops.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued").$type<LoopRunStatus>(),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  targetType: text("target_type").$type<"issue" | "pull_request" | "project">(),
+  targetId: integer("target_id"),
+  worktreePath: text("worktree_path"),
+  summary: text("summary").notNull().default(""),
+  stopReason: text("stop_reason"),
+  evidenceJson: text("evidence_json"),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at")
+});
+
+export const loopSteps = sqliteTable("loop_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopRunId: integer("loop_run_id").notNull().references(() => loopRuns.id, { onDelete: "cascade" }),
+  agentJobId: integer("agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  agentType: text("agent_type").notNull().$type<AgentType>(),
+  targetType: text("target_type").notNull().$type<"issue" | "pull_request" | "project">(),
+  targetId: integer("target_id").notNull(),
+  status: text("status").notNull().default("queued").$type<LoopStepStatus>(),
+  inputJson: text("input_json"),
+  outputJson: text("output_json"),
+  evidenceJson: text("evidence_json"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const loopMemoryEntries = sqliteTable("loop_memory_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopId: integer("loop_id").references(() => loops.id, { onDelete: "set null" }),
+  loopRunId: integer("loop_run_id").references(() => loopRuns.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull().$type<"manual" | "loop_run" | "agent_job" | "triage">(),
+  sourceId: integer("source_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const triageItems = sqliteTable("triage_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: integer("source_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  status: text("status").notNull().default("open").$type<TriageItemStatus>(),
+  priority: text("priority").notNull().default("normal"),
+  metadataJson: text("metadata_json"),
+  issueId: integer("issue_id").references(() => issues.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
 });

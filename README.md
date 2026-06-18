@@ -1,8 +1,8 @@
-# OneTeam: Issue-driven development with AI for solo developers
+# OneTeam: Local Loop Engineering for solo developers
 
-OneTeam is a local web application for solo developers who want to work with AI through an issue-driven development flow.
+OneTeam is a local web application for solo developers who want to design, run, verify, and remember AI development loops from local issues.
 
-It provides a GitHub-like local workflow for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam can help clarify requirements, prepare an implementation branch, run Codex CLI, collect verification results, create a local pull request, review changes, route fixes, and support QA.
+It provides a GitHub-like local control plane for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam can help define a goal contract, prepare an implementation branch, run Codex CLI, collect evidence, create a local pull request, review changes, route fixes, support QA, and stop with a clear reason.
 
 ## Website
 
@@ -13,6 +13,7 @@ It provides a GitHub-like local workflow for issues, pull requests, labels, comm
 
 - Manage one local Git repository per OneTeam instance.
 - Create local issues and pull requests without GitHub integration.
+- Turn issues into verifiable AI development loops with goal contracts, evidence, and stop reasons.
 - Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, and `done`.
 - Run AI agent jobs through the local Codex CLI.
 - Save AI progress, thinking summaries, command results, changed files, and errors as Activity Log entries.
@@ -100,15 +101,15 @@ Check Codex CLI availability:
 npm run codex:version
 ```
 
-## Agent Workflow
+## Loop Workflow
 
 1. Create an issue.
 2. Apply or trigger `requirements`.
-3. Requirements Agent clarifies the request and moves it to `ready-for-implementation`.
+3. Requirements Agent turns the request into a goal contract with acceptance criteria, evidence requirements, and stop conditions.
 4. Implementation Agent prepares a branch, runs Codex, verifies commands, and creates a local pull request.
-5. Review Agent sends the pull request to `fixing` or `testing`.
+5. Review Agent checks requirement coverage, evidence, and risk, then sends the pull request to `fixing` or `testing`.
 6. Fix Agent resolves review, QA, or conflict findings and returns to `reviewing`.
-7. QA Agent sends defects to `fixing` or completes the pull request with `done`.
+7. QA Agent records evidence and sends defects to `fixing` or completes the pull request with `done`.
 8. The user performs the final merge.
 
 ## Project Structure
@@ -137,6 +138,8 @@ docs            requirements and implementation documents
 - [MVP completion status](./docs/10-mvp-remaining-tasks.md)
 - [Manual E2E checklist](./docs/11-manual-e2e-checklist.md)
 - [Local Codex CLI setup](./docs/09-local-codex-setup.md)
+- [Loop Engineering adaptation](./docs/LOOP_ENGINEERING_ADAPTATION.md)
+- [Loop Engineering TODO](./docs/LOOP_ENGINEERING_TODO.md)
 
 ## Current Status
 

@@ -43,6 +43,7 @@ import { t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
 import { AgentJobsView } from "./views/AgentJobsView";
+import { LoopsView } from "./views/LoopsView";
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -359,6 +360,7 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
           <button className="work-item-summary" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
             <span className="work-item-title">#{issue.id} {issue.title}</span>
             <span className={`status-pill status-${issue.status}`}>{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
+            {issue.lastAgentStopReason ? <span>{t("agents.stopReason")}: {issue.lastAgentStopReason}</span> : null}
             <span>{issue.commentCount} {t("issues.comments")}</span>
             <span>{formatDateTime(issue.updatedAt)}</span>
           </button>
@@ -932,6 +934,7 @@ function PullRequestsListScreen(props: {
           >
             <span className="work-item-title">#{pullRequest.id} {pullRequest.title}</span>
             <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
+            {pullRequest.lastAgentStopReason ? <span>{t("agents.stopReason")}: {pullRequest.lastAgentStopReason}</span> : null}
             <span>{pullRequest.commentCount} {t("issues.comments")}</span>
             <span>{formatDateTime(pullRequest.updatedAt)}</span>
           </button>
@@ -1145,7 +1148,7 @@ function PullRequestDetailScreen(props: {
     await load();
   }
 
-  async function queueAgent(agentType: "review" | "fix" | "qa") {
+  async function queueAgent(agentType: "review" | "fix" | "qa" | "verifier") {
     await api.createAgentJob(props.project.id, {
       agentType,
       targetType: "pull_request",
@@ -1356,6 +1359,10 @@ function PullRequestDetailScreen(props: {
             <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
               <CheckCircle2 size={16} />
               {t("agents.queueQa")}
+            </button>
+            <button className="secondary-button" onClick={() => void queueAgent("verifier")} type="button">
+              <CheckCircle2 size={16} />
+              {t("agents.queueVerifier")}
             </button>
           </div>
         </aside>
@@ -1933,6 +1940,22 @@ export function App() {
           onOpenPullRequestConflicts={handleOpenPullRequestConflicts}
           onOpenAgentJob={handleOpenAgentJob}
           onOpenIssue={handleOpenIssue}
+        />
+      ) : null}
+      {view === "loops" ? (
+        <LoopsView
+          onBackToList={() => navigate({ name: "loops" })}
+          onOpenAgentJob={(jobId) => navigate({ name: "agentJob", jobId })}
+          onOpenLoop={(loopId) => navigate({ name: "loop", loopId })}
+          onOpenRun={(loopRunId) => navigate({ name: "loopRun", loopRunId })}
+          project={project}
+          screen={
+            route.name === "loop"
+              ? { name: "detail", loopId: route.loopId }
+              : route.name === "loopRun"
+                ? { name: "run", loopRunId: route.loopRunId }
+                : { name: "list" }
+          }
         />
       ) : null}
       {view === "agentJobs" ? (

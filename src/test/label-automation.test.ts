@@ -60,6 +60,9 @@ describe("label automation", () => {
       triggerType: "label_transition"
     });
     const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const loops = await repos.loops.list(project.id);
+    const loopRuns = await repos.loopRuns.list(project.id);
+    const requirementSteps = await repos.loopSteps.list(project.id, Number(requirementsJobs[0].input.loopRunId));
 
     expect(requirementsJobs).toHaveLength(1);
     expect(requirementsJobs[0].agentType).toBe("requirements");
@@ -75,6 +78,11 @@ describe("label automation", () => {
       })
     );
     expect(activities.map((activity) => activity.title)).toContain("Agent job queued");
+    expect(loops.map((loop) => loop.name)).toEqual(
+      expect.arrayContaining(["Label: requirements", "Label: ready-for-implementation"])
+    );
+    expect(loopRuns).toHaveLength(2);
+    expect(requirementSteps[0].agentJobId).toBe(requirementsJobs[0].id);
 
     context.client.close();
   });
@@ -118,12 +126,14 @@ describe("label automation", () => {
     });
     const pullRequestBody = (await pullRequestResponse.json()) as { automationJobIds: number[] };
     const jobs = await repos.agentJobs.list({ projectId: project.id });
+    const loopRuns = await repos.loopRuns.list(project.id);
 
     expect(issueResponse.status).toBe(201);
     expect(issueBody.automationJobIds).toHaveLength(1);
     expect(pullRequestResponse.status).toBe(201);
     expect(pullRequestBody.automationJobIds).toHaveLength(1);
     expect(jobs.map((job) => job.agentType)).toEqual(expect.arrayContaining(["requirements", "review"]));
+    expect(loopRuns).toHaveLength(2);
 
     context.client.close();
   });

@@ -4,6 +4,10 @@ import type {
   CommentDto,
   IssueDto,
   LabelDto,
+  LoopDto,
+  LoopMemoryEntryDto,
+  LoopRunDto,
+  LoopStepDto,
   MergeConflictDto,
   ProjectCommandDto,
   ProjectDto,
@@ -11,7 +15,9 @@ import type {
   PullRequestDto,
   RepositoryCommitDto,
   RepositoryFileChangeDto,
-  RepositoryStatusDto
+  RepositoryStatusDto,
+  SkillFileDto,
+  TriageItemDto
 } from "../shared/types";
 
 type ListResponse<T> = {
@@ -48,6 +54,16 @@ type PullRequestMergeResponse = {
   pullRequest: PullRequestDto;
   mergeCommit: string;
   output: string;
+};
+
+type LoopDetailResponse = {
+  loop: LoopDto;
+  runs: LoopRunDto[];
+};
+
+type LoopRunDetailResponse = {
+  run: LoopRunDto;
+  steps: LoopStepDto[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -315,6 +331,165 @@ export const api = {
 
   async getRepositoryStatus(projectId: string): Promise<RepositoryStatusDto> {
     return request<RepositoryStatusDto>(`/api/projects/${projectId}/repository/status`);
+  },
+
+  async listLoops(projectId: string): Promise<LoopDto[]> {
+    const response = await request<ListResponse<LoopDto>>(`/api/projects/${projectId}/loops`);
+    return response.items;
+  },
+
+  async createLoop(
+    projectId: string,
+    input: {
+      name: string;
+      purpose?: string;
+      triggerType?: string;
+      cadence?: string | null;
+      targetScope?: string;
+      status?: LoopDto["status"];
+      maxRounds?: number;
+      timeBudgetMinutes?: number | null;
+      costBudget?: number | null;
+      stopCondition?: Record<string, unknown> | null;
+      riskPolicy?: Record<string, unknown> | null;
+    }
+  ): Promise<LoopDto> {
+    const response = await request<{ loop: LoopDto }>(`/api/projects/${projectId}/loops`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return response.loop;
+  },
+
+  async getLoop(projectId: string, loopId: number): Promise<LoopDetailResponse> {
+    return request<LoopDetailResponse>(`/api/projects/${projectId}/loops/${loopId}`);
+  },
+
+  async startLoopRun(
+    projectId: string,
+    loopId: number,
+    input: {
+      agentType: AgentJobDto["agentType"];
+      targetType: AgentJobDto["targetType"];
+      targetId: number;
+      triggerType?: string;
+      input?: Record<string, unknown>;
+    }
+  ): Promise<{ run: LoopRunDto; job: AgentJobDto; step: LoopStepDto }> {
+    return request<{ run: LoopRunDto; job: AgentJobDto; step: LoopStepDto }>(
+      `/api/projects/${projectId}/loops/${loopId}/runs`,
+      {
+        method: "POST",
+        body: JSON.stringify(input)
+      }
+    );
+  },
+
+  async listLoopRuns(projectId: string, loopId?: number): Promise<LoopRunDto[]> {
+    const params = new URLSearchParams();
+    if (typeof loopId === "number") {
+      params.set("loopId", String(loopId));
+    }
+    const response = await request<ListResponse<LoopRunDto>>(
+      `/api/projects/${projectId}/loop-runs${params.toString() ? `?${params.toString()}` : ""}`
+    );
+    return response.items;
+  },
+
+  async getLoopRun(projectId: string, loopRunId: number): Promise<LoopRunDetailResponse> {
+    return request<LoopRunDetailResponse>(`/api/projects/${projectId}/loop-runs/${loopRunId}`);
+  },
+
+  async listLoopMemory(projectId: string): Promise<LoopMemoryEntryDto[]> {
+    const response = await request<ListResponse<LoopMemoryEntryDto>>(`/api/projects/${projectId}/loop-memory`);
+    return response.items;
+  },
+
+  async createLoopMemory(
+    projectId: string,
+    input: {
+      loopId?: number | null;
+      loopRunId?: number | null;
+      sourceType?: LoopMemoryEntryDto["sourceType"];
+      sourceId?: number | null;
+      title: string;
+      body?: string;
+      tags?: string[];
+    }
+  ): Promise<LoopMemoryEntryDto> {
+    const response = await request<{ entry: LoopMemoryEntryDto }>(`/api/projects/${projectId}/loop-memory`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return response.entry;
+  },
+
+  async listTriageItems(projectId: string, status?: TriageItemDto["status"]): Promise<TriageItemDto[]> {
+    const params = new URLSearchParams();
+    if (status) {
+      params.set("status", status);
+    }
+    const response = await request<ListResponse<TriageItemDto>>(
+      `/api/projects/${projectId}/triage-items${params.toString() ? `?${params.toString()}` : ""}`
+    );
+    return response.items;
+  },
+
+  async createTriageItem(
+    projectId: string,
+    input: {
+      sourceType: string;
+      sourceId?: number | null;
+      title: string;
+      body?: string;
+      priority?: string;
+      metadata?: Record<string, unknown> | null;
+    }
+  ): Promise<TriageItemDto> {
+    const response = await request<{ item: TriageItemDto }>(`/api/projects/${projectId}/triage-items`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return response.item;
+  },
+
+  async updateTriageItem(
+    projectId: string,
+    triageItemId: number,
+    input: { status?: TriageItemDto["status"]; issueId?: number | null }
+  ): Promise<TriageItemDto> {
+    const response = await request<{ item: TriageItemDto }>(
+      `/api/projects/${projectId}/triage-items/${triageItemId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      }
+    );
+    return response.item;
+  },
+
+  async convertTriageItemToIssue(projectId: string, triageItemId: number): Promise<IssueDto> {
+    const response = await request<{ issue: IssueDto }>(
+      `/api/projects/${projectId}/triage-items/${triageItemId}/convert-to-issue`,
+      { method: "POST" }
+    );
+    return response.issue;
+  },
+
+  async listKnowledgeFiles(projectId: string): Promise<SkillFileDto[]> {
+    const response = await request<ListResponse<SkillFileDto>>(`/api/projects/${projectId}/knowledge`);
+    return response.items;
+  },
+
+  async updateKnowledgeFile(projectId: string, path: string, body: string): Promise<SkillFileDto> {
+    const response = await request<{ item: SkillFileDto }>(
+      `/api/projects/${projectId}/knowledge/${encodeURI(path)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ body })
+      }
+    );
+    return response.item;
   },
 
   async listAgentJobs(

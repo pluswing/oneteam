@@ -2,9 +2,9 @@
 
 ## 1. 目的
 
-one team は、単独開発者がローカル環境で AI と協調しながら開発を進めるための開発支援ツールである。
+one team は、単独開発者がローカル環境で AI と協調しながら開発を進めるための Loop Engineering ツールである。
 
-GitHub の issue / pull request に近い UI とワークフローを持ち、issue に書かれた要望から AI が要件定義、実装、テスト、pull request 作成、レビュー、修正、QA までを半自動で進める。
+GitHub の issue / pull request に近い UI とワークフローを持ち、issue に書かれた要望から AI が要件定義、実装、テスト、pull request 作成、レビュー、修正、QA までを半自動で進める。各作業は、目的、受け入れ条件、検証証拠、停止条件を持つ AI 開発 Loop として扱う。
 
 ## 2. 現時点の実装前提
 
@@ -71,6 +71,11 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 | Agent Job | AI エージェントに実行させる 1 回分の処理 |
 | Activity | コメントとは別に記録する AI の作業ログ、進捗、判断要約、コマンド実行履歴 |
 | Human Gate | AI が人間の回答や承認を待って停止している状態 |
+| Loop | issue を起点に、要件定義、実装、レビュー、QA、証拠記録、停止判定までを進める一連の AI 開発サイクル |
+| Goal Contract | Loop が達成すべき目的、対象範囲、受け入れ条件、検証方法、禁止事項、停止条件をまとめた契約 |
+| Evidence | Loop の完了判定に使う実行コマンド、終了コード、テスト結果、変更ファイル、スクリーンショット、レビュー結果などの証拠 |
+| Stop Condition | Loop を完了または停止してよい条件 |
+| Stop Reason | Agent Job または Loop が停止した理由。成功、検証失敗、人間待ち、リスク検出、キャンセルなど |
 
 ## 6. 全体ワークフロー
 
@@ -82,7 +87,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 4. 要件定義エージェントは issue 本文、コメント、repository の現状を確認する。
 5. 不明点がある場合、issue コメントに質問を書き、Agent Job を `waiting_human` にする。
 6. ユーザーが回答すると、要件定義エージェントが自動再開する。
-7. 不明点が解消されたら、要件定義エージェントが要件定義コメントを投稿する。
+7. 不明点が解消されたら、要件定義エージェントが Goal Contract を含む要件定義コメントを投稿する。
 8. issue の label を `ready-for-implementation` に変更する。
 9. 実装エージェントが起動し、実装ブランチを作成する。
 10. 実装エージェントはファイル変更、テスト追加、テスト実行を行う。
@@ -93,9 +98,9 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 15. 指摘があれば pull request コメントに記録し、`fixing` label に変更する。
 16. 修正エージェントが指摘を修正し、テスト後に `reviewing` に戻す。
 17. レビュー指摘がなくなったら `testing` label に変更する。
-18. QA エージェントが UI を含む動作確認を実施する。
+18. QA エージェントが UI を含む動作確認を実施し、Evidence を記録する。
 19. 不具合があれば pull request コメントに記録し、`fixing` に戻す。
-20. 問題がなければ検証結果をコメントし、pull request と issue に `done` label を付与する。
+20. 問題がなければ検証結果、Evidence、Stop Reason をコメントし、pull request と issue に `done` label を付与する。
 21. merge はユーザーが実行する。
 22. merge conflict が発生、または事前検出された場合、one team は修正エージェントで conflict 解消を支援する。
 
@@ -125,8 +130,10 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 - 詳細ページでは本文、コメント timeline、label、状態、関連 pull request / issue を確認できる。
 - AI のコメントとユーザーのコメントは視覚的に区別できるようにする。
 - AI ジョブの実行中、待機中、失敗、完了が分かる表示を用意する。
+- AI ジョブの停止理由を Stop Reason として確認できるようにする。
 - issue / pull request 詳細では、コメントとは別に Activity Log を時系列で確認できる。
 - Activity Log には AI の進捗、判断要約、実行コマンド、テスト結果、エラー、ファイル変更の要約を表示する。
+- Agent Job 詳細では、完了判定に使った Evidence を確認できる。
 - UI ポートは設定ファイルで指定できる。
 - UI は i18n を前提に実装し、表示文字列を翻訳リソースから参照する。
 - 初期実装の標準 locale は `en` とする。
@@ -232,6 +239,8 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 - 各エージェントは入力、実行ログ、出力、失敗理由を保存する。
 - 各エージェントはコメントとは別に Activity Log を保存する。
 - Activity Log には、AI の作業中の thinking summary、進捗、判断理由、実行コマンド、主要なコマンド出力、ファイル変更、テスト結果を時系列で記録する。
+- 各エージェントは停止時に `stopReason` を出力する。
+- 各エージェントは完了判定、レビュー、QA、人間判断に必要な `evidence` を出力する。
 - 同じ issue / pull request に対して同時に複数の破壊的 Agent Job が走らないよう lock する。
 - エージェントは作業開始、質問、完了、失敗をコメントに投稿する。
 - エージェントは不明点がある場合、人間に質問して `waiting_human` で停止する。
@@ -275,7 +284,11 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 - UI / API / データ変更
 - install / dev / build / test / lint コマンド要件
 - 状態遷移
+- Goal Contract
 - 受け入れ条件
+- Stop Condition
+- Evidence Required
+- Human Handoff Conditions
 - テスト観点
 - 未解決リスク
 - 実装エージェントへの指示
@@ -317,6 +330,8 @@ oneteam/issue-{issueId}-{slug}
 - 実装概要コメント
 - 変更ファイル一覧
 - 実行したテストと結果
+- Evidence
+- Stop Reason
 - 作成した pull request
 
 ### 9.4 レビューエージェント
@@ -343,6 +358,7 @@ oneteam/issue-{issueId}-{slug}
 - バグ、仕様漏れ、テスト不足、保守性の問題を指摘する。
 - 問題がある場合、指摘を pull request コメントに投稿し `fixing` label に変更する。
 - 問題がない場合、`testing` label に変更して QA エージェントへ渡す。
+- 完了判定に使った Evidence と Stop Reason を出力する。
 
 #### 出力
 
@@ -353,6 +369,8 @@ oneteam/issue-{issueId}-{slug}
 - 影響範囲
 - 推奨修正方針
 - 確認済み観点
+- Evidence
+- Stop Reason
 
 ### 9.5 修正エージェント
 
@@ -388,6 +406,8 @@ oneteam/issue-{issueId}-{slug}
 - conflict 解消内容
 - 変更ファイル一覧
 - 実行したテストと結果
+- Evidence
+- Stop Reason
 
 ### 9.6 QA エージェント
 
@@ -421,6 +441,8 @@ oneteam/issue-{issueId}-{slug}
 - UI 確認結果
 - 不具合一覧
 - 残リスク
+- Evidence
+- Stop Reason
 
 ## 10. Git / Repository 要件
 
@@ -746,7 +768,16 @@ type AgentRunResult = {
   questions?: string[];
   changedFiles?: string[];
   testResults?: AgentTestResult[];
+  stopReason?: "passed" | "failed" | "waiting_human" | "timeout" | "max_rounds_exceeded" | "budget_exceeded" | "risk_detected" | "rollback_required" | "canceled";
+  evidence?: AgentEvidence[];
   metadata?: Record<string, unknown>;
+};
+
+type AgentEvidence = {
+  type: string;
+  title: string;
+  summary?: string | null;
+  payload?: Record<string, unknown> | null;
 };
 
 type AgentActivity = {
@@ -764,6 +795,8 @@ type AgentActivity = {
 - 実行ログを取得できる。
 - 実行中の activity を逐次保存できる。
 - 失敗時に error message を返せる。
+- Agent Job の停止理由を `stopReason` として返せる。
+- Agent Job の完了判定に使う証拠を `evidence` として返せる。
 - MVP では Codex CLI adapter を実装する。
 - Codex CLI adapter は初回起動時に command path、model、実行オプションを設定できる。
 - Codex CLI adapter は full access 実行を前提にする。
@@ -844,6 +877,8 @@ e2e             Playwright smoke tests
 - 修正エージェントは merge conflict を修正できる。
 - QA エージェントはテスト結果をコメントし、`done` または `fixing` へ遷移できる。
 - Agent Job の Activity Log を issue / pull request から時系列で確認できる。
+- Agent Job の Stop Reason を確認できる。
+- Agent Job の Evidence を確認できる。
 
 ## 16. 非機能要件
 
@@ -860,6 +895,7 @@ e2e             Playwright smoke tests
 - agent の出力、実行コマンド、テスト結果を履歴として確認できる。
 - issue / pull request のコメントとは別に Activity Log を確認できる。
 - Activity Log は AI の thinking summary、進捗、判断理由、コマンド実行、ファイル変更、テスト結果、エラーを時系列で表示できる。
+- Agent Job の完了判定に使った Evidence と Stop Reason を確認できる。
 
 ### 16.3 Safety
 

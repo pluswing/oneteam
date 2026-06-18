@@ -12,6 +12,8 @@ Codex CLI で実行する各 Agent の prompt template、入力 context、出力
 - Agent はコメントに投稿すべき内容と Activity Log に保存すべき内容を分ける。
 - Activity の `thinking` は raw chain-of-thought ではなく、ユーザーに見せられる判断要約・作業メモとして出力する。
 - 人間の判断が必要な場合は `waiting_human` を返し、質問を comments に投稿する。
+- Agent は停止時に `stopReason` を返す。
+- Agent は完了判定、レビュー、QA、人間判断に必要な証拠を `evidence` として返す。
 
 ## 3. 共通 Context Envelope
 
@@ -67,6 +69,9 @@ write a concise thinking summary that is safe and useful for the user.
 If you need human input to proceed safely, stop and return waiting_human with
 clear questions. Otherwise continue until the assigned job is complete.
 
+Treat each job as one step in a local AI development loop. Prefer explicit
+goal contracts, evidence, and stop reasons over broad completion claims.
+
 Return structured JSON that matches the requested output schema.
 ```
 
@@ -92,12 +97,22 @@ Return structured JSON that matches the requested output schema.
   ],
   "changedFiles": [],
   "testResults": [],
+  "stopReason": "passed",
+  "evidence": [
+    {
+      "type": "test",
+      "title": "Unit tests passed",
+      "summary": "npm test completed with exit code 0.",
+      "payload": {}
+    }
+  ],
   "metadata": {
     "nextLabel": null,
     "pullRequest": null,
     "review": null,
     "fix": null,
-    "qa": null
+    "qa": null,
+    "verifier": null
   }
 }
 ```
@@ -107,6 +122,18 @@ Return structured JSON that matches the requested output schema.
 - `succeeded`
 - `waiting_human`
 - `failed`
+
+`stopReason`:
+
+- `passed`
+- `failed`
+- `waiting_human`
+- `timeout`
+- `max_rounds_exceeded`
+- `budget_exceeded`
+- `risk_detected`
+- `rollback_required`
+- `canceled`
 
 ## 6. Requirements Agent
 
@@ -143,7 +170,11 @@ Requirements comment must include:
 - UI/API/data changes
 - Command requirements
 - State transitions
+- Goal Contract
 - Acceptance criteria
+- Stop Condition
+- Evidence Required
+- Human Handoff Conditions
 - Test plan
 - Risks
 - Instructions for Implementation Agent
@@ -191,7 +222,7 @@ Tasks:
 7. If a configured command is missing and the task is about command setup,
    implement it.
 8. If human input is required, return waiting_human with questions.
-9. Return implementation summary, changed files, test results, and PR metadata.
+9. Return implementation summary, changed files, test results, evidence, stopReason, and PR metadata.
 
 Activity requirements:
 - progress when starting major steps
@@ -199,6 +230,11 @@ Activity requirements:
 - file_change after edits
 - test after test commands
 - error on failure
+
+Evidence requirements:
+- changed files and diff summary
+- lint/test/build command result with exit code when available
+- any risk or limitation that affects the stop reason
 
 Return JSON using the common output schema.
 ```
@@ -244,15 +280,17 @@ Input:
 Tasks:
 1. Verify each acceptance criterion.
 2. Look for bugs, regressions, missing tests, unsafe behavior, and style issues.
-3. Prioritize concrete findings with file paths and line references when available.
-4. If fixes are required, return succeeded with a review comment whose verdict is
+3. Verify the Goal Contract, Evidence Required, and Stop Condition when available.
+4. Prioritize concrete findings with file paths and line references when available.
+5. If fixes are required, return succeeded with a review comment whose verdict is
    "changes_requested", metadata.nextLabel = "fixing", and metadata.review.findings.
-5. If no blocking issues exist, return succeeded with verdict "approved" and
+6. If no blocking issues exist, return succeeded with verdict "approved" and
    metadata.nextLabel = "testing".
-6. Return metadata.review:
+7. Return metadata.review:
    - verdict: "approved" or "changes_requested"
    - findings: array of severity/path/line/title/body objects
    - checked: array of checked areas
+8. Return evidence and stopReason.
 
 Return JSON using the common output schema.
 ```
@@ -298,7 +336,7 @@ Tasks:
 4. Make focused fixes.
 5. Add or update tests when appropriate.
 6. Run relevant lint/test/build commands.
-7. Return a fix summary and test results.
+7. Return a fix summary, test results, evidence, and stopReason.
 8. Set metadata.nextLabel = "reviewing" when complete.
 9. Return metadata.fix.resolvedFindings and metadata.fix.conflictVerification when relevant.
 
@@ -336,17 +374,49 @@ Tasks:
    - verdict: "passed" or "defects_found"
    - defects: array of severity/path/title/body objects
    - observations: array of user-visible observations
+8. Return evidence including commands, UI screenshots or traces when available, and stopReason.
 
 Return JSON using the common output schema.
 ```
 
-## 11. Command Detection Agent
+## 11. Verifier Agent
 
 ### 11.1 Role
 
-repository import 時に command detection を補助し、不足 command の issue を作成するための本文を生成する。
+Loop の Stop Condition が Evidence によって満たされたかを判定する。実装や修正は行わず、停止してよいか、人間に戻すべきか、失敗として扱うべきかを決める。
 
 ### 11.2 Prompt Template
+
+```text
+You are the Verifier Agent.
+
+Context includes:
+- Target issue or pull request
+- Goal Contract, Stop Condition, Evidence Required
+- Agent comments, activities, command results, and Loop Run evidence
+
+Tasks:
+1. Compare the completed work with the Goal Contract.
+2. Verify that required Evidence exists and is sufficient.
+3. If the Stop Condition is met, return succeeded with stopReason "passed".
+4. If Evidence is missing, return waiting_human with concise questions.
+5. If Evidence proves failure, return failed with stopReason "failed".
+6. Return metadata.verifier:
+   - verdict: "passed", "missing_evidence", or "failed"
+   - stopConditionMet: boolean
+   - missingEvidence: array of missing evidence names
+   - notes: array of user-visible observations
+
+Return JSON using the common output schema.
+```
+
+## 12. Command Detection Agent
+
+### 12.1 Role
+
+repository import 時に command detection を補助し、不足 command の issue を作成するための本文を生成する。
+
+### 12.2 Prompt Template
 
 ```text
 You are the Command Detection Agent.

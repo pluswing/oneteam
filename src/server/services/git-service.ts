@@ -140,6 +140,25 @@ export async function getChangedFilesSince(repoPath: string, baseBranch: string,
   return Array.from(new Set([...diffOutput.split("\n").filter(Boolean), ...status.changedFiles]));
 }
 
+export async function getDiffLineCountSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<number> {
+  const outputs = await Promise.all([
+    git(repoPath, ["diff", "--numstat", `${baseBranch}...${revision}`]).catch(() => ""),
+    git(repoPath, ["diff", "--numstat"]).catch(() => ""),
+    git(repoPath, ["diff", "--cached", "--numstat"]).catch(() => "")
+  ]);
+  const fileStats = new Map<string, number>();
+
+  for (const output of outputs) {
+    for (const line of output.split("\n").filter(Boolean)) {
+      const [additions, deletions, path] = line.split("\t");
+      const count = (additions === "-" ? 0 : Number(additions) || 0) + (deletions === "-" ? 0 : Number(deletions) || 0);
+      fileStats.set(path, (fileStats.get(path) ?? 0) + count);
+    }
+  }
+
+  return Array.from(fileStats.values()).reduce((total, count) => total + count, 0);
+}
+
 export async function getCommits(repoPath: string, revision = "HEAD", limit = 20): Promise<RepositoryCommitDto[]> {
   const output = await git(repoPath, [
     "log",

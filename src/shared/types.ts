@@ -7,6 +7,7 @@ export type AgentType =
   | "review"
   | "fix"
   | "qa"
+  | "verifier"
   | "command_detection";
 export type AgentJobStatus =
   | "queued"
@@ -23,6 +24,10 @@ export type ActivityType =
   | "test"
   | "error"
   | "system";
+export type LoopStatus = "enabled" | "disabled";
+export type LoopRunStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
+export type LoopStepStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
+export type TriageItemStatus = "open" | "converted" | "ignored";
 
 export type ProjectDto = {
   id: string;
@@ -86,6 +91,8 @@ export type IssueDto = {
   status: IssueStatus;
   labels: LabelDto[];
   commentCount: number;
+  lastAgentStatus: AgentJobStatus | null;
+  lastAgentStopReason: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -103,6 +110,8 @@ export type PullRequestDto = {
   commentCount: number;
   changedFileCount: number;
   commitCount: number;
+  lastAgentStatus: AgentJobStatus | null;
+  lastAgentStopReason: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -149,6 +158,93 @@ export type AgentJobDto = {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+};
+
+export type LoopDto = {
+  id: number;
+  projectId: string;
+  name: string;
+  purpose: string;
+  triggerType: string;
+  cadence: string | null;
+  targetScope: string;
+  status: LoopStatus;
+  maxRounds: number;
+  timeBudgetMinutes: number | null;
+  costBudget: number | null;
+  stopCondition: Record<string, unknown> | null;
+  riskPolicy: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoopRunDto = {
+  id: number;
+  projectId: string;
+  loopId: number;
+  status: LoopRunStatus;
+  triggerType: string;
+  targetType: "issue" | "pull_request" | "project" | null;
+  targetId: number | null;
+  worktreePath: string | null;
+  summary: string;
+  stopReason: string | null;
+  evidence: Record<string, unknown> | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
+export type LoopStepDto = {
+  id: number;
+  projectId: string;
+  loopRunId: number;
+  agentJobId: number | null;
+  agentType: AgentType;
+  targetType: "issue" | "pull_request" | "project";
+  targetId: number;
+  status: LoopStepStatus;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoopMemoryEntryDto = {
+  id: number;
+  projectId: string;
+  loopId: number | null;
+  loopRunId: number | null;
+  sourceType: "manual" | "loop_run" | "agent_job" | "triage";
+  sourceId: number | null;
+  title: string;
+  body: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TriageItemDto = {
+  id: number;
+  projectId: string;
+  sourceType: string;
+  sourceId: number | null;
+  title: string;
+  body: string;
+  status: TriageItemStatus;
+  priority: string;
+  metadata: Record<string, unknown> | null;
+  issueId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SkillFileDto = {
+  path: string;
+  title: string;
+  body: string;
+  updatedAt: string | null;
 };
 
 export type RepositoryStatusDto = {

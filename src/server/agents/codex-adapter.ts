@@ -122,6 +122,15 @@ export class CodexAdapter implements AgentAdapter {
         return {
           status: "canceled",
           message: "Codex CLI execution was canceled.",
+          stopReason: "canceled",
+          evidence: [
+            {
+              type: "system",
+              title: "Codex CLI canceled",
+              summary: "The running Codex process was terminated after the job was canceled.",
+              payload: null
+            }
+          ],
           activities: [
             {
               type: "system",
@@ -149,6 +158,17 @@ export class CodexAdapter implements AgentAdapter {
         return {
           status: "failed",
           message: failureMessage ?? `Codex CLI failed with exit code ${exitCode}`,
+          stopReason: "failed",
+          evidence: [
+            {
+              type: "command",
+              title: "Codex CLI failed",
+              summary: failureMessage ?? `Codex CLI failed with exit code ${exitCode}`,
+              payload: {
+                exitCode
+              }
+            }
+          ],
           activities: []
         };
       }
@@ -170,6 +190,17 @@ export class CodexAdapter implements AgentAdapter {
 }
 
 const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);
+const stopReasons = [
+  "passed",
+  "failed",
+  "waiting_human",
+  "timeout",
+  "max_rounds_exceeded",
+  "budget_exceeded",
+  "risk_detected",
+  "rollback_required",
+  "canceled"
+] as const;
 
 const agentOutputSchema = {
   type: "object",
@@ -292,6 +323,56 @@ const agentOutputSchema = {
               }
             },
             required: ["command", "status", "exitCode", "output"],
+            additionalProperties: false
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    stopReason: {
+      anyOf: [
+        {
+          type: "string",
+          enum: Array.from(stopReasons)
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    evidence: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string"
+              },
+              title: {
+                type: "string"
+              },
+              summary: {
+                type: ["string", "null"]
+              },
+              payload: {
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {},
+                    required: [],
+                    additionalProperties: false
+                  },
+                  {
+                    type: "null"
+                  }
+                ]
+              }
+            },
+            required: ["type", "title", "summary", "payload"],
             additionalProperties: false
           }
         },
@@ -497,9 +578,55 @@ const agentOutputSchema = {
                   type: "null"
                 }
               ]
+            },
+            verifier: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    verdict: {
+                      type: ["string", "null"]
+                    },
+                    stopConditionMet: {
+                      type: ["boolean", "null"]
+                    },
+                    missingEvidence: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    },
+                    notes: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["verdict", "stopConditionMet", "missingEvidence", "notes"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
             }
           },
-          required: ["nextLabel", "pullRequest", "review", "fix", "qa"],
+          required: ["nextLabel", "pullRequest", "review", "fix", "qa", "verifier"],
           additionalProperties: false
         },
         {
@@ -508,7 +635,18 @@ const agentOutputSchema = {
       ]
     }
   },
-  required: ["status", "message", "comment", "questions", "activities", "changedFiles", "testResults", "metadata"],
+  required: [
+    "status",
+    "message",
+    "comment",
+    "questions",
+    "activities",
+    "changedFiles",
+    "testResults",
+    "stopReason",
+    "evidence",
+    "metadata"
+  ],
   additionalProperties: false
 } as const;
 

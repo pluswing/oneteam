@@ -108,7 +108,10 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
   const questions = stringArrayValue(output.questions);
   const changedFiles = stringArrayValue(output.changedFiles);
   const testResults = recordArrayValue(output.testResults);
-  const hasSummary = message || commentBody || questions.length || changedFiles.length || testResults.length;
+  const stopReason = stringValue(output.stopReason);
+  const evidence = recordArrayValue(output.evidence);
+  const hasSummary =
+    message || commentBody || questions.length || changedFiles.length || testResults.length || stopReason || evidence.length;
 
   if (!hasSummary) {
     return <div className="empty-state">{t("agents.noSummary")}</div>;
@@ -131,6 +134,12 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
               <li key={question}>{question}</li>
             ))}
           </ul>
+        </div>
+      ) : null}
+      {stopReason ? (
+        <div className="result-block">
+          <h3>{t("agents.stopReason")}</h3>
+          <p>{stopReason}</p>
         </div>
       ) : null}
       {changedFiles.length ? (
@@ -160,6 +169,27 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
                   </header>
                   {exitCode !== null ? <span className="muted-text">exit code: {exitCode}</span> : null}
                   {outputText ? <p>{outputText}</p> : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      {evidence.length ? (
+        <div className="result-block">
+          <h3>{t("agents.evidence")}</h3>
+          <div className="test-result-list">
+            {evidence.map((item, index) => {
+              const title = stringValue(item.title) ?? `${t("agents.evidenceItem")} ${index + 1}`;
+              const type = stringValue(item.type);
+              const summary = stringValue(item.summary);
+              return (
+                <article className="test-result-row" key={`${title}-${index}`}>
+                  <header>
+                    <strong>{title}</strong>
+                    {type ? <span className="status-pill">{type}</span> : null}
+                  </header>
+                  {summary ? <p>{summary}</p> : null}
                 </article>
               );
             })}

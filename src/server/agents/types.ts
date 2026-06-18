@@ -7,6 +7,24 @@ export type AgentActivityResult = {
   payload?: Record<string, unknown> | null;
 };
 
+export type AgentStopReason =
+  | "passed"
+  | "failed"
+  | "waiting_human"
+  | "timeout"
+  | "max_rounds_exceeded"
+  | "budget_exceeded"
+  | "risk_detected"
+  | "rollback_required"
+  | "canceled";
+
+export type AgentEvidenceResult = {
+  type: string;
+  title: string;
+  summary?: string | null;
+  payload?: Record<string, unknown> | null;
+};
+
 export type AgentRunResult = {
   status: Extract<AgentJobStatus, "succeeded" | "waiting_human" | "failed" | "canceled">;
   message: string;
@@ -19,6 +37,8 @@ export type AgentRunResult = {
   activities?: AgentActivityResult[] | null;
   changedFiles?: string[] | null;
   testResults?: Array<Record<string, unknown>> | null;
+  stopReason?: AgentStopReason | null;
+  evidence?: AgentEvidenceResult[] | null;
   metadata?: {
     nextLabel?: string | null;
     pullRequest?: {
@@ -41,6 +61,12 @@ export type AgentRunResult = {
       verdict?: string | null;
       defects?: Array<Record<string, unknown>> | null;
       observations?: string[] | null;
+    } | null;
+    verifier?: {
+      verdict?: string | null;
+      stopConditionMet?: boolean | null;
+      missingEvidence?: string[] | null;
+      notes?: string[] | null;
     } | null;
     [key: string]: unknown;
   } | null;

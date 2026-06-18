@@ -1,11 +1,18 @@
-import type { AgentJobDto, LabelDto, ProjectDto } from "../../shared/types";
+import type { AgentJobDto, LabelDto, LoopDto, ProjectCommandDto, ProjectDto } from "../../shared/types";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
-import { commitAllChanges, detectMergeConflicts, getChangedFilesSince } from "../services/git-service";
-import { prepareImplementationBranch } from "../services/implementation-preflight";
+import {
+  commitAllChanges,
+  detectMergeConflicts,
+  getChangedFilesSince,
+  getDiffLineCountSince,
+  getRepositoryStatus
+} from "../services/git-service";
 import { runLabelAutomation } from "../services/label-automation";
+import { appendLoopMemoryNote } from "../services/knowledge-files";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
-import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
+import { cleanupWorktree, prepareIssueWorktree, preparePullRequestWorktree } from "../services/worktree-service";
+import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
 export type AgentWorkerOptions = {
@@ -64,6 +71,7 @@ export class AgentWorker {
     }
 
     const activityTarget = normalizeActivityTarget(runningJob);
+    await this.repos.loopSteps.updateForAgentJob(runningJob.projectId, runningJob.id, { status: "running" });
     if (activityTarget) {
       await this.repos.activities.create({
         projectId: runningJob.projectId,
@@ -77,16 +85,11 @@ export class AgentWorker {
     }
 
     try {
-      const preflightResult = await this.prepareImplementationJob(runningJob);
-      if (preflightResult) {
-        await this.applyResult(runningJob, preflightResult);
-        return;
-      }
-
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
+      const worktree = await this.prepareWorktreeForJob(runningJob, project);
       const result = await this.adapter.run({
         job: runningJob,
-        repoPath: project.repoPath,
+        repoPath: worktree?.repoPath ?? project.repoPath,
         prompt,
         isCanceled: async () => {
           const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
@@ -127,9 +130,12 @@ export class AgentWorker {
         return;
       }
 
-      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, result);
-      finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, finalizedResult);
+      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, worktree?.repoPath ?? project.repoPath, result);
+      finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, worktree?.repoPath ?? project.repoPath, finalizedResult);
       await this.applyResult(runningJob, finalizedResult);
+      if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
+        await cleanupWorktree(project, worktree.worktreePath);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
       const target = normalizeActivityTarget(runningJob);
@@ -144,29 +150,97 @@ export class AgentWorker {
           body: message
         });
       }
-      await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", { error: message });
+      await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", {
+        output: {
+          status: "failed",
+          message,
+          stopReason: "failed",
+          evidence: [
+            {
+              type: "error",
+              title: "Agent job failed",
+              summary: message,
+              payload: null
+            }
+          ]
+        },
+        error: message
+      });
+      await this.updateLoopForResult(runningJob, {
+        status: "failed",
+        message,
+        stopReason: "failed",
+        evidence: [
+          {
+            type: "error",
+            title: "Agent job failed",
+            summary: message,
+            payload: null
+          }
+        ]
+      });
     }
+  }
+
+  private async getLoopContextForJob(job: AgentJobDto): Promise<{ loop: LoopDto } | null> {
+    const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
+    if (!step) {
+      return null;
+    }
+    const run = await this.repos.loopRuns.get(job.projectId, step.loopRunId);
+    if (!run) {
+      return null;
+    }
+    const loop = await this.repos.loops.get(job.projectId, run.loopId);
+    return loop ? { loop } : null;
   }
 
   private async finalizeImplementationResult(
     job: AgentJobDto,
     project: ProjectDto,
+    repoPath: string,
     result: AgentRunResult
   ): Promise<AgentRunResult> {
     if (job.agentType !== "implementation" || job.targetType !== "issue" || result.status !== "succeeded") {
       return result;
     }
 
+    const loopContext = await this.getLoopContextForJob(job);
+    const riskPolicy = normalizeRiskPolicy(loopContext?.loop.riskPolicy);
     const commands = await this.repos.commands.list(project.id);
-    const commandResults = await runVerificationCommands(project.repoPath, commands);
+    const commandPolicy = applyVerificationCommandPolicy(commands, riskPolicy);
+    const commandTimeoutMs = loopContext?.loop.timeBudgetMinutes
+      ? Math.max(loopContext.loop.timeBudgetMinutes * 60 * 1000, 1)
+      : undefined;
+    const commandResults = await runVerificationCommands(repoPath, commandPolicy.commands, commandTimeoutMs);
     const changedFiles = uniqueStrings([
       ...(result.changedFiles ?? []),
-      ...(await getChangedFilesSince(project.repoPath, project.defaultBranch))
+      ...(await getChangedFilesSince(repoPath, project.defaultBranch))
     ]);
+    const diffLineCount = await getDiffLineCountSince(repoPath, project.defaultBranch);
+    const riskSignals = [
+      ...commandPolicy.riskSignals,
+      ...(await implementationRiskSignals({
+        job,
+        loop: loopContext?.loop ?? null,
+        repoPath,
+        project,
+        changedFiles,
+        diffLineCount,
+        riskPolicy
+      }))
+    ];
     const activities = [
       ...(result.activities ?? []),
       ...changedFileActivities(changedFiles),
-      ...verificationActivities(commandResults)
+      ...verificationActivities(commandResults),
+      ...riskSignalActivities(riskSignals)
+    ];
+    const evidence = [
+      ...(result.evidence ?? []),
+      ...changedFileEvidence(changedFiles),
+      ...verificationEvidence(commandResults),
+      ...riskSignalEvidence(riskSignals)
     ];
     const testResults: Array<Record<string, unknown>> = [
       ...(result.testResults ?? []),
@@ -184,6 +258,8 @@ export class AgentWorker {
         activities,
         changedFiles,
         testResults,
+        stopReason: "failed",
+        evidence,
         metadata: {
           ...(result.metadata ?? {}),
           nextLabel: null,
@@ -192,7 +268,33 @@ export class AgentWorker {
       };
     }
 
-    const commitResult = await commitAllChanges(project.repoPath, `Implement issue #${job.targetId}`);
+    if (riskSignals.length && riskPolicy.humanGateOnRisk) {
+      const stopReason = riskSignals.find((signal) => signal.stopReason)?.stopReason ?? "risk_detected";
+      return {
+        ...result,
+        status: "waiting_human",
+        message: `${result.message}\n\nHuman gate: ${riskSignals.map((signal) => signal.summary).join("; ")}`,
+        questions: ["Review the loop risk signals and decide whether to adjust the loop policy or continue manually."],
+        activities,
+        changedFiles,
+        testResults,
+        stopReason,
+        evidence,
+        metadata: {
+          ...(result.metadata ?? {}),
+          nextLabel: null,
+          pullRequest: null,
+          riskSignals: riskSignals.map((signal) => ({
+            title: signal.title,
+            summary: signal.summary,
+            payload: signal.payload,
+            stopReason: signal.stopReason ?? "risk_detected"
+          }))
+        }
+      };
+    }
+
+    const commitResult = await commitAllChanges(repoPath, `Implement issue #${job.targetId}`);
     const commitActivity = commitResult.commitHash
       ? [
           {
@@ -211,19 +313,33 @@ export class AgentWorker {
       ...result,
       activities: [...activities, ...commitActivity],
       changedFiles,
-      testResults
+      testResults,
+      stopReason: result.stopReason ?? "passed",
+      evidence,
+      metadata: riskSignals.length
+        ? {
+            ...(result.metadata ?? {}),
+            riskSignals: riskSignals.map((signal) => ({
+              title: signal.title,
+              summary: signal.summary,
+              payload: signal.payload,
+              stopReason: signal.stopReason ?? "risk_detected"
+            }))
+          }
+        : result.metadata
     };
   }
 
   private async finalizePullRequestWorkflowResult(
     job: AgentJobDto,
     project: ProjectDto,
+    repoPath: string,
     result: AgentRunResult
   ): Promise<AgentRunResult> {
     if (
       job.targetType !== "pull_request" ||
       result.status !== "succeeded" ||
-      !["review", "fix", "qa"].includes(job.agentType)
+      !["review", "fix", "qa", "verifier"].includes(job.agentType)
     ) {
       return result;
     }
@@ -238,7 +354,7 @@ export class AgentWorker {
       job.agentType === "fix" &&
       pullRequest.labels.some((label) => label.name === workflowLabelNames.resolvingConflicts)
     ) {
-      const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+      const conflicts = await detectMergeConflicts(repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
       if (conflicts.hasConflicts) {
         return {
           ...result,
@@ -250,6 +366,18 @@ export class AgentWorker {
               type: "error",
               title: "Merge conflicts remain",
               body: conflicts.files.map((file) => `- ${file.path}: ${file.reason}`).join("\n"),
+              payload: {
+                conflicts
+              }
+            }
+          ],
+          stopReason: "failed",
+          evidence: [
+            ...(result.evidence ?? []),
+            {
+              type: "risk",
+              title: "Merge conflicts remain",
+              summary: conflicts.files.map((file) => `${file.path}: ${file.reason}`).join(", "),
               payload: {
                 conflicts
               }
@@ -271,77 +399,65 @@ export class AgentWorker {
     };
   }
 
-  private async prepareImplementationJob(job: AgentJobDto): Promise<AgentRunResult | null> {
-    if (job.agentType !== "implementation" || job.targetType !== "issue") {
-      return null;
-    }
-
-    const project = await this.repos.projects.get(job.projectId);
-    if (!project) {
-      throw new Error(`Project was not found: ${job.projectId}`);
-    }
-
-    const issue = await this.repos.issues.get(project.id, job.targetId);
-    if (!issue) {
-      throw new Error(`Issue was not found: ${job.targetId}`);
-    }
-
-    const result = await prepareImplementationBranch(project, issue);
-    if (result.status === "ready") {
-      await this.repos.activities.create({
-        projectId: job.projectId,
-        agentJobId: job.id,
-        targetType: "issue",
-        targetId: issue.id,
-        activityType: "progress",
-        title: "Implementation branch ready",
-        body: formatImplementationBranchAction(result.action, result.branchName),
-        payload: {
-          branchName: result.branchName,
-          action: result.action,
-          previousBranch: result.repositoryStatus.branch
-        }
-      });
-      return null;
-    }
-
-    const changedFiles = result.repositoryStatus.changedFiles;
-    const changedFilesBody = changedFiles.length ? `\n\nChanged files:\n${changedFiles.map((file) => `- ${file}`).join("\n")}` : "";
-
-    return {
-      status: "waiting_human",
-      message: "Implementation is blocked because the repository has uncommitted changes.",
-      questions: [
-        `Please commit, stash, or discard the uncommitted changes on ${result.repositoryStatus.branch}, then comment to resume. Target branch: ${result.branchName}.`
-      ],
-      activities: [
-        {
-          type: "error",
-          title: "Implementation branch blocked",
-          body: `Cannot switch to ${result.branchName} while ${result.repositoryStatus.branch} has uncommitted changes.${changedFilesBody}`,
-          payload: {
-            branchName: result.branchName,
-            currentBranch: result.repositoryStatus.branch,
-            changedFiles
-          }
-        }
-      ],
-      metadata: {
-        implementationBranch: {
-          branchName: result.branchName,
-          currentBranch: result.repositoryStatus.branch,
-          changedFiles,
-          reason: result.reason
-        }
+  private async prepareWorktreeForJob(
+    job: AgentJobDto,
+    project: ProjectDto
+  ): Promise<{ repoPath: string; branchName: string; worktreePath: string } | null> {
+    if (job.agentType === "implementation" && job.targetType === "issue") {
+      const issue = await this.repos.issues.get(project.id, job.targetId);
+      if (!issue) {
+        throw new Error(`Issue was not found: ${job.targetId}`);
       }
-    };
+      const worktree = await prepareIssueWorktree(project, issue);
+      await this.recordWorktreeActivity(job, "issue", issue.id, worktree);
+      await this.recordLoopWorktree(job, worktree.worktreePath);
+      return worktree;
+    }
+
+    if (job.agentType === "fix" && job.targetType === "pull_request") {
+      const pullRequest = await this.repos.pullRequests.get(project.id, job.targetId);
+      if (!pullRequest) {
+        throw new Error(`Pull request was not found: ${job.targetId}`);
+      }
+      const worktree = await preparePullRequestWorktree(project, pullRequest);
+      await this.recordWorktreeActivity(job, "pull_request", pullRequest.id, worktree);
+      await this.recordLoopWorktree(job, worktree.worktreePath);
+      return worktree;
+    }
+
+    return null;
+  }
+
+  private async recordLoopWorktree(job: AgentJobDto, worktreePath: string): Promise<void> {
+    const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
+    if (step) {
+      await this.repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "running", { worktreePath });
+    }
+  }
+
+  private async recordWorktreeActivity(
+    job: AgentJobDto,
+    targetType: "issue" | "pull_request",
+    targetId: number,
+    worktree: { branchName: string; worktreePath: string }
+  ): Promise<void> {
+    await this.repos.activities.create({
+      projectId: job.projectId,
+      agentJobId: job.id,
+      targetType,
+      targetId,
+      activityType: "progress",
+      title: "Worktree ready",
+      body: `Prepared ${worktree.branchName} in ${worktree.worktreePath}.`,
+      payload: worktree
+    });
   }
 
   private async applyResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
     const target = normalizeActivityTarget(job);
-    let output = result;
+    let output = withDefaultStopReason(result);
 
-    for (const activity of result.activities ?? []) {
+    for (const activity of output.activities ?? []) {
       if (!target) {
         continue;
       }
@@ -413,6 +529,49 @@ export class AgentWorker {
       output: output as unknown as Record<string, unknown>,
       error: output.status === "failed" ? output.message : null
     });
+    await this.updateLoopForResult(job, output);
+  }
+
+  private async updateLoopForResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
+    const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
+    if (!step) {
+      return;
+    }
+
+    const status = loopStatusFromAgentStatus(result.status);
+    await this.repos.loopSteps.updateForAgentJob(job.projectId, job.id, {
+      status,
+      output: result as unknown as Record<string, unknown>,
+      evidence: result.evidence ? { items: result.evidence } : null
+    });
+
+    const run = await this.repos.loopRuns.updateStatus(job.projectId, step.loopRunId, status, {
+      summary: result.message,
+      stopReason: result.stopReason ?? null,
+      evidence: result.evidence ? { items: result.evidence } : null
+    });
+
+    if (run && ["succeeded", "failed", "canceled"].includes(status)) {
+      const memoryInput = {
+        projectId: job.projectId,
+        loopId: run.loopId,
+        loopRunId: run.id,
+        sourceType: "loop_run" as const,
+        sourceId: run.id,
+        title: `${job.agentType} loop ${status}`,
+        body: result.message,
+        tags: ["loop", job.agentType, status]
+      };
+      await this.repos.loopMemory.create(memoryInput);
+      const project = await this.repos.projects.get(job.projectId);
+      if (project) {
+        await appendLoopMemoryNote(project.repoPath, {
+          title: memoryInput.title,
+          body: memoryInput.body,
+          tags: memoryInput.tags
+        }).catch(() => undefined);
+      }
+    }
   }
 
   private async enterHumanGate(
@@ -528,16 +687,6 @@ export class AgentWorker {
   }
 }
 
-function formatImplementationBranchAction(action: string, branchName: string): string {
-  if (action === "already_on_branch") {
-    return `Already on ${branchName}.`;
-  }
-  if (action === "checked_out") {
-    return `Checked out existing branch ${branchName}.`;
-  }
-  return `Created and checked out ${branchName}.`;
-}
-
 function changedFileActivities(changedFiles: string[]): AgentActivityResult[] {
   if (!changedFiles.length) {
     return [];
@@ -555,11 +704,45 @@ function changedFileActivities(changedFiles: string[]): AgentActivityResult[] {
   ];
 }
 
+function changedFileEvidence(changedFiles: string[]): AgentEvidenceResult[] {
+  if (!changedFiles.length) {
+    return [];
+  }
+
+  return [
+    {
+      type: "file_change",
+      title: "Changed files captured",
+      summary: `${changedFiles.length} changed file(s) captured for review.`,
+      payload: {
+        changedFiles
+      }
+    }
+  ];
+}
+
 function verificationActivities(results: VerificationCommandResult[]): AgentActivityResult[] {
   return results.map((result) => ({
     type: result.status === "passed" ? (result.commandType === "test" ? "test" : "command") : "error",
     title: `${result.commandType} command ${result.status}`,
     body: commandResultBody(result),
+    payload: {
+      commandType: result.commandType,
+      command: result.command,
+      status: result.status,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      durationMs: result.durationMs,
+      timedOut: result.timedOut
+    }
+  }));
+}
+
+function verificationEvidence(results: VerificationCommandResult[]): AgentEvidenceResult[] {
+  return results.map((result) => ({
+    type: result.commandType,
+    title: `${result.commandType} command ${result.status}`,
+    summary: `${result.command} finished with status ${result.status} and exit code ${result.exitCode ?? "none"}.`,
     payload: {
       commandType: result.commandType,
       command: result.command,
@@ -588,8 +771,233 @@ function commandResultBody(result: VerificationCommandResult): string {
   return lines.join("\n");
 }
 
+type LoopRiskPolicy = {
+  humanGateOnRisk: boolean;
+  maxChangedFiles: number | null;
+  maxDiffLines: number | null;
+  allowedCommands: string[];
+  deniedCommands: string[];
+  protectedPaths: string[];
+  protectedBranches: string[];
+};
+
+type RiskSignal = {
+  title: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  stopReason?: AgentStopReason;
+};
+
+function normalizeRiskPolicy(value: unknown): LoopRiskPolicy {
+  const policy = objectValue(value);
+  return {
+    humanGateOnRisk: policy?.humanGateOnRisk !== false,
+    maxChangedFiles: positiveNumber(policy?.maxChangedFiles),
+    maxDiffLines: positiveNumber(policy?.maxDiffLines),
+    allowedCommands: stringArrayValue(policy?.allowedCommands),
+    deniedCommands: stringArrayValue(policy?.deniedCommands),
+    protectedPaths: stringArrayValue(policy?.protectedPaths),
+    protectedBranches: stringArrayValue(policy?.protectedBranches)
+  };
+}
+
+function applyVerificationCommandPolicy(
+  commands: ProjectCommandDto[],
+  policy: LoopRiskPolicy
+): { commands: ProjectCommandDto[]; riskSignals: RiskSignal[] } {
+  const allowed: ProjectCommandDto[] = [];
+  const riskSignals: RiskSignal[] = [];
+
+  for (const command of commands) {
+    if (!command.isRequired || !command.isAvailable || !command.command) {
+      allowed.push(command);
+      continue;
+    }
+
+    const deniedPattern = policy.deniedCommands.find((pattern) => matchesPattern(command.command ?? "", pattern));
+    const allowedByList =
+      policy.allowedCommands.length === 0 ||
+      policy.allowedCommands.some((pattern) => matchesPattern(command.command ?? "", pattern));
+
+    if (deniedPattern || !allowedByList) {
+      riskSignals.push({
+        title: "Verification command blocked",
+        summary: `${command.commandType} command was blocked by loop command policy.`,
+        payload: {
+          commandType: command.commandType,
+          command: command.command,
+          deniedPattern: deniedPattern ?? null,
+          allowedCommands: policy.allowedCommands
+        },
+        stopReason: "risk_detected"
+      });
+      continue;
+    }
+
+    allowed.push(command);
+  }
+
+  return { commands: allowed, riskSignals };
+}
+
+async function implementationRiskSignals(input: {
+  job: AgentJobDto;
+  loop: LoopDto | null;
+  repoPath: string;
+  project: ProjectDto;
+  changedFiles: string[];
+  diffLineCount: number;
+  riskPolicy: LoopRiskPolicy;
+}): Promise<RiskSignal[]> {
+  const signals: RiskSignal[] = [];
+  const { job, loop, repoPath, changedFiles, diffLineCount, riskPolicy } = input;
+
+  if (typeof riskPolicy.maxChangedFiles === "number" && changedFiles.length > riskPolicy.maxChangedFiles) {
+    signals.push({
+      title: "Changed file budget exceeded",
+      summary: `${changedFiles.length} changed file(s) exceeded the limit of ${riskPolicy.maxChangedFiles}.`,
+      payload: {
+        changedFiles,
+        maxChangedFiles: riskPolicy.maxChangedFiles
+      },
+      stopReason: "budget_exceeded"
+    });
+  }
+
+  if (typeof riskPolicy.maxDiffLines === "number" && diffLineCount > riskPolicy.maxDiffLines) {
+    signals.push({
+      title: "Diff line budget exceeded",
+      summary: `${diffLineCount} diff line(s) exceeded the limit of ${riskPolicy.maxDiffLines}.`,
+      payload: {
+        diffLineCount,
+        maxDiffLines: riskPolicy.maxDiffLines
+      },
+      stopReason: "budget_exceeded"
+    });
+  }
+
+  const protectedFiles = changedFiles.filter((file) =>
+    riskPolicy.protectedPaths.some((pattern) => matchesPathPattern(file, pattern))
+  );
+  if (protectedFiles.length) {
+    signals.push({
+      title: "Protected path changed",
+      summary: `Changes touched protected path(s): ${protectedFiles.join(", ")}.`,
+      payload: {
+        protectedFiles,
+        protectedPaths: riskPolicy.protectedPaths
+      },
+      stopReason: "risk_detected"
+    });
+  }
+
+  const status = await getRepositoryStatus(repoPath).catch(() => null);
+  if (status && riskPolicy.protectedBranches.some((pattern) => matchesPattern(status.branch, pattern))) {
+    signals.push({
+      title: "Protected branch execution",
+      summary: `Loop job is running on protected branch ${status.branch}.`,
+      payload: {
+        branch: status.branch,
+        protectedBranches: riskPolicy.protectedBranches
+      },
+      stopReason: "risk_detected"
+    });
+  }
+
+  if (loop?.timeBudgetMinutes && job.startedAt) {
+    const elapsedMs = Date.now() - Date.parse(job.startedAt);
+    if (elapsedMs > loop.timeBudgetMinutes * 60 * 1000) {
+      signals.push({
+        title: "Time budget exceeded",
+        summary: `Loop job exceeded the ${loop.timeBudgetMinutes} minute time budget.`,
+        payload: {
+          elapsedMs,
+          timeBudgetMinutes: loop.timeBudgetMinutes
+        },
+        stopReason: "timeout"
+      });
+    }
+  }
+
+  return signals;
+}
+
+function riskSignalActivities(signals: RiskSignal[]): AgentActivityResult[] {
+  return signals.map((signal) => ({
+    type: "error",
+    title: signal.title,
+    body: signal.summary,
+    payload: signal.payload
+  }));
+}
+
+function riskSignalEvidence(signals: RiskSignal[]): AgentEvidenceResult[] {
+  return signals.map((signal) => ({
+    type: "risk",
+    title: signal.title,
+    summary: signal.summary,
+    payload: signal.payload
+  }));
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function matchesPathPattern(value: string, pattern: string): boolean {
+  return matchesPattern(value, pattern) || value.startsWith(`${pattern.replace(/\/+$/, "")}/`);
+}
+
+function matchesPattern(value: string, pattern: string): boolean {
+  if (!pattern) {
+    return false;
+  }
+  if (pattern.includes("*")) {
+    const escaped = pattern
+      .split("*")
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join(".*");
+    return new RegExp(`^${escaped}$`).test(value);
+  }
+  return value === pattern || value.includes(pattern);
+}
+
 function uniqueStrings(items: string[]): string[] {
   return Array.from(new Set(items));
+}
+
+function withDefaultStopReason(result: AgentRunResult): AgentRunResult {
+  return {
+    ...result,
+    stopReason: result.stopReason ?? defaultStopReason(result.status),
+    evidence: result.evidence ?? []
+  };
+}
+
+function defaultStopReason(status: AgentRunResult["status"]): AgentStopReason {
+  if (status === "succeeded") {
+    return "passed";
+  }
+  if (status === "waiting_human") {
+    return "waiting_human";
+  }
+  if (status === "canceled") {
+    return "canceled";
+  }
+  return "failed";
+}
+
+function loopStatusFromAgentStatus(status: AgentRunResult["status"]): "succeeded" | "waiting_human" | "failed" | "canceled" {
+  if (status === "succeeded") {
+    return "succeeded";
+  }
+  if (status === "waiting_human") {
+    return "waiting_human";
+  }
+  if (status === "canceled") {
+    return "canceled";
+  }
+  return "failed";
 }
 
 function derivePullRequestNextLabel(
@@ -617,6 +1025,20 @@ function derivePullRequestNextLabel(
     }
     if (verdict === "passed") {
       return workflowLabelNames.done;
+    }
+  }
+
+  if (agentType === "verifier") {
+    const verifier = objectValue(metadata.verifier);
+    const verdict = stringValue(verifier?.verdict);
+    if (verifier?.stopConditionMet === true || verdict === "passed") {
+      return workflowLabelNames.done;
+    }
+    if (verdict === "failed") {
+      return workflowLabelNames.fixing;
+    }
+    if (verdict === "missing_evidence") {
+      return workflowLabelNames.needsInput;
     }
   }
 
@@ -678,6 +1100,26 @@ function pullRequestWorkflowActivities(
         body: structuredActivityBody(`verdict: ${verdict}`, defects),
         payload: {
           qa
+        }
+      }
+    ];
+  }
+
+  if (agentType === "verifier") {
+    const verifier = objectValue(metadata.verifier);
+    if (!verifier) {
+      return [];
+    }
+    const missingEvidence = stringArrayValue(verifier.missingEvidence);
+    const notes = stringArrayValue(verifier.notes);
+    const verdict = stringValue(verifier.verdict) ?? "unknown";
+    return [
+      {
+        type: missingEvidence.length ? "error" : "test",
+        title: missingEvidence.length ? "Verifier missing evidence" : "Verifier stop condition checked",
+        body: [structuredActivityBody(`verdict: ${verdict}`, missingEvidence), ...notes.map((note) => `- ${note}`)].join("\n"),
+        payload: {
+          verifier
         }
       }
     ];

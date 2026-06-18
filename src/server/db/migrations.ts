@@ -248,6 +248,91 @@ const migrations: Migration[] = [
   {
     id: "0003_english_system_labels",
     statements: renameWorkflowLabelStatements()
+  },
+  {
+    id: "0004_loop_engineering_tables",
+    statements: [
+      `create table if not exists loops (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        name text not null,
+        purpose text not null default '',
+        trigger_type text not null default 'manual',
+        cadence text,
+        target_scope text not null default 'project',
+        status text not null default 'enabled',
+        max_rounds integer not null default 3,
+        time_budget_minutes integer,
+        cost_budget integer,
+        stop_condition_json text,
+        risk_policy_json text,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists loop_runs (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_id integer not null references loops(id) on delete cascade,
+        status text not null default 'queued',
+        trigger_type text not null default 'manual',
+        target_type text,
+        target_id integer,
+        worktree_path text,
+        summary text not null default '',
+        stop_reason text,
+        evidence_json text,
+        created_at text not null,
+        started_at text,
+        finished_at text
+      )`,
+      `create table if not exists loop_steps (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_run_id integer not null references loop_runs(id) on delete cascade,
+        agent_job_id integer references agent_jobs(id) on delete set null,
+        agent_type text not null,
+        target_type text not null,
+        target_id integer not null,
+        status text not null default 'queued',
+        input_json text,
+        output_json text,
+        evidence_json text,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists loop_memory_entries (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_id integer references loops(id) on delete set null,
+        loop_run_id integer references loop_runs(id) on delete set null,
+        source_type text not null,
+        source_id integer,
+        title text not null,
+        body text not null default '',
+        tags_json text not null default '[]',
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists triage_items (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        source_type text not null,
+        source_id integer,
+        title text not null,
+        body text not null default '',
+        status text not null default 'open',
+        priority text not null default 'normal',
+        metadata_json text,
+        issue_id integer references issues(id) on delete set null,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      "create index if not exists idx_loops_project_status on loops(project_id, status, updated_at desc)",
+      "create index if not exists idx_loop_runs_project_status on loop_runs(project_id, status, created_at desc)",
+      "create index if not exists idx_loop_steps_run_created on loop_steps(loop_run_id, created_at asc)",
+      "create index if not exists idx_loop_memory_project_created on loop_memory_entries(project_id, created_at desc)",
+      "create index if not exists idx_triage_items_project_status on triage_items(project_id, status, created_at desc)"
+    ]
   }
 ];
 

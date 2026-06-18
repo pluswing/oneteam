@@ -535,7 +535,19 @@ Response:
     "agentType": "requirements",
     "status": "running",
     "input": {},
-    "output": null,
+    "output": {
+      "status": "succeeded",
+      "message": "Requirements are ready.",
+      "stopReason": "passed",
+      "evidence": [
+        {
+          "type": "requirements",
+          "title": "Goal Contract created",
+          "summary": "Acceptance criteria, evidence requirements, and stop conditions were defined.",
+          "payload": {}
+        }
+      ]
+    },
     "error": null,
     "lockKey": "project:project_123:issue:24:write",
     "createdAt": "2026-05-20T10:00:00.000Z",
@@ -616,7 +628,7 @@ Response:
 
 - `title` is required for issue and pull request.
 - `sourceBranch` and `targetBranch` are required for pull request.
-- `agentType` must be one of supported agent types.
+- `agentType` must be one of `requirements`, `implementation`, `review`, `fix`, `qa`, `verifier`, or `command_detection`.
 - `targetType` must be `issue` or `pull_request`.
 - `DELETE` cannot be called for already deleted records.
 - comment body must not be empty.

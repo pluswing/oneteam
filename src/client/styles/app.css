@@ -267,6 +267,15 @@ textarea {
   width: 16px;
 }
 
+.inline-field {
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+}
+
+.inline-field input {
+  width: 16px;
+}
+
 .primary-button {
   margin-top: 18px;
   padding: 7px 12px;
@@ -354,6 +363,12 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 24px;
+}
+
+.side-stack {
+  display: grid;
+  align-content: start;
+  gap: 16px;
 }
 
 .header-actions,
@@ -445,6 +460,30 @@ textarea {
 
 .section-header.compact {
   margin-bottom: 12px;
+}
+
+.section-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: #d8dee4;
+}
+
+.definition-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 16px;
+  margin: 16px 0 0;
+}
+
+.definition-list dt {
+  color: #57606a;
+  font-weight: 600;
+}
+
+.definition-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .issue-list,

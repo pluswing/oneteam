@@ -11,6 +11,7 @@ import type {
   AgentJobDto,
   AgentJobStatus,
   AgentType,
+  IssueDto,
   IssueStatus,
   ProjectDto,
   ProjectSettingsDto,
@@ -33,7 +34,9 @@ import {
   getRepositoryStatus,
   mergeBranch
 } from "./services/git-service";
+import { listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
 import { runLabelAutomation } from "./services/label-automation";
+import { startLoopRun } from "./services/loop-runner";
 
 const execFileAsync = promisify(execFile);
 
@@ -90,7 +93,7 @@ const updatePullRequestSchema = createPullRequestSchema
   });
 
 const createAgentJobSchema = z.object({
-  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "command_detection"]),
+  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "verifier", "command_detection"]),
   targetType: z.enum(["issue", "pull_request", "project"]),
   targetId: z.number(),
   triggerType: z.string().default("manual"),
@@ -105,6 +108,58 @@ const updateProjectSettingsSchema = z.object({
   locale: z.string().min(2),
   codexCommand: z.string().min(1),
   model: z.string().optional()
+});
+
+const createLoopSchema = z.object({
+  name: z.string().min(1),
+  purpose: z.string().optional(),
+  triggerType: z.string().default("manual"),
+  cadence: z.string().nullable().optional(),
+  targetScope: z.string().default("project"),
+  status: z.enum(["enabled", "disabled"]).default("enabled"),
+  maxRounds: z.number().int().positive().default(3),
+  timeBudgetMinutes: z.number().int().positive().nullable().optional(),
+  costBudget: z.number().int().positive().nullable().optional(),
+  stopCondition: z.record(z.string(), z.unknown()).nullable().optional(),
+  riskPolicy: z.record(z.string(), z.unknown()).nullable().optional()
+});
+
+const updateLoopSchema = createLoopSchema.partial();
+
+const startLoopRunSchema = z.object({
+  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "verifier", "command_detection"]),
+  targetType: z.enum(["issue", "pull_request", "project"]),
+  targetId: z.number(),
+  triggerType: z.string().default("manual"),
+  input: z.record(z.string(), z.unknown()).optional()
+});
+
+const createLoopMemorySchema = z.object({
+  loopId: z.number().nullable().optional(),
+  loopRunId: z.number().nullable().optional(),
+  sourceType: z.enum(["manual", "loop_run", "agent_job", "triage"]).default("manual"),
+  sourceId: z.number().nullable().optional(),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  tags: z.array(z.string()).optional()
+});
+
+const createTriageItemSchema = z.object({
+  sourceType: z.string().min(1),
+  sourceId: z.number().nullable().optional(),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  priority: z.string().default("normal"),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional()
+});
+
+const updateTriageItemSchema = z.object({
+  status: z.enum(["open", "converted", "ignored"]).optional(),
+  issueId: z.number().nullable().optional()
+});
+
+const updateKnowledgeFileSchema = z.object({
+  body: z.string()
 });
 
 function notFound(message: string): never {
@@ -123,6 +178,26 @@ function pageParams(url: URL): { limit: number; offset: number } {
   const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 100);
   const offset = Math.max(Number(url.searchParams.get("offset") ?? "0"), 0);
   return { limit, offset };
+}
+
+async function enrichWithLatestAgentStop<T extends IssueDto | PullRequestDto>(
+  repos: Repositories,
+  projectId: string,
+  targetType: "issue" | "pull_request",
+  items: T[]
+): Promise<T[]> {
+  return Promise.all(
+    items.map(async (item) => {
+      const jobs = await repos.agentJobs.list({ projectId, targetType, targetId: item.id });
+      const latest = jobs[0];
+      const stopReason = latest?.output && typeof latest.output.stopReason === "string" ? latest.output.stopReason : null;
+      return {
+        ...item,
+        lastAgentStatus: latest?.status ?? null,
+        lastAgentStopReason: stopReason
+      };
+    })
+  );
 }
 
 async function getProjectOr404(repos: Repositories, projectId: string) {
@@ -482,7 +557,7 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
     });
 
     return c.json({
-      items: result.items,
+      items: await enrichWithLatestAgentStop(repos, c.req.param("projectId"), "issue", result.items),
       page: {
         limit,
         offset,
@@ -592,7 +667,8 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
       limit,
       offset
     });
-    const items = await Promise.all(result.items.map((item) => enrichPullRequestWithGitStats(project, item)));
+    const itemsWithStats = await Promise.all(result.items.map((item) => enrichPullRequestWithGitStats(project, item)));
+    const items = await enrichWithLatestAgentStop(repos, project.id, "pull_request", itemsWithStats);
 
     return c.json({
       items,
@@ -834,6 +910,160 @@ export function createApp({ repos, runtime }: AppDependencies): Hono {
       triggerType: "conflict_detected"
     });
     return c.json({ jobId: automationJobs[0]?.id ?? null, label: workflowLabelNames.resolvingConflicts });
+  });
+
+  app.get("/api/projects/:projectId/loops", async (c) => {
+    const items = await repos.loops.list(c.req.param("projectId"));
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/loops", zValidator("json", createLoopSchema), async (c) => {
+    const loop = await repos.loops.create({
+      projectId: c.req.param("projectId"),
+      ...c.req.valid("json")
+    });
+    return c.json({ loop }, 201);
+  });
+
+  app.get("/api/projects/:projectId/loops/:loopId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const loopId = Number(c.req.param("loopId"));
+    const loop = await repos.loops.get(projectId, loopId);
+    if (!loop) {
+      notFound("Loop was not found.");
+    }
+    const runs = await repos.loopRuns.list(projectId, loopId);
+    return c.json({ loop, runs });
+  });
+
+  app.patch("/api/projects/:projectId/loops/:loopId", zValidator("json", updateLoopSchema), async (c) => {
+    const loop = await repos.loops.update(c.req.param("projectId"), Number(c.req.param("loopId")), c.req.valid("json"));
+    if (!loop) {
+      notFound("Loop was not found.");
+    }
+    return c.json({ loop });
+  });
+
+  app.post("/api/projects/:projectId/loops/:loopId/runs", zValidator("json", startLoopRunSchema), async (c) => {
+    const projectId = c.req.param("projectId");
+    const loopId = Number(c.req.param("loopId"));
+    const loop = await repos.loops.get(projectId, loopId);
+    if (!loop) {
+      notFound("Loop was not found.");
+    }
+    if (loop.status === "disabled") {
+      conflict("Disabled loops cannot be started.");
+    }
+
+    const input = c.req.valid("json");
+    const { run, job, step } = await startLoopRun(repos, {
+      projectId,
+      loopId,
+      agentType: input.agentType,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      triggerType: input.triggerType,
+      jobInput: input.input
+    });
+    return c.json({ run, job, step }, 201);
+  });
+
+  app.get("/api/projects/:projectId/loop-runs", async (c) => {
+    const url = new URL(c.req.url);
+    const loopIdParam = url.searchParams.get("loopId");
+    const items = await repos.loopRuns.list(c.req.param("projectId"), loopIdParam ? Number(loopIdParam) : undefined);
+    return c.json({ items });
+  });
+
+  app.get("/api/projects/:projectId/loop-runs/:loopRunId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const loopRunId = Number(c.req.param("loopRunId"));
+    const run = await repos.loopRuns.get(projectId, loopRunId);
+    if (!run) {
+      notFound("Loop run was not found.");
+    }
+    const steps = await repos.loopSteps.list(projectId, loopRunId);
+    return c.json({ run, steps });
+  });
+
+  app.get("/api/projects/:projectId/loop-memory", async (c) => {
+    const items = await repos.loopMemory.list(c.req.param("projectId"));
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/loop-memory", zValidator("json", createLoopMemorySchema), async (c) => {
+    const entry = await repos.loopMemory.create({
+      projectId: c.req.param("projectId"),
+      ...c.req.valid("json")
+    });
+    return c.json({ entry }, 201);
+  });
+
+  app.get("/api/projects/:projectId/triage-items", async (c) => {
+    const url = new URL(c.req.url);
+    const status = url.searchParams.get("status") as "open" | "converted" | "ignored" | null;
+    const items = await repos.triage.list(c.req.param("projectId"), status ?? undefined);
+    return c.json({ items });
+  });
+
+  app.post("/api/projects/:projectId/triage-items", zValidator("json", createTriageItemSchema), async (c) => {
+    const item = await repos.triage.create({
+      projectId: c.req.param("projectId"),
+      ...c.req.valid("json")
+    });
+    return c.json({ item }, 201);
+  });
+
+  app.patch("/api/projects/:projectId/triage-items/:triageItemId", zValidator("json", updateTriageItemSchema), async (c) => {
+    const item = await repos.triage.update(
+      c.req.param("projectId"),
+      Number(c.req.param("triageItemId")),
+      c.req.valid("json")
+    );
+    if (!item) {
+      notFound("Triage item was not found.");
+    }
+    return c.json({ item });
+  });
+
+  app.post("/api/projects/:projectId/triage-items/:triageItemId/convert-to-issue", async (c) => {
+    const projectId = c.req.param("projectId");
+    const triageItemId = Number(c.req.param("triageItemId"));
+    const items = await repos.triage.list(projectId);
+    const triageItem = items.find((item) => item.id === triageItemId);
+    if (!triageItem) {
+      notFound("Triage item was not found.");
+    }
+    const requirementsLabel = await repos.labels.findByName(projectId, workflowLabelNames.requirements);
+    const issue = await repos.issues.create({
+      projectId,
+      title: triageItem.title,
+      body: triageItem.body,
+      labelIds: requirementsLabel ? [requirementsLabel.id] : []
+    });
+    const updatedItem = await repos.triage.update(projectId, triageItemId, { status: "converted", issueId: issue.id });
+    await repos.loopMemory.create({
+      projectId,
+      sourceType: "triage",
+      sourceId: triageItem.id,
+      title: `Triage converted to issue #${issue.id}`,
+      body: triageItem.title,
+      tags: ["triage", "issue"]
+    });
+    return c.json({ issue, triageItem: updatedItem });
+  });
+
+  app.get("/api/projects/:projectId/knowledge", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const items = await listKnowledgeFiles(project.repoPath);
+    return c.json({ items });
+  });
+
+  app.put("/api/projects/:projectId/knowledge/*", zValidator("json", updateKnowledgeFileSchema), async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const path = c.req.path.split("/knowledge/")[1] ?? "";
+    const item = await writeKnowledgeFile(project.repoPath, path, c.req.valid("json").body);
+    return c.json({ item });
   });
 
   app.get("/api/projects/:projectId/agent-jobs", async (c) => {

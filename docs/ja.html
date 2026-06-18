@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>One Team | ローカルIssue駆動AI開発ツール</title>
+    <title>One Team | ローカルLoop Engineering</title>
     <meta
       name="description"
-      content="One Teamは、単独開発者がローカル環境でIssueからPull Request、レビュー、QAまでをAIと進めるためのWebアプリケーションです。"
+      content="One Teamは、単独開発者がローカル環境でIssueを起点にAI開発ループを設計、実行、検証、記録するためのWebアプリケーションです。"
     />
     <style>
       :root {
@@ -467,11 +467,11 @@
     <main id="top">
       <section class="hero" aria-label="One Team">
         <div class="hero-content">
-          <p class="eyebrow">Issue-driven development with AI for solo developers</p>
+          <p class="eyebrow">単独開発者のためのローカルLoop Engineering</p>
           <h1>One Team</h1>
           <p class="hero-copy">
-            ローカルのGitリポジトリを対象に、Issue作成から要件定義、実装、Pull Request、レビュー、QAまでを
-            AIエージェントと一緒に進める開発支援ツールです。
+            Issueを起点に、要件定義、実装、レビュー、QA、証拠記録、停止条件までをローカルで回す、
+            単独開発者向けのAI開発ループ設計ツールです。
           </p>
           <div class="hero-actions" aria-label="主要リンク">
             <a class="button primary" href="#setup">使い始める</a>
@@ -484,18 +484,19 @@
       <section class="section" id="overview">
         <div class="section-inner">
           <div class="section-heading">
-            <h2>ローカルで完結する、GitHubライクなAI開発フロー</h2>
+            <h2>ローカルで完結する、検証可能なAI開発ループ</h2>
             <p>
               One TeamはGitHub連携を前提にせず、手元のリポジトリを1つ登録して使います。Issue、Pull Request、
-              コメント、ラベル、Agent Job、Activity LogをローカルDBに保存し、AIの進行状況を追える形にします。
+              コメント、ラベル、Agent Job、Evidence、Activity LogをローカルDBに保存し、AIが何を行い、
+              なぜ止まったかを追える形にします。
             </p>
           </div>
           <div class="feature-grid">
             <article class="feature-card">
               <span class="tag green">Issue</span>
-              <h3>要望をIssueにまとめる</h3>
+              <h3>IssueをGoalに変える</h3>
               <p>
-                やりたいことや不具合をMarkdownで記録します。ラベルに応じて要件定義や実装のAgent Jobを開始できます。
+                やりたいことや不具合をMarkdownで記録し、受け入れ条件、証拠、停止条件を明確にします。
               </p>
             </article>
             <article class="feature-card">
@@ -507,9 +508,9 @@
             </article>
             <article class="feature-card">
               <span class="tag yellow">Agent Job</span>
-              <h3>AIの作業履歴を残す</h3>
+              <h3>Loopの証拠を残す</h3>
               <p>
-                Codex CLIの実行結果、変更ファイル、検証コマンド、エラー、Human Gateの質問を追跡できます。
+                Codex CLIの実行結果、変更ファイル、検証コマンド、エラー、停止理由、Human Gateの質問を追跡できます。
               </p>
             </article>
           </div>
@@ -521,7 +522,7 @@
           <div class="section-heading">
             <h2>利用方法</h2>
             <p>
-              One Teamの基本操作は、Issueを起点にしてAIへ次の作業を渡し、Pull Requestで確認する流れです。
+              One Teamの基本操作は、Issueを起点にGoal Contractを作り、AI開発ループを証拠付きで回す流れです。
             </p>
           </div>
           <ol class="workflow">
@@ -531,15 +532,15 @@
             </li>
             <li>
               <strong>2. Issueを作成</strong>
-              <span>実装したい内容を書き、requirementsラベルで要件定義Agentを動かします。</span>
+              <span>実装したい内容を書き、requirementsラベルでGoal Contractを作成します。</span>
             </li>
             <li>
-              <strong>3. AIが実装と検証</strong>
-              <span>実装Agentがブランチを作り、変更、テスト、Pull Request作成まで進めます。</span>
+              <strong>3. AIがLoopを実行</strong>
+              <span>実装Agentがブランチを作り、変更、検証、証拠記録まで進めます。</span>
             </li>
             <li>
-              <strong>4. PRを確認してMerge</strong>
-              <span>レビューAgentとQA Agentの結果を見て、最後のMergeはユーザーが実行します。</span>
+              <strong>4. 停止理由を確認してMerge</strong>
+              <span>レビューAgentとQA Agentの証拠を見て、最後のMergeはユーザーが実行します。</span>
             </li>
           </ol>
         </div>
@@ -584,7 +585,7 @@
             <figure>
               <figcaption>
                 <strong>Agent Job詳細</strong><br />
-                AIが何を変え、どの検証を実行し、どこで止まったかをActivity Logとして残します。
+                AIが何を変え、どの検証を実行し、どの証拠を残し、なぜ止まったかをActivity Logとして残します。
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -628,7 +629,7 @@
               <li><strong>依存関係をインストール</strong>して、Codex CLIにログインします。</li>
               <li><strong>npm run dev</strong>でAPIとVite UIを起動します。</li>
               <li><strong>http://127.0.0.1:3579</strong>を開き、Setupからリポジトリを登録します。</li>
-              <li><strong>Issueを作成</strong>し、ラベルやAgent操作でAIに作業を渡します。</li>
+              <li><strong>Issueを作成</strong>し、ラベルやAgent操作でローカルAI開発ループを開始します。</li>
             </ol>
           </div>
 
@@ -645,7 +646,7 @@
     <footer class="site-footer">
       <div class="section-inner">
         <span>One Team</span>
-        <span>Local AI development workflow for solo developers.</span>
+        <span>Local Loop Engineering for solo developers.</span>
         <span>
           <a href="https://github.com/pluswing/oneteam/">pluswing/oneteam</a>
         </span>

@@ -13,6 +13,9 @@
 7. [command auto-detection 仕様](./07-command-auto-detection.md)
 8. [i18n リソース設計](./08-i18n-resource-design.md)
 9. [Local Codex CLI setup](./09-local-codex-setup.md)
+10. [Loop Engineering 適合方針](./LOOP_ENGINEERING_ADAPTATION.md)
+11. [Connector / Plugin Design](./CONNECTORS.md)
+12. [Loop Engineering TODO](./LOOP_ENGINEERING_TODO.md)
 
 ## 前提
 

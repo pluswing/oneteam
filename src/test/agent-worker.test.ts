@@ -104,6 +104,7 @@ describe("agent worker", () => {
     const updatedIssue = await repos.issues.get(project.id, issue.id);
 
     expect(updatedJob?.status).toBe("succeeded");
+    expect((updatedJob?.output as AgentRunResult | null | undefined)?.stopReason).toBe("passed");
     expect(comments[0].body).toContain("Build the setup wizard");
     expect(activities.map((activity) => activity.title)).toContain("Reviewed issue");
     expect(updatedIssue?.labels.map((label) => label.name)).toContain("ready-for-implementation");
@@ -224,6 +225,7 @@ describe("agent worker", () => {
     expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["needs-input"]);
     expect(comments[0].body).toContain("Which users");
     expect(output?.metadata?.humanGate?.previousLabelNames).toContain("requirements");
+    expect((updatedJob?.output as AgentRunResult | null | undefined)?.stopReason).toBe("waiting_human");
     expect(activities.map((activity) => activity.title)).toContain("Waiting for human input");
 
     context.client.close();
@@ -364,15 +366,19 @@ describe("agent worker", () => {
     const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
     const output = updatedJob?.output as AgentRunResult | null | undefined;
     const worktreeStatus = await git(repoPath, ["status", "--porcelain"]);
-    const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", "main...HEAD"]);
+    const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", `main...${pullRequests.items[0].sourceBranch}`]);
 
     expect(updatedJob?.status).toBe("succeeded");
+    expect(output?.stopReason).toBe("passed");
     expect(output?.changedFiles).toContain("feature.txt");
+    expect(output?.evidence?.map((item) => item.title)).toEqual(
+      expect.arrayContaining(["Changed files captured", "lint command passed", "test command passed"])
+    );
     expect(output?.testResults?.map((result) => result.command)).toEqual(
       expect.arrayContaining([expect.stringContaining("lint ok"), expect.stringContaining("test ok")])
     );
     expect(activities.map((activity) => activity.title)).toEqual(
-      expect.arrayContaining(["Changed files captured", "lint command passed", "test command passed"])
+      expect.arrayContaining(["Worktree ready", "Changed files captured", "lint command passed", "test command passed"])
     );
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
@@ -443,6 +449,8 @@ describe("agent worker", () => {
     const output = updatedJob?.output as AgentRunResult | null | undefined;
 
     expect(updatedJob?.status).toBe("failed");
+    expect(output?.stopReason).toBe("failed");
+    expect(output?.evidence?.map((item) => item.title)).toContain("test command failed");
     expect(output?.testResults?.[0].status).toBe("failed");
     expect(output?.testResults?.[0].exitCode).toBe(7);
     expect(activities.map((activity) => activity.title)).toContain("test command failed");
@@ -547,13 +555,14 @@ describe("agent worker", () => {
 
   it("routes fix completion and QA outcomes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-fix-qa-flow-"));
+    const repoPath = await createGitRepo("oneteam-worker-fix-qa-repo-");
     const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
     await runMigrations(context.client);
 
     const repos = createRepositories(context.db);
     const project = await repos.projects.create({
       name: "Example",
-      repoPath: dir,
+      repoPath,
       defaultBranch: "main",
       locale: "en"
     });
@@ -722,7 +731,7 @@ describe("agent worker", () => {
     context.client.close();
   });
 
-  it("pauses implementation jobs before Codex when the working tree is dirty", async () => {
+  it("runs implementation jobs in a worktree when the main working tree is dirty", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-dirty-db-"));
     const repoPath = await createGitRepo("oneteam-worker-dirty-repo-");
     const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
@@ -752,11 +761,21 @@ describe("agent worker", () => {
     let adapterCalled = false;
 
     const fakeAdapter: AgentAdapter = {
-      async run() {
+      async run(input) {
         adapterCalled = true;
+        await writeFile(join(input.repoPath, "feature.txt"), "implemented\n");
+        const sourceBranch = await git(input.repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
         return {
           status: "succeeded",
-          message: "Should not run."
+          message: "Implemented in an isolated worktree.",
+          metadata: {
+            pullRequest: {
+              title: "Add setup",
+              sourceBranch,
+              targetBranch: "main",
+              issueId: issue.id
+            }
+          }
         };
       }
     };
@@ -766,16 +785,21 @@ describe("agent worker", () => {
 
     const updatedJob = await repos.agentJobs.get(project.id, job.id);
     const updatedIssue = await repos.issues.get(project.id, issue.id);
-    const comments = await repos.comments.list(project.id, "issue", issue.id);
     const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
     const currentBranch = await git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const mainStatus = await git(repoPath, ["status", "--porcelain"]);
+    const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", `main...${pullRequests.items[0].sourceBranch}`]);
 
-    expect(adapterCalled).toBe(false);
-    expect(updatedJob?.status).toBe("waiting_human");
-    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["needs-input"]);
-    expect(comments[0].body).toContain("commit, stash, or discard");
-    expect(activities.map((activity) => activity.title)).toContain("Implementation branch blocked");
+    expect(adapterCalled).toBe(true);
+    expect(updatedJob?.status).toBe("succeeded");
+    expect((updatedJob?.output as AgentRunResult | null | undefined)?.stopReason).toBe("passed");
+    expect(updatedIssue?.labels.map((label) => label.name)).toEqual(["ready-for-implementation"]);
+    expect(activities.map((activity) => activity.title)).toContain("Worktree ready");
+    expect(pullRequests.total).toBe(1);
+    expect(sourceDiffFiles).toContain("feature.txt");
     expect(currentBranch).toBe("main");
+    expect(mainStatus).toContain("README.md");
 
     context.client.close();
   });
