@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import type { AiProvider } from "../../shared/ai-providers";
+import { normalizeAiSettings } from "../../shared/ai-providers";
 import type {
   ActivityDto,
   AgentJobDto,
@@ -136,6 +138,7 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
   return {
     id: row.id,
     projectId: row.projectId,
+    aiProvider: row.aiProvider,
     agentType: row.agentType,
     targetType: row.targetType,
     targetId: row.targetId,
@@ -394,6 +397,11 @@ function mapPullRequest(
 }
 
 export function createRepositories(db: Database) {
+  async function activeAiProvider(): Promise<AiProvider> {
+    const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ai")).limit(1);
+    return normalizeAiSettings(rows[0] ? parseJsonObject(rows[0].valueJson) : null).provider;
+  }
+
   return {
     projects: {
       async list(): Promise<ProjectDto[]> {
@@ -990,6 +998,7 @@ export function createRepositories(db: Database) {
 
       async create(input: {
         projectId: string;
+        aiProvider?: AiProvider;
         agentType: AgentType;
         targetType: "issue" | "pull_request" | "project";
         targetId: number;
@@ -999,10 +1008,12 @@ export function createRepositories(db: Database) {
         lockKey?: string | null;
       }): Promise<AgentJobDto> {
         const timestamp = now();
+        const aiProvider = input.aiProvider ?? (await activeAiProvider());
         const rows = await db
           .insert(agentJobs)
           .values({
             projectId: input.projectId,
+            aiProvider,
             agentType: input.agentType,
             targetType: input.targetType,
             targetId: input.targetId,
@@ -1049,6 +1060,7 @@ export function createRepositories(db: Database) {
           .insert(agentJobs)
           .values({
             projectId,
+            aiProvider: job.aiProvider,
             agentType: job.agentType,
             targetType: job.targetType,
             targetId: job.targetId,

@@ -175,7 +175,7 @@ async function recommendationFor(repoPath: string, commandType: CommandType): Pr
     return "Add a dev script that starts the local development server.";
   }
 
-  return `Add a working ${commandType} command for one team automation.`;
+  return `Add a working ${commandType} command for OneTeam automation.`;
 }
 
 export async function detectRepositoryCommands(repoPath: string): Promise<CommandDetectionResult> {
@@ -253,7 +253,7 @@ export function buildMissingCommandIssue(input: {
     body: [
       "## Background",
       "",
-      `one team detected that this repository does not have a \`${input.commandType}\` command.`,
+      `OneTeam detected that this repository does not have a \`${input.commandType}\` command.`,
       "",
       "## Detection Result",
       "",
@@ -263,7 +263,7 @@ export function buildMissingCommandIssue(input: {
       "",
       "## Requirement",
       "",
-      `Add a working \`${input.commandType}\` command so one team can run automated development, review, and QA workflows.`,
+      `Add a working \`${input.commandType}\` command so OneTeam can run automated development, review, and QA workflows.`,
       "",
       "## Suggested Implementation",
       "",
@@ -273,7 +273,7 @@ export function buildMissingCommandIssue(input: {
       "",
       `- \`${input.commandType}\` command is defined in project commands.`,
       "- The command can be executed from the repository root.",
-      "- The command result is visible in one team Activity Log."
+      "- The command result is visible in OneTeam Activity Log."
     ].join("\n")
   };
 }

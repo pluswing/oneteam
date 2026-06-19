@@ -5,6 +5,13 @@ import { delimiter, dirname, join } from "node:path";
 import { loadConfig } from "../server/config";
 import { startOneTeamServer, type StartedOneTeamServer } from "../server/runtime";
 
+const appName = "OneTeam";
+
+app.setName(appName);
+app.setAboutPanelOptions({
+  applicationName: appName
+});
+
 let mainWindow: BrowserWindow | null = null;
 let server: StartedOneTeamServer | null = null;
 
@@ -31,7 +38,7 @@ async function createWindow(): Promise<void> {
   server = await startOneTeamServer(config, {
     staticRoot: join(distRoot(), "client"),
     codexLogin: {
-      launcher: launchCodexLogin
+      launcher: launchLoginCommand
     }
   });
   debugLog(`server:started:${server.url}`);
@@ -41,7 +48,7 @@ async function createWindow(): Promise<void> {
     height: 860,
     minWidth: 960,
     minHeight: 640,
-    title: "OneTeam",
+    title: appName,
     backgroundColor: "#f6f8fa",
     webPreferences: {
       contextIsolation: true,
@@ -92,9 +99,9 @@ app.on("before-quit", () => {
 
 function showStartupError(error: unknown): void {
   debugLog(`startup:error:${formatError(error)}`);
-  const message = error instanceof Error ? error.message : "Failed to start OneTeam.";
+  const message = error instanceof Error ? error.message : `Failed to start ${appName}.`;
   console.error(error);
-  dialog.showErrorBox("OneTeam startup failed", message);
+  dialog.showErrorBox(`${appName} startup failed`, message);
   app.quit();
 }
 
@@ -185,17 +192,17 @@ function codexTarget(): { packageName: string; triple: string } | null {
   return null;
 }
 
-async function launchCodexLogin(input: { command: string; args: string[] }): Promise<void> {
+async function launchLoginCommand(input: { command: string; args: string[] }): Promise<void> {
   if (process.platform === "darwin") {
     const script = [
       [input.command, ...input.args].map(shellQuote).join(" "),
-      "printf '\\nCodex login finished. You can close this window.\\n'"
+      "printf '\\nLogin command finished. You can close this window.\\n'"
     ].join("; ");
     const child = spawn("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(script)}`], {
       detached: true,
       stdio: "ignore"
     });
-    child.on("error", (error) => debugLog(`codex:login-launch-error:${formatError(error)}`));
+    child.on("error", (error) => debugLog(`login-launch-error:${formatError(error)}`));
     child.unref();
     return;
   }
@@ -204,7 +211,7 @@ async function launchCodexLogin(input: { command: string; args: string[] }): Pro
     detached: true,
     stdio: "ignore"
   });
-  child.on("error", (error) => debugLog(`codex:login-launch-error:${formatError(error)}`));
+  child.on("error", (error) => debugLog(`login-launch-error:${formatError(error)}`));
   child.unref();
 }
 

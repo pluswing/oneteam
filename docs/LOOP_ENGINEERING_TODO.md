@@ -17,6 +17,7 @@
 
 - [x] `loops` / `loop_runs` / `loop_steps` / `loop_memory_entries` のDB設計を追加する
 - [x] `Loops` ページを追加する
+- [x] Loop 設定は内部自動化に戻し、ユーザー向けの `Loops` タブを非表示にする
 - [x] Loop Run detail を追加する
 - [x] Label Automation を Loop Trigger として扱えるようにする
 - [x] `Triage Inbox` を追加する

@@ -1,4 +1,4 @@
-export type View = "issues" | "pullRequests" | "loops" | "agentJobs" | "repository" | "settings";
+export type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
 
 export type AppRoute =
   | { name: "issues" }
@@ -6,9 +6,6 @@ export type AppRoute =
   | { name: "pullRequests" }
   | { name: "pullRequest"; pullRequestId: number }
   | { name: "pullRequestConflicts"; pullRequestId: number }
-  | { name: "loops" }
-  | { name: "loop"; loopId: number }
-  | { name: "loopRun"; loopRunId: number }
   | { name: "agentJobs" }
   | { name: "agentJob"; jobId: number }
   | { name: "repository" }
@@ -32,15 +29,6 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
     return third === "conflicts"
       ? { name: "pullRequestConflicts", pullRequestId: id }
       : { name: "pullRequest", pullRequestId: id };
-  }
-  if (first === "loops" && id === null) {
-    return { name: "loops" };
-  }
-  if (first === "loops" && id !== null) {
-    return { name: "loop", loopId: id };
-  }
-  if (first === "loop-runs" && id !== null) {
-    return { name: "loopRun", loopRunId: id };
   }
   if (first === "jobs" && id === null) {
     return { name: "agentJobs" };
@@ -70,12 +58,6 @@ export function routeToPath(route: AppRoute): string {
       return `/pulls/${route.pullRequestId}`;
     case "pullRequestConflicts":
       return `/pulls/${route.pullRequestId}/conflicts`;
-    case "loops":
-      return "/loops";
-    case "loop":
-      return `/loops/${route.loopId}`;
-    case "loopRun":
-      return `/loop-runs/${route.loopRunId}`;
     case "agentJobs":
       return "/jobs";
     case "agentJob":
@@ -97,9 +79,6 @@ export function viewForRoute(route: AppRoute): View {
   if (route.name === "agentJob") {
     return "agentJobs";
   }
-  if (route.name === "loop" || route.name === "loopRun") {
-    return "loops";
-  }
   return route.name;
 }
 
@@ -109,9 +88,6 @@ export function listRouteForView(view: View): AppRoute {
   }
   if (view === "agentJobs") {
     return { name: "agentJobs" };
-  }
-  if (view === "loops") {
-    return { name: "loops" };
   }
   return { name: view };
 }

@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, CircleAlert, FolderOpen, GitPullRequest, ListTodo, RefreshCw, RotateCcw, Settings, Terminal } from "lucide-react";
+import { Bot, CheckCircle2, CircleAlert, FolderOpen, GitPullRequest, ListTodo, RotateCcw, Settings, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentHeaderState } from "../agent-status";
 import logoMarkUrl from "../assets/logo.svg";
@@ -17,7 +17,6 @@ export function AppShell(props: {
   const nav = [
     { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
     { view: "pullRequests" as const, label: t("nav.pullRequests"), icon: GitPullRequest },
-    { view: "loops" as const, label: t("nav.loops"), icon: RefreshCw },
     { view: "agentJobs" as const, label: t("nav.agentJobs"), icon: Bot }
   ];
   const settingsNav = [
@@ -45,8 +44,11 @@ export function AppShell(props: {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="header-logo" aria-hidden="true">
-          <img src={logoMarkUrl} alt="" />
+        <div className="header-brand" aria-label={t("app.name")}>
+          <div className="header-logo" aria-hidden="true">
+            <img src={logoMarkUrl} alt="" />
+          </div>
+          <span>{t("app.name")}</span>
         </div>
         <nav className="nav-tabs" aria-label="Primary">
           {nav.map((item) => {

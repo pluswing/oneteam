@@ -18,9 +18,13 @@ describe("database migrations", () => {
 
     const repos = createRepositories(context.db);
     await repos.settings.set("ai", {
-      provider: "codex-cli",
-      codexCommand: defaultCodexCommand,
-      fullAccess: true
+      provider: "codex",
+      codex: {
+        command: defaultCodexCommand,
+        model: null,
+        fullAccess: true,
+        autoLogin: true
+      }
     });
     const aiSettings = await repos.settings.get("ai");
     const project = await repos.projects.create({
@@ -54,12 +58,14 @@ describe("database migrations", () => {
       title: "Review queued"
     });
 
-    expect(aiSettings?.codexCommand).toBe(defaultCodexCommand);
+    expect((aiSettings?.codex as { command?: string } | undefined)?.command).toBe(defaultCodexCommand);
     expect(project.id).toMatch(/^project_/);
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.requirements);
+    expect(labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.done);
     expect(pullRequest.labels.map((label) => label.name)).toContain(workflowLabelNames.reviewing);
     expect(job.status).toBe("queued");
+    expect(job.aiProvider).toBe("codex");
     expect(activity.title).toBe("Review queued");
 
     context.client.close();

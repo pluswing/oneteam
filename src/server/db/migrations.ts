@@ -333,6 +333,24 @@ const migrations: Migration[] = [
       "create index if not exists idx_loop_memory_project_created on loop_memory_entries(project_id, created_at desc)",
       "create index if not exists idx_triage_items_project_status on triage_items(project_id, status, created_at desc)"
     ]
+  },
+  {
+    id: "0005_agent_job_ai_provider",
+    statements: ["alter table agent_jobs add column ai_provider text not null default 'codex'"]
+  },
+  {
+    id: "0006_ready_to_merge_label",
+    statements: [
+      `insert or ignore into labels (project_id, name, color, kind, description, created_at, updated_at)
+        select id,
+               'ready-to-merge',
+               '#1a7f37',
+               'system',
+               'Pull request is verified and ready to merge.',
+               ${migrationTimestamp},
+               ${migrationTimestamp}
+        from projects`
+    ]
   }
 ];
 

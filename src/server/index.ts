@@ -11,4 +11,4 @@ function shutdown() {
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
-console.log(`one team API listening on ${server.url}`);
+console.log(`OneTeam API listening on ${server.url}`);

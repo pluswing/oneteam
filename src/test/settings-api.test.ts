@@ -64,9 +64,25 @@ describe("settings API", () => {
     const repos = createRepositories(context.db);
     const app = createApp({
       ai: {
-        codexCommand: "managed-codex",
-        model: "gpt-managed",
-        fullAccess: true
+        provider: "codex",
+        codex: {
+          command: "managed-codex",
+          model: "gpt-managed",
+          fullAccess: true,
+          autoLogin: true
+        },
+        claudeCode: {
+          command: "claude",
+          model: null,
+          permissionMode: "bypassPermissions",
+          maxTurns: null
+        },
+        lmStudio: {
+          baseUrl: "http://127.0.0.1:1234/v1",
+          model: null,
+          maxToolRounds: 8,
+          temperature: null
+        }
       },
       repos,
       runtime: {
@@ -102,10 +118,82 @@ describe("settings API", () => {
 
     expect(updateResponse.status).toBe(200);
     expect(updated.project.locale).toBe("ja");
-    expect(settings.ai.codexCommand).toBe("managed-codex");
-    expect(settings.ai.model).toBe("gpt-managed");
+    expect(settings.ai.codex.command).toBe("managed-codex");
+    expect(settings.ai.codex.model).toBe("gpt-managed");
     expect(settings.runtime.database.url).toContain("test.db");
     expect(codexUpdateResponse.status).toBe(400);
+
+    context.client.close();
+  });
+
+  it("stores the selected AI provider and stamps new agent jobs with it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-provider-settings-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const app = createApp({
+      repos,
+      runtime: {
+        server: { host: "127.0.0.1", port: 3580 },
+        database: { url: `file:${join(dir, "test.db")}` }
+      }
+    });
+
+    const createResponse = await app.request("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "import",
+        name: "Provider test",
+        repoPath: dir,
+        defaultBranch: "main",
+        locale: "en",
+        aiProvider: "claude_code"
+      })
+    });
+    const created = (await createResponse.json()) as { project: { id: string } };
+    const initialSettings = (await (await app.request(`/api/projects/${created.project.id}/settings`)).json()) as ProjectSettingsDto;
+
+    const updateResponse = await app.request(`/api/projects/${created.project.id}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locale: "en",
+        ai: {
+          provider: "lm_studio",
+          lmStudio: {
+            baseUrl: "http://127.0.0.1:1234/v1",
+            model: "qwen-coder",
+            maxToolRounds: 12,
+            temperature: 0.2
+          }
+        }
+      })
+    });
+    const settings = (await updateResponse.json()) as ProjectSettingsDto;
+    const issue = await repos.issues.create({
+      projectId: created.project.id,
+      title: "Use provider",
+      body: "Run with selected provider."
+    });
+    const jobResponse = await app.request(`/api/projects/${created.project.id}/agent-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentType: "requirements",
+        targetType: "issue",
+        targetId: issue.id
+      })
+    });
+    const jobPayload = (await jobResponse.json()) as { job: { aiProvider: string } };
+
+    expect(createResponse.status).toBe(201);
+    expect(initialSettings.ai.provider).toBe("claude_code");
+    expect(updateResponse.status).toBe(200);
+    expect(settings.ai.provider).toBe("lm_studio");
+    expect(settings.ai.lmStudio.model).toBe("qwen-coder");
+    expect(settings.ai.lmStudio.maxToolRounds).toBe(12);
+    expect(jobPayload.job.aiProvider).toBe("lm_studio");
 
     context.client.close();
   });

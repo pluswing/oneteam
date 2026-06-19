@@ -248,6 +248,7 @@ process.exit(1);
 const fakeJob: AgentJobDto = {
   id: 1,
   projectId: "project-1",
+  aiProvider: "codex",
   agentType: "implementation",
   targetType: "issue",
   targetId: 1,

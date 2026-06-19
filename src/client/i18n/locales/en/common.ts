@@ -1,6 +1,6 @@
 export const en = {
   app: {
-    name: "one team"
+    name: "OneTeam"
   },
   nav: {
     issues: "Issues",
@@ -31,6 +31,8 @@ export const en = {
     name: "Name",
     path: "Path",
     defaultBranch: "Default branch",
+    aiTool: "AI tool",
+    provider: "Provider",
     codex: "Codex CLI",
     command: "Command",
     model: "Model",
@@ -132,6 +134,15 @@ export const en = {
     server: "Server",
     database: "Database",
     locale: "Locale",
+    provider: "AI provider",
+    claudeCode: "Claude Code",
+    lmStudio: "LM Studio",
+    command: "Command",
+    permissionMode: "Permission mode",
+    maxTurns: "Max turns",
+    baseUrl: "Base URL",
+    maxToolRounds: "Max tool rounds",
+    temperature: "Temperature",
     codexCommand: "Codex command",
     model: "Model",
     fullAccess: "Full access",
@@ -156,6 +167,7 @@ export const en = {
     test: "Test",
     target: "Target",
     trigger: "Trigger",
+    provider: "Provider",
     created: "Created",
     started: "Started",
     finished: "Finished",

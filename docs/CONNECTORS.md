@@ -1,6 +1,6 @@
 # Connector / Plugin Design
 
-One Team keeps Loop Engineering local-first. Connectors are optional plugins that translate external events into local Loop inputs and publish local Loop outcomes back to external tools.
+OneTeam keeps Loop Engineering local-first. Connectors are optional plugins that translate external events into local Loop inputs and publish local Loop outcomes back to external tools.
 
 ## Common Contract
 

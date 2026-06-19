@@ -478,9 +478,10 @@ Response:
 
 ```json
 {
-  "job": {
-    "id": 55,
-    "agentType": "requirements",
+	  "job": {
+	    "id": 55,
+	    "aiProvider": "codex",
+	    "agentType": "requirements",
     "targetType": "issue",
     "targetId": 24,
     "status": "queued",
@@ -505,9 +506,10 @@ Response:
 ```json
 {
   "items": [
-    {
-      "id": 55,
-      "agentType": "requirements",
+	    {
+	      "id": 55,
+	      "aiProvider": "codex",
+	      "agentType": "requirements",
       "targetType": "issue",
       "targetId": 24,
       "status": "running",
@@ -525,9 +527,10 @@ Response:
 
 ```json
 {
-  "job": {
-    "id": 55,
-    "agentType": "requirements",
+	  "job": {
+	    "id": 55,
+	    "aiProvider": "codex",
+	    "agentType": "requirements",
     "status": "running",
     "input": {},
     "output": {
@@ -554,8 +557,9 @@ Response:
 
 ### 8.4 POST /api/projects/:projectId/agent-jobs/:jobId/cancel
 
-`queued` / `running` / `waiting_human` jobs can be canceled. For running Codex
-jobs, the worker observes the canceled state and terminates the process.
+`queued` / `running` / `waiting_human` jobs can be canceled. For running provider
+jobs, the worker observes the canceled state and terminates the CLI process or
+stops the local API tool loop.
 
 Response:
 

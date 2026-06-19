@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import type { AiSettingsDto, ClaudeCodePermissionMode } from "../shared/ai-providers";
+import { defaultAiSettings, defaultClaudeCodeCommand, defaultLmStudioBaseUrl, isAiProvider } from "../shared/ai-providers";
 import { defaultCodexCommand, normalizeCodexCommand } from "../shared/codex";
 import type { KnownRepositoryDto } from "../shared/types";
 
@@ -13,10 +15,8 @@ export type AppConfig = {
   };
   agents: {
     workerEnabled: boolean;
-    codexAutoLogin: boolean;
     pollIntervalMs: number;
-    codexCommand: string;
-    codexModel?: string;
+    ai: AiSettingsDto;
   };
 };
 
@@ -31,12 +31,52 @@ export function loadConfig(): AppConfig {
     },
     agents: {
       workerEnabled: process.env.ONETEAM_AGENT_WORKER !== "false",
-      codexAutoLogin: process.env.ONETEAM_CODEX_AUTO_LOGIN !== "false",
       pollIntervalMs: Number(process.env.ONETEAM_AGENT_POLL_INTERVAL_MS ?? "3000"),
-      codexCommand: normalizeCodexCommand(process.env.ONETEAM_CODEX_COMMAND ?? defaultCodexCommand),
-      codexModel: process.env.ONETEAM_CODEX_MODEL || undefined
+      ai: defaultAiSettings({
+        provider: isAiProvider(process.env.ONETEAM_AI_PROVIDER) ? process.env.ONETEAM_AI_PROVIDER : "codex",
+        codex: {
+          command: normalizeCodexCommand(process.env.ONETEAM_CODEX_COMMAND ?? defaultCodexCommand),
+          model: process.env.ONETEAM_CODEX_MODEL || null,
+          fullAccess: true,
+          autoLogin: process.env.ONETEAM_CODEX_AUTO_LOGIN !== "false"
+        },
+        claudeCode: {
+          command: process.env.ONETEAM_CLAUDE_CODE_COMMAND || defaultClaudeCodeCommand,
+          model: process.env.ONETEAM_CLAUDE_CODE_MODEL || null,
+          permissionMode: claudePermissionMode(process.env.ONETEAM_CLAUDE_CODE_PERMISSION_MODE),
+          maxTurns: positiveInteger(process.env.ONETEAM_CLAUDE_CODE_MAX_TURNS)
+        },
+        lmStudio: {
+          baseUrl: process.env.ONETEAM_LM_STUDIO_BASE_URL || defaultLmStudioBaseUrl,
+          model: process.env.ONETEAM_LM_STUDIO_MODEL || null,
+          maxToolRounds: positiveInteger(process.env.ONETEAM_LM_STUDIO_MAX_TOOL_ROUNDS) ?? 8,
+          temperature: finiteNumber(process.env.ONETEAM_LM_STUDIO_TEMPERATURE)
+        }
+      })
     }
   };
+}
+
+function claudePermissionMode(value: string | undefined): ClaudeCodePermissionMode {
+  return value === "default" || value === "auto" || value === "dontAsk" || value === "bypassPermissions"
+    ? value
+    : "bypassPermissions";
+}
+
+function positiveInteger(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function finiteNumber(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function applicationRoot(): string {

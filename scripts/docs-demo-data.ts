@@ -93,9 +93,9 @@ async function createDemoRepository() {
   );
   writeRepoFile(
     "README.md",
-    `# One Team Demo Product
+    `# OneTeam Demo Product
 
-This small repository exists only for the One Team GitHub Pages screenshots.
+This small repository exists only for the OneTeam GitHub Pages screenshots.
 `
   );
   writeRepoFile(
@@ -130,7 +130,7 @@ test("formats issue summaries", () => {
   );
 
   git(["init", "-b", "main"]);
-  git(["config", "user.name", "One Team Demo"]);
+  git(["config", "user.name", "OneTeam Demo"]);
   git(["config", "user.email", "demo@example.com"]);
   commit("Initial demo project", "2026-05-25T00:00:00.000Z");
 
@@ -156,7 +156,7 @@ export function issueSummary(issue: IssueSummary): string {
 export function emptyIssueState(): EmptyIssueState {
   return {
     title: "Create your first issue",
-    description: "Write the work you want done, and One Team can carry it from requirements to a local pull request.",
+    description: "Write the work you want done, and OneTeam can carry it from requirements to a local pull request.",
     primaryAction: "New issue"
   };
 }
@@ -171,7 +171,7 @@ import { emptyIssueState } from "../src/issues";
 
 test("guides users to create their first issue", () => {
   expect(emptyIssueState().primaryAction).toBe("New issue");
-  expect(emptyIssueState().description).toContain("One Team");
+  expect(emptyIssueState().description).toContain("OneTeam");
 });
 `
   );
@@ -198,7 +198,7 @@ async function createDemoDatabase() {
   const repos = createRepositories(database.db);
 
   const project = await repos.projects.create({
-    name: "One Team Demo",
+    name: "OneTeam Demo",
     repoPath,
     defaultBranch: "main",
     locale: "en"
@@ -341,7 +341,7 @@ Review checklist:
     targetType: "issue",
     targetId: issueSetup.id,
     authorType: "user",
-    body: "After importing a small Node.js app, I want One Team to find missing project commands automatically."
+    body: "After importing a small Node.js app, I want OneTeam to find missing project commands automatically."
   });
   await updateRow(database.client, "comments", "id", initialComment.id, {
     created_at: timestamps.commentStart,

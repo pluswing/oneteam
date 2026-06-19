@@ -1,5 +1,6 @@
 import type { AgentJobDto, CommentDto, IssueDto, ProjectDto, PullRequestDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
+import { readKnowledgeFiles } from "../services/knowledge-files";
 import { buildAgentPrompt } from "./prompts";
 
 export async function buildPromptForJob(repos: Repositories, job: AgentJobDto): Promise<{
@@ -11,7 +12,7 @@ export async function buildPromptForJob(repos: Repositories, job: AgentJobDto): 
     throw new Error(`Project was not found: ${job.projectId}`);
   }
 
-  const commands = await repos.commands.list(project.id);
+  const [commands, knowledge] = await Promise.all([repos.commands.list(project.id), readKnowledgeFiles(project.repoPath)]);
   let target: IssueDto | PullRequestDto | ProjectDto = project;
   let comments: CommentDto[] = [];
 
@@ -39,7 +40,8 @@ export async function buildPromptForJob(repos: Repositories, job: AgentJobDto): 
       project,
       target,
       comments,
-      commands
+      commands,
+      knowledge
     })
   };
 }

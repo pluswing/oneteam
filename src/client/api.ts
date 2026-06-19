@@ -1,3 +1,4 @@
+import type { AiProvider } from "../shared/ai-providers";
 import type {
   AgentJobDto,
   ActivityDto,
@@ -113,6 +114,7 @@ export const api = {
     repoPath: string;
     defaultBranch: string;
     locale: string;
+    aiProvider: AiProvider;
   }): Promise<ProjectDto> {
     const response = await request<{ project: ProjectDto }>("/api/projects", {
       method: "POST",
@@ -203,6 +205,11 @@ export const api = {
     projectId: string,
     input: {
       locale: string;
+      ai?: {
+        provider?: ProjectSettingsDto["ai"]["provider"];
+        claudeCode?: Partial<ProjectSettingsDto["ai"]["claudeCode"]>;
+        lmStudio?: Partial<ProjectSettingsDto["ai"]["lmStudio"]>;
+      };
     }
   ): Promise<ProjectSettingsDto> {
     return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`, {

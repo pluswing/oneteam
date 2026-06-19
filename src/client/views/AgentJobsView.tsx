@@ -1,5 +1,6 @@
 import { RotateCcw, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { aiProviderLabel } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
 import { api } from "../api";
 import { agentJobMessage } from "../agent-job-message";
@@ -65,7 +66,12 @@ const noisyAgentActivityTitles = new Set([
   "Codex turn failed",
   "Codex command started",
   "Codex command completed",
-  "Codex thinking summary"
+  "Codex thinking summary",
+  "AI provider selected",
+  "Started Claude Code",
+  "Claude Code session started",
+  "Claude Code completed",
+  "Started LM Studio"
 ]);
 
 function isRelevantAgentActivity(job: AgentJobDto, activity: ActivityDto): boolean {
@@ -334,6 +340,10 @@ function AgentJobDetailScreen(props: {
                 <div>
                   <dt>{t("agents.trigger")}</dt>
                   <dd>{job.triggerType}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.provider")}</dt>
+                  <dd>{aiProviderLabel(job.aiProvider)}</dd>
                 </div>
                 <div>
                   <dt>{t("agents.attempt")}</dt>

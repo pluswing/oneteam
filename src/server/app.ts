@@ -6,6 +6,8 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import type { AiSettingsDto } from "../shared/ai-providers";
+import { aiProviders, normalizeAiSettings } from "../shared/ai-providers";
 import type {
   AgentJobDto,
   AgentJobStatus,
@@ -18,8 +20,7 @@ import type {
   PullRequestDto,
   PullRequestStatus
 } from "../shared/types";
-import { defaultCodexCommand } from "../shared/codex";
-import { workflowLabelNames } from "../shared/workflow-labels";
+import { issueWorkflowLabelNames, workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
 import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
@@ -54,7 +55,8 @@ const createProjectSchema = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1),
   defaultBranch: z.string().min(1).default("main"),
-  locale: z.string().min(2).default("en")
+  locale: z.string().min(2).default("en"),
+  aiProvider: z.enum(aiProviders).default("codex")
 });
 
 const switchRepositorySchema = z.object({
@@ -106,9 +108,35 @@ const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
 });
 
-const updateProjectSettingsSchema = z.object({
-  locale: z.string().min(2)
-}).strict();
+const updateProjectSettingsSchema = z
+  .object({
+    locale: z.string().min(2),
+    ai: z
+      .object({
+        provider: z.enum(aiProviders).optional(),
+        claudeCode: z
+          .object({
+            command: z.string().min(1).optional(),
+            model: z.string().nullable().optional(),
+            permissionMode: z.enum(["default", "auto", "dontAsk", "bypassPermissions"]).optional(),
+            maxTurns: z.number().int().positive().nullable().optional()
+          })
+          .strict()
+          .optional(),
+        lmStudio: z
+          .object({
+            baseUrl: z.string().url().optional(),
+            model: z.string().nullable().optional(),
+            maxToolRounds: z.number().int().positive().optional(),
+            temperature: z.number().nullable().optional()
+          })
+          .strict()
+          .optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
 
 const createLoopSchema = z.object({
   name: z.string().min(1),
@@ -237,22 +265,50 @@ function runtimeDefaults(project: ProjectDto, runtime?: ProjectSettingsDto["runt
   };
 }
 
+function aiDefaults(ai?: AiSettingsDto): AiSettingsDto {
+  return normalizeAiSettings(ai);
+}
+
 async function readProjectSettings(
+  repos: Repositories,
   project: ProjectDto,
   runtime?: ProjectSettingsDto["runtime"],
   ai?: ProjectSettingsDto["ai"]
 ): Promise<ProjectSettingsDto> {
+  const storedAi = await repos.settings.get("ai");
   return {
     project: {
       locale: project.locale
     },
-    ai: ai ?? {
-      codexCommand: defaultCodexCommand,
-      model: null,
-      fullAccess: true
-    },
+    ai: normalizeAiSettings(storedAi, aiDefaults(ai)),
     runtime: runtimeDefaults(project, runtime)
   };
+}
+
+function patchAiSettings(current: AiSettingsDto, patch: z.infer<typeof updateProjectSettingsSchema>["ai"]): AiSettingsDto {
+  if (!patch) {
+    return current;
+  }
+
+  return normalizeAiSettings(
+    {
+      provider: patch.provider ?? current.provider,
+      codex: current.codex,
+      claudeCode: {
+        ...current.claudeCode,
+        ...(patch.claudeCode ?? {})
+      },
+      lmStudio: {
+        ...current.lmStudio,
+        ...(patch.lmStudio ?? {})
+      }
+    },
+    current
+  );
+}
+
+async function saveAiSettings(repos: Repositories, settings: AiSettingsDto): Promise<void> {
+  await repos.settings.set("ai", settings as unknown as Record<string, unknown>);
 }
 
 async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
@@ -329,6 +385,7 @@ const humanGateFallbackLabels: Partial<Record<AgentType, string>> = {
   fix: workflowLabelNames.fixing,
   qa: workflowLabelNames.testing
 };
+const issueWorkflowLabelNameSet = new Set<string>(issueWorkflowLabelNames);
 
 function readPreviousLabelIds(job: { output: Record<string, unknown> | null }): number[] | null {
   const metadata = job.output?.metadata;
@@ -435,7 +492,7 @@ export function createApp({
   app.get("/api/health", (c) =>
     c.json({
       status: "ok",
-      name: "one team"
+      name: "OneTeam"
     })
   );
 
@@ -465,6 +522,7 @@ export function createApp({
     const input = c.req.valid("json");
     await ensureRepository(input);
     await switchDatabaseForRepository?.(input.repoPath, input.name);
+    await saveAiSettings(repos, normalizeAiSettings({ provider: input.aiProvider }, aiDefaults(ai)));
     const project = await repos.projects.create(input);
     await ensureKnowledgeFiles(project.repoPath);
     const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, true);
@@ -495,7 +553,7 @@ export function createApp({
 
   app.get("/api/projects/:projectId/settings", async (c) => {
     const project = await getProjectOr404(repos, c.req.param("projectId"));
-    return c.json(await readProjectSettings(project, runtime, ai));
+    return c.json(await readProjectSettings(repos, project, runtime, ai));
   });
 
   app.put("/api/projects/:projectId/settings", zValidator("json", updateProjectSettingsSchema), async (c) => {
@@ -505,7 +563,13 @@ export function createApp({
     if (!updatedProject) {
       notFound("Project was not found.");
     }
-    return c.json(await readProjectSettings(updatedProject, runtime, ai));
+    const currentSettings = await readProjectSettings(repos, updatedProject, runtime, ai);
+    const nextAiSettings = patchAiSettings(currentSettings.ai, input.ai);
+    await saveAiSettings(repos, nextAiSettings);
+    return c.json({
+      ...currentSettings,
+      ai: nextAiSettings
+    });
   });
 
   app.get("/api/projects/:projectId/labels", async (c) => {
@@ -556,9 +620,22 @@ export function createApp({
 
   app.post("/api/projects/:projectId/issues", zValidator("json", createIssueSchema), async (c) => {
     const projectId = c.req.param("projectId");
+    const input = c.req.valid("json");
+    const requirementsLabel = await repos.labels.findByName(projectId, workflowLabelNames.requirements);
+    const labelIds = [...(input.labelIds ?? [])];
+    const requestedWorkflowLabel = labelIds.length
+      ? (await repos.labels.list(projectId)).some(
+          (label) => labelIds.includes(label.id) && issueWorkflowLabelNameSet.has(label.name)
+        )
+      : false;
+    if (requirementsLabel && !requestedWorkflowLabel && !labelIds.includes(requirementsLabel.id)) {
+      labelIds.push(requirementsLabel.id);
+    }
     const issue = await repos.issues.create({
       projectId,
-      ...c.req.valid("json")
+      title: input.title,
+      body: input.body,
+      labelIds
     });
     const automationJobs = await runLabelAutomation(repos, {
       projectId,

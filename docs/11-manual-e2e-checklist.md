@@ -35,6 +35,7 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Run review approval and confirm it routes the pull request to `testing`.
 - Run QA with a defect and confirm it routes the pull request to `fixing`.
 - Run QA with no defects and confirm it routes the pull request to `done`.
+- Run verifier with sufficient evidence and confirm it marks the pull request `ready-to-merge`.
 
 ## 4. CRUD and recovery
 
@@ -51,4 +52,4 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Run `npm run lint`.
 - Run `npm test`.
 - Run `npm run build`.
-- Confirm the API health endpoint returns `{"status":"ok","name":"one team"}`.
+- Confirm the API health endpoint returns `{"status":"ok","name":"OneTeam"}`.

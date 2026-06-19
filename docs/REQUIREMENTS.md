@@ -1,8 +1,8 @@
-# one team 要件定義
+# OneTeam 要件定義
 
 ## 1. 目的
 
-one team は、単独開発者がローカル環境で AI と協調しながら開発を進めるための Loop Engineering ツールである。
+OneTeam は、単独開発者がローカル環境で AI と協調しながら開発を進めるための Loop Engineering ツールである。
 
 GitHub の issue / pull request に近い UI とワークフローを持ち、issue に書かれた要望から AI が要件定義、実装、テスト、pull request 作成、レビュー、修正、QA までを半自動で進める。各作業は、目的、受け入れ条件、検証証拠、停止条件を持つ AI 開発 Loop として扱う。
 
@@ -10,23 +10,23 @@ GitHub の issue / pull request に近い UI とワークフローを持ち、is
 
 この要件定義では、`CONCEPT.md` だけでは未確定な部分について、実装可能にするため次の前提を置く。
 
-- one team はローカルで起動する Web アプリケーションとする。
+- OneTeam はローカルで起動する Web アプリケーションとする。
 - 利用者は単独開発者 1 名であり、MVP ではユーザー認証・権限管理は実装しない。
 - GitHub 連携ではなく、GitHub ライクな issue / pull request 体験をローカルに実装する。
-- pull request は実 GitHub PR ではなく、ローカル Git ブランチ間の差分・レビュー対象を表す one team 内の概念とする。
-- one team は 1 インスタンスにつき 1 つの Git repository を管理する。複数 repository を扱う場合は one team を別インスタンスとして起動する。
+- pull request は実 GitHub PR ではなく、ローカル Git ブランチ間の差分・レビュー対象を表す OneTeam 内の概念とする。
+- OneTeam は 1 インスタンスにつき 1 つの Git repository を管理する。複数 repository を扱う場合は OneTeam を別インスタンスとして起動する。
 - データベースは libSQL を使用する。
 - package manager は npm を使用する。
 - API framework は Hono を使用する。
 - ORM / query builder は Drizzle ORM を使用する。
 - Docker は使用しない。
 - Node.js と git がインストールされていれば起動できる構成にする。
-- AI 実行基盤は Codex CLI を主想定とする。
-- AI 実行基盤は将来的に差し替え可能な adapter として設計する。
-- Codex CLI は full access で実行する。AI のコマンド実行時に個別のユーザー承認は必須にしない。
+- AI 実行基盤は Codex、Claude Code、LM Studio を切り替え可能な adapter として設計する。
+- Codex / Claude Code は CLI adapter、LM Studio は OpenAI-compatible local API + OneTeam tool loop として扱う。
+- Codex / Claude Code は repository を編集できる実行権限で動かす。AI のコマンド実行時に個別のユーザー承認は必須にしない。
 - AI による作業対象は管理対象 repository を主とし、実行コマンドと変更内容は Activity Log に記録する。
 - AI が質問して `waiting_human` になった場合、ユーザー回答コメントの投稿を契機に自動再開する。
-- 実装完了後の merge 操作はユーザーが行う。ただし merge conflict の検出と修正は one team が支援する。
+- 実装完了後の merge 操作はユーザーが行う。ただし merge conflict の検出と修正は OneTeam が支援する。
 - issue / pull request の削除は論理削除とする。
 - UI は browser で開く Web アプリケーションとする。
 - UI は多言語対応可能な設計にし、初期実装は英語 UI とする。
@@ -35,13 +35,13 @@ GitHub の issue / pull request に近い UI とワークフローを持ち、is
 
 MVP では、単独開発者が次の一連の流れをローカル UI から実行できる状態を目標とする。
 
-1. repository を one team に登録する。
+1. repository を OneTeam に登録する。
 2. issue を作成する。
 3. 要件定義エージェントが issue を読み、不明点をコメントする。
 4. ユーザーがコメントで回答する。
 5. 要件が確定したら、AI が要件定義コメントを作成する。
 6. 実装エージェントがブランチを作成し、要件に沿って実装する。
-7. 実装完了後、one team 内に pull request を作成する。
+7. 実装完了後、OneTeam 内に pull request を作成する。
 8. レビューエージェントが pull request をレビューする。
 9. 指摘があれば修正エージェントが対応し、再レビューする。
 10. QA エージェントがテスト・UI 確認を行う。
@@ -63,7 +63,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 | 用語 | 意味 |
 | --- | --- |
-| Project | one team に登録された管理対象 repository |
+| Project | OneTeam に登録された管理対象 repository |
 | Issue | 実装したい内容、バグ、改善などを記録する単位 |
 | Pull Request | 実装ブランチとベースブランチの差分を確認・レビューする単位 |
 | Comment | issue / pull request に紐づく会話、AI の質問、ユーザー回答、状態報告 |
@@ -92,7 +92,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 9. 実装エージェントが起動し、実装ブランチを作成する。
 10. 実装エージェントはファイル変更、テスト追加、テスト実行を行う。
 11. 実装中に不明点が出た場合、issue コメントで質問し、Human Gate に入る。
-12. 実装完了後、one team 内に pull request を作成する。
+12. 実装完了後、OneTeam 内に pull request を作成する。
 13. pull request に `reviewing` label を付与する。
 14. レビューエージェントがレビューする。
 15. 指摘があれば pull request コメントに記録し、`fixing` label に変更する。
@@ -100,9 +100,10 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 17. レビュー指摘がなくなったら `testing` label に変更する。
 18. QA エージェントが UI を含む動作確認を実施し、Evidence を記録する。
 19. 不具合があれば pull request コメントに記録し、`fixing` に戻す。
-20. 問題がなければ検証結果、Evidence、Stop Reason をコメントし、pull request と issue に `done` label を付与する。
-21. merge はユーザーが実行する。
-22. merge conflict が発生、または事前検出された場合、one team は修正エージェントで conflict 解消を支援する。
+20. 問題がなければ QA 結果、Evidence、Stop Reason をコメントし、pull request に `done` label を付与して Verifier Agent を起動する。
+21. Verifier Agent が Stop Condition と Evidence を確認し、問題がなければ pull request を `ready-to-merge` としてマークしユーザーに通知する。
+22. merge はユーザーが実行する。
+23. merge conflict が発生、または事前検出された場合、OneTeam は修正エージェントで conflict 解消を支援する。
 
 ### 6.2 手動操作
 
@@ -125,7 +126,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 
 - GitHub の issue / pull request 体験に近い情報設計にする。
 - 左または上部に主要ナビゲーションを置く。
-- 主要ページは Issues、Pull Requests、Repository、Settings とする。
+- 主要ページは Issues、Pull Requests、Agent Jobs、Repository、Settings とする。
 - issue / pull request の一覧では、状態、label、更新日時、コメント数を確認できる。
 - 詳細ページでは本文、コメント timeline、label、状態、関連 pull request / issue を確認できる。
 - AI のコメントとユーザーのコメントは視覚的に区別できるようにする。
@@ -218,7 +219,8 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 | `resolving-conflicts` | merge conflict 修正中 | 修正エージェント |
 | `testing` | QA 実施中 | QA エージェント |
 | `needs-input` | 人間の回答・承認待ち | ユーザー |
-| `done` | 検証完了 | QA エージェント / ユーザー |
+| `done` | QA 完了、最終検証待ち | QA エージェント |
+| `ready-to-merge` | 自動レビューと最終検証が完了し、ユーザーが merge できる | Verifier Agent |
 
 ### 8.5 Agent Job Status
 
@@ -431,7 +433,7 @@ oneteam/issue-{issueId}-{slug}
 - unit / integration / e2e のうち、変更内容に応じた確認を実行する。
 - UI 変更がある場合、Playwright などで画面確認を行う。
 - 不具合があれば pull request コメントに詳細を投稿し `fixing` label に変更する。
-- 問題がなければ QA 結果を投稿し `done` label を付与する。
+- 問題がなければ QA 結果を投稿し `done` label を付与して Verifier Agent に引き渡す。
 
 #### 出力
 
@@ -451,7 +453,7 @@ oneteam/issue-{issueId}-{slug}
 MVP では次のどちらかで repository を登録できる。
 
 - 既存 repository のパスを指定してインポートする。
-- one team 管理ディレクトリ内に新規 repository を作成する。
+- OneTeam 管理ディレクトリ内に新規 repository を作成する。
 
 #### 既存 Repository インポート
 
@@ -459,7 +461,7 @@ MVP では次のどちらかで repository を登録できる。
 - 自動検出では `package.json`、lock file、workspace 設定、test framework 設定、build tool 設定を確認する。
 - npm / pnpm / yarn / bun のうち、lock file と package manager 設定から優先候補を決める。
 - 該当コマンドが存在する場合、検出結果を project commands として保存する。
-- 必須コマンドまたは推奨コマンドが不足している場合、one team は不足機能を実装するための issue を即座に自動作成する。
+- 必須コマンドまたは推奨コマンドが不足している場合、OneTeam は不足機能を実装するための issue を即座に自動作成する。
 - 自動作成された issue には不足している機能、検出結果、推奨される実装方針を本文に記録する。
 - 自動作成された issue は `requirements` または `ready-for-implementation` に遷移し、AI が必要機能の実装を開始できるようにする。
 
@@ -483,7 +485,7 @@ MVP では次のどちらかで repository を登録できる。
 
 ### 10.3 Safety
 
-- Codex CLI は full access で実行する。
+- 選択された AI provider は repository を編集できる権限で実行する。
 - AI がコマンドや Git 操作を行う前に対象 repository と作業 branch を Activity Log に記録する。
 - 未コミット変更がある場合、実装開始前に検出して扱いを決める。
 - MVP では、ユーザーの未コミット変更がある場合は原則として実装エージェントを停止し、コメントで確認する。
@@ -494,7 +496,7 @@ MVP では次のどちらかで repository を登録できる。
 
 ### 11.1 Config File
 
-設定ファイルは repository 外、または one team 管理ディレクトリに保存する。
+設定ファイルは repository 外、または OneTeam 管理ディレクトリに保存する。
 
 例:
 
@@ -511,10 +513,25 @@ MVP では次のどちらかで repository を登録できる。
     "url": "file:/absolute/path/to/imported-repo/.oneteam/data/oneteam.db"
   },
   "ai": {
-    "provider": "codex-cli",
-    "codexCommand": "node_modules/.bin/codex",
-    "model": "model-name",
-    "fullAccess": true
+    "provider": "codex",
+    "codex": {
+      "command": "node_modules/.bin/codex",
+      "model": "model-name",
+      "fullAccess": true,
+      "autoLogin": true
+    },
+    "claudeCode": {
+      "command": "claude",
+      "model": null,
+      "permissionMode": "bypassPermissions",
+      "maxTurns": null
+    },
+    "lmStudio": {
+      "baseUrl": "http://127.0.0.1:1234/v1",
+      "model": null,
+      "maxToolRounds": 8,
+      "temperature": null
+    }
   },
   "i18n": {
     "defaultLocale": "en",
@@ -543,11 +560,12 @@ MVP では次のどちらかで repository を登録できる。
 - UI port
 - workspace root
 - libSQL database path
-- Codex CLI のログイン状態
+- AI provider の選択
+- Codex / Claude Code のログイン状態、または LM Studio server の接続状態
 - default locale
 - command auto-detection の結果確認
 
-Codex CLI の認証情報は、原則として Codex CLI が管理する認証状態を利用する。one team は起動時に `codex login status` を確認し、未ログインなら `codex login` を起動する。CLI command path、model、実行オプションは runtime 管理とし、Settings から変更できない。
+Codex CLI の認証情報は Codex CLI が管理する認証状態を利用する。Claude Code の認証情報は Claude Code CLI が管理する認証状態を利用する。OneTeam は agent job 実行前に provider ごとの readiness を確認し、必要に応じて CLI login を起動する。Settings では active provider を切り替えられ、Claude Code / LM Studio の接続設定を変更できる。Codex command path は runtime 管理とする。
 
 ### 11.3 Tables
 
@@ -749,7 +767,7 @@ API は UI と同一 Node.js アプリケーションで提供する。
 
 ## 13. AI Adapter 要件
 
-AI 実行基盤は Codex CLI を主想定とし、次の interface を満たす adapter として扱う。
+AI 実行基盤は provider adapter として扱う。Codex、Claude Code、LM Studio は次の interface を満たす。
 
 ```ts
 type AgentRunInput = {
@@ -796,10 +814,10 @@ type AgentActivity = {
 - 失敗時に error message を返せる。
 - Agent Job の停止理由を `stopReason` として返せる。
 - Agent Job の完了判定に使う証拠を `evidence` として返せる。
-- MVP では Codex CLI adapter を実装する。
 - Codex CLI adapter は runtime 管理の command path、model、実行オプションを使用する。
-- Codex CLI adapter は full access 実行を前提にする。
-- 将来的に他の CLI 型、API 型、ローカルモデル型を差し替えられる。
+- Claude Code adapter は external CLI command、model、permission mode、max turns を使用する。
+- LM Studio adapter は OpenAI-compatible local API と OneTeam が提供する file / command tool loop を使用する。
+- Agent Job 作成時に active provider を記録し、provider 切り替え後も既存 job の実行再現性を保つ。
 
 ## 14. 実装アーキテクチャ
 
@@ -842,7 +860,7 @@ e2e             Playwright smoke tests
 - Node.js と git がある環境でセットアップできる。
 - Docker なしで起動できる。
 - 設定ファイルで UI ポートを変更できる。
-- 初回起動時に Codex CLI の実行設定を行える。
+- 初回起動時に AI provider を選択できる。
 - libSQL database が初回起動時に作成される。
 - UI は初期表示を英語にでき、表示文字列は i18n リソースで管理される。
 - repository インポート時に install / dev / build / test / lint コマンドを自動検出できる。
@@ -875,6 +893,7 @@ e2e             Playwright smoke tests
 - 修正エージェントは指摘を修正し、再レビューへ戻せる。
 - 修正エージェントは merge conflict を修正できる。
 - QA エージェントはテスト結果をコメントし、`done` または `fixing` へ遷移できる。
+- Verifier Agent は Stop Condition と Evidence を確認し、問題がなければ `ready-to-merge` へ遷移できる。
 - Agent Job の Activity Log を issue / pull request から時系列で確認できる。
 - Agent Job の Stop Reason を確認できる。
 - Agent Job の Evidence を確認できる。
@@ -898,7 +917,7 @@ e2e             Playwright smoke tests
 
 ### 16.3 Safety
 
-- Codex CLI は full access で実行する。
+- AI provider は repository を編集できる権限で実行する。
 - AI の作業対象 repository と branch を Activity Log に記録する。
 - 未コミット変更を検出する。
 - AI のコマンド実行時に個別承認は必須にしない。
@@ -915,20 +934,20 @@ e2e             Playwright smoke tests
 
 ### 17.1 確定事項
 
-- AI 実行基盤は Codex CLI を主想定とする。
-- pull request は one team 内だけのローカル概念とする。
-- one team は 1 インスタンスにつき 1 repository を管理する。
-- 複数 repository を扱いたい場合は one team を別に立ち上げる。
+- AI 実行基盤は Codex、Claude Code、LM Studio を切り替え可能な provider adapter として扱う。
+- pull request は OneTeam 内だけのローカル概念とする。
+- OneTeam は 1 インスタンスにつき 1 repository を管理する。
+- 複数 repository を扱いたい場合は OneTeam を別に立ち上げる。
 - AI の質問にユーザーが回答した場合、回答コメント投稿時に自動再開する。
-- Codex CLI は full access で実行し、コマンド実行時の個別承認は必須にしない。
-- merge 操作はユーザーが行い、merge conflict の修正は one team が支援する。
+- AI provider は repository を編集できる権限で実行し、コマンド実行時の個別承認は必須にしない。
+- merge 操作はユーザーが行い、merge conflict の修正は OneTeam が支援する。
 - issue / pull request の削除は論理削除とする。
 - UI は browser で開く Web アプリケーションとする。
 - build / test / lint / dev server / install コマンドは repository インポート時に自動検出する。
-- 自動検出で不足コマンドが見つかった場合、one team は必要機能実装用の issue を作成し、AI が実装を開始できるようにする。
+- 自動検出で不足コマンドが見つかった場合、OneTeam は必要機能実装用の issue を作成し、AI が実装を開始できるようにする。
 - 新規 repository では、要件定義時に build / test / lint / dev server / install コマンドを必須要件へ追加する。
 - Agent Job の Activity Log をコメントとは別に時系列で保存する。
-- Codex CLI の command path、model、実行オプションは runtime 管理とし、起動時に必要な Codex login を自動開始する。
+- Codex CLI の command path は runtime 管理とし、Codex / Claude Code は job 実行前に必要な login を自動開始する。Settings から active provider と provider 別設定を変更できる。
 - UI は多言語対応可能な設計とし、初期実装は英語 UI とする。
 - package manager は npm とする。
 - API framework は Hono とする。
@@ -945,7 +964,7 @@ e2e             Playwright smoke tests
 1. Node.js アプリケーションの土台作成
 2. libSQL schema / migration
 3. 初回 setup wizard
-4. Codex CLI adapter 設定
+4. AI provider adapter 設定
 5. Project 登録
 6. repository command auto-detection
 7. Issue CRUD / comments / labels / logical delete
@@ -972,4 +991,4 @@ e2e             Playwright smoke tests
 - [MVP 完了状況](./docs/10-mvp-remaining-tasks.md)
 - [Manual E2E checklist](./docs/11-manual-e2e-checklist.md)
 - [i18n リソース設計](./docs/08-i18n-resource-design.md)
-- [Local Codex CLI setup](./docs/09-local-codex-setup.md)
+- [AI provider setup](./docs/09-local-codex-setup.md)

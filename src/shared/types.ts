@@ -1,3 +1,5 @@
+import type { AiProvider, AiSettingsDto } from "./ai-providers";
+
 export type IssueStatus = "open" | "closed";
 export type PullRequestStatus = "open" | "closed" | "merged";
 export type LabelKind = "system" | "custom";
@@ -50,11 +52,7 @@ export type ProjectSettingsDto = {
   project: {
     locale: string;
   };
-  ai: {
-    codexCommand: string;
-    model: string | null;
-    fullAccess: boolean;
-  };
+  ai: AiSettingsDto;
   runtime: {
     server: {
       host: string;
@@ -151,6 +149,7 @@ export type ActivityDto = {
 export type AgentJobDto = {
   id: number;
   projectId: string;
+  aiProvider: AiProvider;
   agentType: AgentType;
   targetType: "issue" | "pull_request" | "project";
   targetId: number;

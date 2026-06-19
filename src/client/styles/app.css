@@ -49,6 +49,17 @@ button {
   flex: 1;
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  color: #f0f6fc;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .nav-tab,
 .icon-button,
 .settings-menu-button,
@@ -205,14 +216,20 @@ button {
 
 .setup-logo {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 12px;
   margin-bottom: 18px;
+  color: #24292f;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .setup-logo img {
   display: block;
-  width: min(240px, 72%);
-  height: auto;
+  width: 40px;
+  height: 46px;
 }
 
 .setup-panel h1,
@@ -519,6 +536,30 @@ textarea {
   color: #24292f;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.project-selector {
+  width: min(1040px, 100%);
+}
+
+.project-summary {
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) max-content max-content;
+}
+
+.project-repo-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-opened-at {
+  white-space: nowrap;
+}
+
+.project-open-action {
+  justify-self: end;
+  color: #57606a;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .issue-row {
@@ -1595,6 +1636,21 @@ textarea {
   margin: 16px 0 24px;
 }
 
+.settings-form fieldset {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+}
+
+.settings-form legend {
+  padding: 0 6px;
+  color: #24292f;
+  font-weight: 700;
+}
+
 .repository-facts dt,
 .detail-fact-list dt {
   color: #57606a;
@@ -1724,5 +1780,9 @@ textarea {
   .agent-job-summary {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .project-open-action {
+    justify-self: start;
   }
 }

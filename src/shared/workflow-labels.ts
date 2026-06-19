@@ -8,6 +8,7 @@ export const workflowLabelNames = {
   fixing: "fixing",
   resolvingConflicts: "resolving-conflicts",
   testing: "testing",
+  readyToMerge: "ready-to-merge",
   done: "done"
 } as const;
 
@@ -27,6 +28,7 @@ export const pullRequestWorkflowLabelNames = [
   workflowLabelNames.fixing,
   workflowLabelNames.resolvingConflicts,
   workflowLabelNames.testing,
+  workflowLabelNames.readyToMerge,
   workflowLabelNames.needsInput,
   workflowLabelNames.done
 ] as const;

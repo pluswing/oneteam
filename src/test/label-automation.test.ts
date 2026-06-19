@@ -100,20 +100,18 @@ describe("label automation", () => {
       defaultBranch: "main",
       locale: "en"
     });
-    const labels = await repos.labels.list(project.id);
-    const requirementsLabel = labels.find((label) => label.name === "requirements");
-    expect(requirementsLabel).toBeDefined();
-
     const issueResponse = await app.request(`/api/projects/${project.id}/issues`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Add setup",
-        body: "Create a setup wizard.",
-        labelIds: [requirementsLabel!.id]
+        body: "Create a setup wizard."
       })
     });
-    const issueBody = (await issueResponse.json()) as { automationJobIds: number[] };
+    const issueBody = (await issueResponse.json()) as {
+      issue: { labels: Array<{ name: string }> };
+      automationJobIds: number[];
+    };
     const pullRequestResponse = await app.request(`/api/projects/${project.id}/pull-requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -129,6 +127,7 @@ describe("label automation", () => {
     const loopRuns = await repos.loopRuns.list(project.id);
 
     expect(issueResponse.status).toBe(201);
+    expect(issueBody.issue.labels.map((label) => label.name)).toContain("requirements");
     expect(issueBody.automationJobIds).toHaveLength(1);
     expect(pullRequestResponse.status).toBe(201);
     expect(pullRequestBody.automationJobIds).toHaveLength(1);

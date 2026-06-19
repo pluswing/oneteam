@@ -1,13 +1,15 @@
 import { serve, type ServerType } from "@hono/node-server";
+import { normalizeAiSettings } from "../shared/ai-providers";
 import type { KnownRepositoryDto } from "../shared/types";
 import { AgentWorker } from "./agents/worker";
-import { CodexAdapter } from "./agents/codex-adapter";
+import { ProviderRoutingAdapter } from "./agents/provider-router";
 import { createApp } from "./app";
 import { loadConfig, rememberRepositoryPath, repositoryDatabaseUrl, type AppConfig } from "./config";
 import { createDatabaseContext, type DatabaseContext } from "./db/client";
 import { runMigrations } from "./db/migrations";
 import { createRepositories, type Repositories } from "./db/repositories";
-import { ensureCodexLogin, type CodexLoginOptions } from "./services/codex-auth";
+import type { CodexLoginOptions } from "./services/codex-auth";
+import { ensureProviderReady } from "./services/provider-readiness";
 
 export type OneTeamRuntime = {
   app: ReturnType<typeof createApp>;
@@ -47,6 +49,7 @@ export async function createOneTeamRuntime(
     repos: createRepositories(database.db),
     url: config.database.url
   };
+  await ensureDefaultAiSettings(activeDatabase.repos, config);
 
   const runtime = {
     server: { ...config.server },
@@ -80,6 +83,7 @@ export async function createOneTeamRuntime(
       repos: createRepositories(nextContext.db),
       url: nextUrl
     };
+    await ensureDefaultAiSettings(activeDatabase.repos, config);
     runtime.database.url = nextUrl;
     previousContext.client.close();
     return repository;
@@ -87,9 +91,7 @@ export async function createOneTeamRuntime(
 
   const app = createApp({
     ai: {
-      codexCommand: config.agents.codexCommand,
-      model: config.agents.codexModel ?? null,
-      fullAccess: true
+      ...config.agents.ai
     },
     repos,
     runtime,
@@ -99,23 +101,22 @@ export async function createOneTeamRuntime(
 
   let worker: AgentWorker | null = null;
   if (config.agents.workerEnabled) {
-    const login = await ensureCodexLogin(config.agents.codexCommand, {
-      enabled: config.agents.codexAutoLogin,
-      ...options.codexLogin
-    });
-    console.log(`one team Codex login: ${login.status}`);
     worker = new AgentWorker(
       repos,
-      new CodexAdapter({
-        command: config.agents.codexCommand,
-        model: config.agents.codexModel
+      new ProviderRoutingAdapter({
+        defaults: config.agents.ai,
+        loadSettings: () => repos.settings.get("ai"),
+        ensureReady: (provider, settings) =>
+          ensureProviderReady(provider, settings, {
+            loginLauncher: options.codexLogin?.launcher
+          })
       }),
       {
         pollIntervalMs: config.agents.pollIntervalMs
       }
     );
     worker.start();
-    console.log("one team agent worker started");
+    console.log("OneTeam agent worker started");
   }
 
   return {
@@ -127,6 +128,14 @@ export async function createOneTeamRuntime(
       activeDatabase.context.client.close();
     }
   };
+}
+
+async function ensureDefaultAiSettings(repos: Repositories, config: AppConfig): Promise<void> {
+  const current = await repos.settings.get("ai");
+  if (current) {
+    return;
+  }
+  await repos.settings.set("ai", normalizeAiSettings(config.agents.ai) as unknown as Record<string, unknown>);
 }
 
 export async function startOneTeamServer(

@@ -58,10 +58,14 @@ export async function ensureKnowledgeFiles(repoPath: string): Promise<void> {
 
 export async function listKnowledgeFiles(repoPath: string): Promise<SkillFileDto[]> {
   await ensureKnowledgeFiles(repoPath);
+  return readKnowledgeFiles(repoPath);
+}
+
+export async function readKnowledgeFiles(repoPath: string): Promise<SkillFileDto[]> {
   const root = knowledgeRoot(repoPath);
   const items: SkillFileDto[] = [];
   for (const folder of ["skills", "memory"]) {
-    const names = await readdir(join(root, folder));
+    const names = await readdir(join(root, folder)).catch(() => []);
     for (const name of names.filter((item) => item.endsWith(".md")).sort()) {
       const relativePath = `${folder}/${name}`;
       const absolutePath = join(root, relativePath);

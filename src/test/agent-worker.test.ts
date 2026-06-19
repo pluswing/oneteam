@@ -10,6 +10,7 @@ import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
 import { resolveAgentJobLockKey } from "../server/services/agent-job-locks";
+import { workflowLabelNames } from "../shared/workflow-labels";
 
 const execFileAsync = promisify(execFile);
 
@@ -662,6 +663,68 @@ describe("agent worker", () => {
     expect(fixActivities.map((activity) => activity.title)).toContain("Fix summary captured");
     expect(defectActivities.map((activity) => activity.title)).toContain("QA defects captured");
     expect(passedActivities.map((activity) => activity.title)).toContain("QA pass captured");
+
+    context.client.close();
+  });
+
+  it("marks verified pull requests as ready to merge and notifies the user", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-verifier-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-verifier-repo-");
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Verified change",
+      sourceBranch: "feature/verified",
+      targetBranch: "main",
+      labelIds: doneLabel ? [doneLabel.id] : []
+    });
+    await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        return {
+          status: "succeeded",
+          message: "Stop condition is met.",
+          metadata: {
+            nextLabel: workflowLabelNames.done,
+            verifier: {
+              verdict: "passed",
+              stopConditionMet: true,
+              missingEvidence: [],
+              notes: ["Evidence is sufficient."]
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedPullRequest = await repos.pullRequests.get(project.id, pullRequest.id);
+    const comments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
+    const activities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
+
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
+    expect(comments.map((comment) => comment.body)).toContain(
+      "Verifier confirmed the stop condition and evidence. This pull request is ready for user merge."
+    );
+    expect(activities.map((activity) => activity.title)).toContain("Pull request ready to merge");
 
     context.client.close();
   });

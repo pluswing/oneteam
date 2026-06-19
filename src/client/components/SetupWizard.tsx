@@ -1,15 +1,18 @@
 import { ArrowLeft, Save } from "lucide-react";
 import { FormEvent, useState } from "react";
+import type { AiProvider } from "../../shared/ai-providers";
+import { aiProviderLabel, aiProviders } from "../../shared/ai-providers";
 import type { ProjectDto } from "../../shared/types";
 import { api } from "../api";
-import oneTeamLogoUrl from "../assets/oneteam.svg";
+import logoMarkUrl from "../assets/logo.svg";
 import { t } from "../i18n";
 
 export function SetupWizard(props: { onCancel?: () => void; onCreated: (project: ProjectDto) => void }) {
   const [mode, setMode] = useState<"import" | "create">("import");
-  const [name, setName] = useState("one team");
+  const [name, setName] = useState("OneTeam");
   const [repoPath, setRepoPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setSubmitting] = useState(false);
 
@@ -23,7 +26,8 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
         name,
         repoPath,
         defaultBranch,
-        locale: "en"
+        locale: "en",
+        aiProvider
       });
       props.onCreated(project);
     } catch (err) {
@@ -37,7 +41,8 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
     <main className="setup-screen">
       <form className="setup-panel" onSubmit={handleSubmit}>
         <div className="setup-logo">
-          <img src={oneTeamLogoUrl} alt={t("app.name")} />
+          <img src={logoMarkUrl} alt="" />
+          <span>{t("app.name")}</span>
         </div>
         <h1>{t("setup.title")}</h1>
         <section className="form-section">
@@ -60,6 +65,19 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
           <label>
             {t("setup.defaultBranch")}
             <input value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
+          </label>
+        </section>
+        <section className="form-section">
+          <h2>{t("setup.aiTool")}</h2>
+          <label>
+            {t("setup.provider")}
+            <select value={aiProvider} onChange={(event) => setAiProvider(event.target.value as AiProvider)}>
+              {aiProviders.map((provider) => (
+                <option key={provider} value={provider}>
+                  {aiProviderLabel(provider)}
+                </option>
+              ))}
+            </select>
           </label>
         </section>
 

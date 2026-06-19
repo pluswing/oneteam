@@ -1,12 +1,12 @@
-# One Team を Loop Engineering に適合させるための対応整理
+# OneTeam を Loop Engineering に適合させるための対応整理
 
 作成日: 2026-06-17
 
 ## 目的
 
-One Team は現在、「Issue-driven development with AI for solo developers」を掲げ、Issue から要件定義、実装、Pull Request、レビュー、QA までを AI Agent Job で進めるローカル開発支援ツールとして設計されている。
+OneTeam は現在、「Issue-driven development with AI for solo developers」を掲げ、Issue から要件定義、実装、Pull Request、レビュー、QA までを AI Agent Job で進めるローカル開発支援ツールとして設計されている。
 
-最近の Loop Engineering の文脈に合わせるなら、One Team の主語を「Issue を AI に渡すツール」から「単独開発者がローカルで検証可能な AI 開発ループを設計・実行・改善するツール」へ広げる必要がある。
+最近の Loop Engineering の文脈に合わせるなら、OneTeam の主語を「Issue を AI に渡すツール」から「単独開発者がローカルで検証可能な AI 開発ループを設計・実行・改善するツール」へ広げる必要がある。
 
 Issue は捨てない。Issue は Loop の入力、記憶、成果物、Human Gate の場として残す。ただし、プロダクトの中心概念は Issue 単体ではなく、起動条件、実行環境、Agent 編成、証拠、停止条件、記憶まで含む `Loop` に引き上げる。
 
@@ -21,7 +21,7 @@ Loop Engineering では、人間が都度プロンプトを書くのではなく
 
 主要部品は次の通り。
 
-| 要素 | 意味 | One Team での位置づけ |
+| 要素 | 意味 | OneTeam での位置づけ |
 | --- | --- | --- |
 | Automations | 時刻、イベント、条件で自律起動する仕組み | Label Automation を拡張し、Loop Trigger / Scheduler / Triage Inbox にする |
 | Worktrees | 複数 Agent の作業領域を分離する仕組み | 現在の branch 運用を per-loop-run worktree に拡張する |
@@ -30,11 +30,11 @@ Loop Engineering では、人間が都度プロンプトを書くのではなく
 | Connectors | issue tracker、Git、CI、Slack など外部ツールとつなぐ仕組み | MVP はローカル完結、将来は GitHub / Linear / Slack / CI を Connector 化する |
 | Memory | 会話外に残る進捗、判断、結果、次アクション | DB、Activity Log、Markdown state file、Loop Memory を統合する |
 
-重要なのは、Loop は「何度も回ること」ではなく「検証可能な停止条件まで進むこと」である。したがって One Team でも、完了判定、証拠、タイムアウト、コスト上限、人間への引き渡しを第一級の概念として扱う。
+重要なのは、Loop は「何度も回ること」ではなく「検証可能な停止条件まで進むこと」である。したがって OneTeam でも、完了判定、証拠、タイムアウト、コスト上限、人間への引き渡しを第一級の概念として扱う。
 
-## 現状の One Team がすでに持っている強み
+## 現状の OneTeam がすでに持っている強み
 
-One Team は Loop Engineering に近い土台をすでに持っている。
+OneTeam は Loop Engineering に近い土台をすでに持っている。
 
 - Issue / Pull Request / Label / Comment / Activity Log をローカルに保持している。
 - `requirements`、`implementation`、`review`、`fix`、`qa` の Agent Job がある。
@@ -265,7 +265,7 @@ Loop は毎回ゼロから推論すると品質が安定しない。プロジェ
 - QA checklist
 - release / merge policy
 
-One Team 内の配置例:
+OneTeam 内の配置例:
 
 ```text
 .oneteam/skills/project.md
@@ -279,7 +279,7 @@ UI では `Knowledge` または `Skills` ページを追加し、Loop ごとに�
 
 ### 9. Sub-agent 編成を明示する
 
-One Team にはすでに複数 Agent があるが、Loop Engineering に合わせるなら「実装する Agent」と「検証する Agent」を明確に分離する必要がある。
+OneTeam にはすでに複数 Agent があるが、Loop Engineering に合わせるなら「実装する Agent」と「検証する Agent」を明確に分離する必要がある。
 
 推奨編成:
 
@@ -376,7 +376,7 @@ Risk Signal を検出したら Loop は停止し、人間へ引き渡す。
 
 Loop がうまく回るほど、ユーザーが自分のコードから疎遠になるリスクがある。
 
-One Team では次の対策を UI / workflow に入れる。
+OneTeam では次の対策を UI / workflow に入れる。
 
 - PR 完了前に `Human Review Checklist` を表示する
 - AI が作った変更の「読むべき順序」を提示する
@@ -472,8 +472,8 @@ Design local AI development loops that start from issues, run through requiremen
 
 ## まとめ
 
-One Team は、Issue、PR、Agent Job、Activity Log、Human Gate をすでに持っているため、Loop Engineering への適合性は高い。
+OneTeam は、Issue、PR、Agent Job、Activity Log、Human Gate をすでに持っているため、Loop Engineering への適合性は高い。
 
 最も重要な変更は、Issue を中心にした一連の処理を、検証可能な `Loop` として再定義することである。具体的には、Trigger、Goal Contract、Evidence、Stop Condition、Worktree isolation、Skills、Memory、Verifier を追加する。
 
-これにより One Team は、「Issue を AI に渡すローカルツール」から「単独開発者が AI 開発ループを設計し、証拠付きで回し、経験を蓄積するローカル Loop Engineering ツール」へ進化できる。
+これにより OneTeam は、「Issue を AI に渡すローカルツール」から「単独開発者が AI 開発ループを設計し、証拠付きで回し、経験を蓄積するローカル Loop Engineering ツール」へ進化できる。

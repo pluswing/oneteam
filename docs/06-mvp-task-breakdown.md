@@ -4,7 +4,7 @@ Status: MVP 実装は完了済み。現在の完了状況は `docs/10-mvp-remain
 
 ## 1. 目的
 
-one team MVP を実装するための順序、タスク、依存関係、受け入れ条件を定義する。
+OneTeam MVP を実装するための順序、タスク、依存関係、受け入れ条件を定義する。
 
 ## 2. Definition of Done
 
@@ -61,7 +61,7 @@ Acceptance:
 
 ### M2. Setup Wizard
 
-目的: 初回起動で one team を設定できるようにする。
+目的: 初回起動で OneTeam を設定できるようにする。
 
 Tasks:
 
@@ -250,7 +250,7 @@ Acceptance:
 - PR 作成後 `reviewing` になる。
 - 指摘があれば `fixing` になる。
 - 修正後 `reviewing` に戻る。
-- QA が通れば `done` になる。
+- QA が通れば `done` になり、Verifier が通れば `ready-to-merge` になる。
 - conflict があれば `resolving-conflicts` から修正できる。
 
 ## 4. 実装済み Issue 分割

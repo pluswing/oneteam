@@ -391,7 +391,10 @@ export class AgentWorker {
       }
     }
 
-    metadata.nextLabel = metadata.nextLabel ?? derivePullRequestNextLabel(job.agentType, metadata) ?? null;
+    metadata.nextLabel = normalizePullRequestNextLabel(
+      job.agentType,
+      metadata.nextLabel ?? derivePullRequestNextLabel(job.agentType, metadata) ?? null
+    );
     return {
       ...result,
       activities: [...(result.activities ?? []), ...pullRequestWorkflowActivities(job.agentType, metadata)],
@@ -641,6 +644,8 @@ export class AgentWorker {
       }
       if (label && job.targetType === "pull_request") {
         const previousPullRequest = await this.repos.pullRequests.get(job.projectId, job.targetId);
+        const wasReadyToMerge =
+          previousPullRequest?.labels.some((previousLabel) => previousLabel.name === workflowLabelNames.readyToMerge) ?? false;
         const pullRequest = await this.repos.pullRequests.update(job.projectId, job.targetId, { labelIds: [label.id] });
         if (pullRequest) {
           await runLabelAutomation(this.repos, {
@@ -651,6 +656,9 @@ export class AgentWorker {
             previousLabels: previousPullRequest?.labels ?? [],
             triggerType: "label_transition"
           });
+          if (job.agentType === "verifier" && label.name === workflowLabelNames.readyToMerge && !wasReadyToMerge) {
+            await this.notifyPullRequestReadyToMerge(job);
+          }
         }
       }
     }
@@ -684,6 +692,30 @@ export class AgentWorker {
         });
       }
     }
+  }
+
+  private async notifyPullRequestReadyToMerge(job: AgentJobDto): Promise<void> {
+    const body = "Verifier confirmed the stop condition and evidence. This pull request is ready for user merge.";
+    await this.repos.comments.create({
+      projectId: job.projectId,
+      targetType: "pull_request",
+      targetId: job.targetId,
+      authorType: "system",
+      body,
+      metadata: {
+        agentJobId: job.id,
+        nextLabel: workflowLabelNames.readyToMerge
+      }
+    });
+    await this.repos.activities.create({
+      projectId: job.projectId,
+      agentJobId: job.id,
+      targetType: "pull_request",
+      targetId: job.targetId,
+      activityType: "system",
+      title: "Pull request ready to merge",
+      body
+    });
   }
 }
 
@@ -1032,7 +1064,7 @@ function derivePullRequestNextLabel(
     const verifier = objectValue(metadata.verifier);
     const verdict = stringValue(verifier?.verdict);
     if (verifier?.stopConditionMet === true || verdict === "passed") {
-      return workflowLabelNames.done;
+      return workflowLabelNames.readyToMerge;
     }
     if (verdict === "failed") {
       return workflowLabelNames.fixing;
@@ -1043,6 +1075,16 @@ function derivePullRequestNextLabel(
   }
 
   return null;
+}
+
+function normalizePullRequestNextLabel(agentType: AgentJobDto["agentType"], nextLabel: unknown): string | null {
+  if (typeof nextLabel !== "string") {
+    return null;
+  }
+  if (agentType === "verifier" && nextLabel === workflowLabelNames.done) {
+    return workflowLabelNames.readyToMerge;
+  }
+  return nextLabel;
 }
 
 function pullRequestWorkflowActivities(

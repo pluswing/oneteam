@@ -98,6 +98,12 @@ export async function ensureSystemLoop(
       stopReasons: ["passed", "failed", "waiting_human", "risk_detected"]
     },
     riskPolicy: input.riskPolicy ?? {
+      maxChangedFiles: 20,
+      maxDiffLines: 800,
+      allowedCommands: [],
+      deniedCommands: ["rm -rf", "sudo"],
+      protectedPaths: [".env", "secrets", ".oneteam/skills"],
+      protectedBranches: ["main", "master"],
       humanGateOnRisk: true
     }
   });

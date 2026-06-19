@@ -13,6 +13,8 @@ import {
   Terminal
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { AiProvider } from "../shared/ai-providers";
+import { aiProviderLabel, aiProviders } from "../shared/ai-providers";
 import type {
   AgentJobDto,
   CommentDto,
@@ -44,7 +46,6 @@ import { t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
 import { AgentJobsView } from "./views/AgentJobsView";
-import { LoopsView } from "./views/LoopsView";
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -1735,6 +1736,16 @@ function PullRequestsView(props: {
 function SettingsView(props: { project: ProjectDto }) {
   const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
   const [locale, setLocale] = useState(props.project.locale);
+  const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
+  const [claudeCommand, setClaudeCommand] = useState("claude");
+  const [claudeModel, setClaudeModel] = useState("");
+  const [claudePermissionMode, setClaudePermissionMode] =
+    useState<ProjectSettingsDto["ai"]["claudeCode"]["permissionMode"]>("bypassPermissions");
+  const [claudeMaxTurns, setClaudeMaxTurns] = useState("");
+  const [lmStudioBaseUrl, setLmStudioBaseUrl] = useState("http://127.0.0.1:1234/v1");
+  const [lmStudioModel, setLmStudioModel] = useState("");
+  const [lmStudioMaxToolRounds, setLmStudioMaxToolRounds] = useState("8");
+  const [lmStudioTemperature, setLmStudioTemperature] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -1743,6 +1754,15 @@ function SettingsView(props: { project: ProjectDto }) {
     const response = await api.getSettings(props.project.id);
     setSettings(response);
     setLocale(response.project.locale);
+    setAiProvider(response.ai.provider);
+    setClaudeCommand(response.ai.claudeCode.command);
+    setClaudeModel(response.ai.claudeCode.model ?? "");
+    setClaudePermissionMode(response.ai.claudeCode.permissionMode);
+    setClaudeMaxTurns(response.ai.claudeCode.maxTurns ? String(response.ai.claudeCode.maxTurns) : "");
+    setLmStudioBaseUrl(response.ai.lmStudio.baseUrl);
+    setLmStudioModel(response.ai.lmStudio.model ?? "");
+    setLmStudioMaxToolRounds(String(response.ai.lmStudio.maxToolRounds));
+    setLmStudioTemperature(response.ai.lmStudio.temperature === null ? "" : String(response.ai.lmStudio.temperature));
   }
 
   useEffect(() => {
@@ -1756,9 +1776,25 @@ function SettingsView(props: { project: ProjectDto }) {
     setSavedMessage(null);
     try {
       const response = await api.updateSettings(props.project.id, {
-        locale
+        locale,
+        ai: {
+          provider: aiProvider,
+          claudeCode: {
+            command: claudeCommand,
+            model: claudeModel.trim() || null,
+            permissionMode: claudePermissionMode,
+            maxTurns: claudeMaxTurns.trim() ? Number(claudeMaxTurns) : null
+          },
+          lmStudio: {
+            baseUrl: lmStudioBaseUrl,
+            model: lmStudioModel.trim() || null,
+            maxToolRounds: Number(lmStudioMaxToolRounds || "8"),
+            temperature: lmStudioTemperature.trim() ? Number(lmStudioTemperature) : null
+          }
+        }
       });
       setSettings(response);
+      setAiProvider(response.ai.provider);
       setSavedMessage(t("settings.saved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings.");
@@ -1779,6 +1815,80 @@ function SettingsView(props: { project: ProjectDto }) {
           {t("settings.locale")}
           <input value={locale} onChange={(event) => setLocale(event.target.value)} required />
         </label>
+        <label>
+          {t("settings.provider")}
+          <select value={aiProvider} onChange={(event) => setAiProvider(event.target.value as AiProvider)}>
+            {aiProviders.map((provider) => (
+              <option key={provider} value={provider}>
+                {aiProviderLabel(provider)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset>
+          <legend>{t("settings.claudeCode")}</legend>
+          <label>
+            {t("settings.command")}
+            <input value={claudeCommand} onChange={(event) => setClaudeCommand(event.target.value)} required />
+          </label>
+          <label>
+            {t("settings.model")}
+            <input value={claudeModel} onChange={(event) => setClaudeModel(event.target.value)} />
+          </label>
+          <label>
+            {t("settings.permissionMode")}
+            <select
+              value={claudePermissionMode}
+              onChange={(event) =>
+                setClaudePermissionMode(event.target.value as ProjectSettingsDto["ai"]["claudeCode"]["permissionMode"])
+              }
+            >
+              <option value="bypassPermissions">bypassPermissions</option>
+              <option value="auto">auto</option>
+              <option value="dontAsk">dontAsk</option>
+              <option value="default">default</option>
+            </select>
+          </label>
+          <label>
+            {t("settings.maxTurns")}
+            <input
+              min="1"
+              onChange={(event) => setClaudeMaxTurns(event.target.value)}
+              type="number"
+              value={claudeMaxTurns}
+            />
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>{t("settings.lmStudio")}</legend>
+          <label>
+            {t("settings.baseUrl")}
+            <input value={lmStudioBaseUrl} onChange={(event) => setLmStudioBaseUrl(event.target.value)} required />
+          </label>
+          <label>
+            {t("settings.model")}
+            <input value={lmStudioModel} onChange={(event) => setLmStudioModel(event.target.value)} />
+          </label>
+          <label>
+            {t("settings.maxToolRounds")}
+            <input
+              min="1"
+              onChange={(event) => setLmStudioMaxToolRounds(event.target.value)}
+              required
+              type="number"
+              value={lmStudioMaxToolRounds}
+            />
+          </label>
+          <label>
+            {t("settings.temperature")}
+            <input
+              onChange={(event) => setLmStudioTemperature(event.target.value)}
+              step="0.1"
+              type="number"
+              value={lmStudioTemperature}
+            />
+          </label>
+        </fieldset>
         <button className="primary-button" disabled={isSaving} type="submit">
           <Save size={16} />
           {t("actions.save")}
@@ -1796,16 +1906,20 @@ function SettingsView(props: { project: ProjectDto }) {
           <dd>{settings?.runtime.database.url ?? "-"}</dd>
         </div>
         <div>
+          <dt>{t("settings.provider")}</dt>
+          <dd>{settings ? aiProviderLabel(settings.ai.provider) : "-"}</dd>
+        </div>
+        <div>
           <dt>{t("settings.codexCommand")}</dt>
-          <dd>{settings?.ai.codexCommand ?? "-"}</dd>
+          <dd>{settings?.ai.codex.command ?? "-"}</dd>
         </div>
         <div>
           <dt>{t("settings.model")}</dt>
-          <dd>{settings?.ai.model ?? "-"}</dd>
+          <dd>{settings?.ai.codex.model ?? "-"}</dd>
         </div>
         <div>
           <dt>{t("settings.fullAccess")}</dt>
-          <dd>{settings?.ai.fullAccess ? t("status.ready") : "-"}</dd>
+          <dd>{settings?.ai.codex.fullAccess ? t("status.ready") : "-"}</dd>
         </div>
       </dl>
     </section>
@@ -1842,16 +1956,18 @@ function ProjectSelector(props: {
           {props.repositories.length === 0 ? <div className="empty-state">{t("projects.noProjects")}</div> : null}
           {props.repositories.map((repository) => (
             <button
-              className="work-item-summary"
+              className="work-item-summary project-summary"
               disabled={openingRepoPath !== null}
               key={repository.repoPath}
               onClick={() => void openRepository(repository)}
               type="button"
             >
               <span className="work-item-title">{repository.name}</span>
-              <span>{repository.repoPath}</span>
-              <span>{formatDateTime(repository.lastOpenedAt)}</span>
-              <span>{openingRepoPath === repository.repoPath ? t("status.running") : t("projects.openProject")}</span>
+              <span className="project-repo-path">{repository.repoPath}</span>
+              <span className="project-opened-at">{formatDateTime(repository.lastOpenedAt)}</span>
+              <span className="project-open-action">
+                {openingRepoPath === repository.repoPath ? t("status.running") : t("projects.openProject")}
+              </span>
             </button>
           ))}
         </div>
@@ -2039,22 +2155,6 @@ export function App() {
           onOpenPullRequestConflicts={handleOpenPullRequestConflicts}
           onOpenAgentJob={handleOpenAgentJob}
           onOpenIssue={handleOpenIssue}
-        />
-      ) : null}
-      {view === "loops" ? (
-        <LoopsView
-          onBackToList={() => navigate({ name: "loops" })}
-          onOpenAgentJob={(jobId) => navigate({ name: "agentJob", jobId })}
-          onOpenLoop={(loopId) => navigate({ name: "loop", loopId })}
-          onOpenRun={(loopRunId) => navigate({ name: "loopRun", loopRunId })}
-          project={project}
-          screen={
-            route.name === "loop"
-              ? { name: "detail", loopId: route.loopId }
-              : route.name === "loopRun"
-                ? { name: "run", loopRunId: route.loopRunId }
-                : { name: "list" }
-          }
         />
       ) : null}
       {view === "agentJobs" ? (

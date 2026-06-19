@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>One Team | ローカルLoop Engineering</title>
+    <title>OneTeam | ローカルLoop Engineering</title>
     <meta
       name="description"
-      content="One Teamは、単独開発者がローカル環境でIssueを起点にAI開発ループを設計、実行、検証、記録するためのWebアプリケーションです。"
+      content="OneTeamは、単独開発者がローカル環境でIssueを起点にAI開発ループを設計、実行、検証、記録するためのWebアプリケーションです。"
     />
     <style>
       :root {
@@ -450,9 +450,9 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="#top" aria-label="One Team">
+      <a class="brand" href="#top" aria-label="OneTeam">
         <img class="brand-icon" src="assets/brand/logo.svg" alt="" />
-        <img class="brand-word" src="assets/brand/oneteam.svg" alt="One Team" />
+        <img class="brand-word" src="assets/brand/oneteam.svg" alt="OneTeam" />
       </a>
       <nav class="site-nav" aria-label="ページ内ナビゲーション">
         <a href="#overview">概要</a>
@@ -465,10 +465,10 @@
     </header>
 
     <main id="top">
-      <section class="hero" aria-label="One Team">
+      <section class="hero" aria-label="OneTeam">
         <div class="hero-content">
           <p class="eyebrow">単独開発者のためのローカルLoop Engineering</p>
-          <h1>One Team</h1>
+          <h1>OneTeam</h1>
           <p class="hero-copy">
             Issueを起点に、要件定義、実装、レビュー、QA、証拠記録、停止条件までをローカルで回す、
             単独開発者向けのAI開発ループ設計ツールです。
@@ -486,7 +486,7 @@
           <div class="section-heading">
             <h2>ローカルで完結する、検証可能なAI開発ループ</h2>
             <p>
-              One TeamはGitHub連携を前提にせず、手元のリポジトリを1つ登録して使います。Issue、Pull Request、
+              OneTeamはGitHub連携を前提にせず、手元のリポジトリを1つ登録して使います。Issue、Pull Request、
               コメント、ラベル、Agent Job、Evidence、Activity LogをローカルDBに保存し、AIが何を行い、
               なぜ止まったかを追える形にします。
             </p>
@@ -510,7 +510,7 @@
               <span class="tag yellow">Agent Job</span>
               <h3>Loopの証拠を残す</h3>
               <p>
-                Codex CLIの実行結果、変更ファイル、検証コマンド、エラー、停止理由、Human Gateの質問を追跡できます。
+                AI providerの実行結果、変更ファイル、検証コマンド、エラー、停止理由、Human Gateの質問を追跡できます。
               </p>
             </article>
           </div>
@@ -522,13 +522,13 @@
           <div class="section-heading">
             <h2>利用方法</h2>
             <p>
-              One Teamの基本操作は、Issueを起点にGoal Contractを作り、AI開発ループを証拠付きで回す流れです。
+              OneTeamの基本操作は、Issueを起点にGoal Contractを作り、AI開発ループを証拠付きで回す流れです。
             </p>
           </div>
           <ol class="workflow">
             <li>
               <strong>1. リポジトリを登録</strong>
-              <span>初回Setupで既存のGitリポジトリを指定し、Codexログイン確認とコマンド検出を行います。</span>
+              <span>初回Setupで既存のGitリポジトリを指定し、AI providerを選択してコマンド検出を行います。</span>
             </li>
             <li>
               <strong>2. Issueを作成</strong>
@@ -540,7 +540,7 @@
             </li>
             <li>
               <strong>4. 停止理由を確認してMerge</strong>
-              <span>レビューAgentとQA Agentの証拠を見て、最後のMergeはユーザーが実行します。</span>
+              <span>Verifierがマージ可にしたら、証拠を確認して最後のMergeはユーザーが実行します。</span>
             </li>
           </ol>
         </div>
@@ -560,7 +560,7 @@
               <div class="screenshot-frame">
                 <img
                   src="assets/screenshots/issue-detail.png"
-                  alt="One TeamのIssue詳細画面。本文、会話、AIの質問、ラベル、Agent操作が表示されている。"
+                  alt="OneTeamのIssue詳細画面。本文、会話、AIの質問、ラベル、Agent操作が表示されている。"
                   width="1440"
                   height="960"
                 />
@@ -575,7 +575,7 @@
               <div class="screenshot-frame">
                 <img
                   src="assets/screenshots/pull-request-files.png"
-                  alt="One TeamのPull Request詳細画面。ブランチ比較と変更ファイルのdiffが表示されている。"
+                  alt="OneTeamのPull Request詳細画面。ブランチ比較と変更ファイルのdiffが表示されている。"
                   width="1440"
                   height="960"
                 />
@@ -590,7 +590,7 @@
               <div class="screenshot-frame">
                 <img
                   src="assets/screenshots/agent-job-detail.png"
-                  alt="One TeamのAgent Job詳細画面。実装Agentの結果、変更ファイル、テスト結果、Activity Logが表示されている。"
+                  alt="OneTeamのAgent Job詳細画面。実装Agentの結果、変更ファイル、テスト結果、Activity Logが表示されている。"
                   width="1440"
                   height="960"
                 />
@@ -605,7 +605,7 @@
               <div class="screenshot-frame">
                 <img
                   src="assets/screenshots/repository.png"
-                  alt="One TeamのRepository画面。リポジトリパス、現在のブランチ、作業ツリー、検出コマンドが表示されている。"
+                  alt="OneTeamのRepository画面。リポジトリパス、現在のブランチ、作業ツリー、検出コマンドが表示されている。"
                   width="1440"
                   height="960"
                 />
@@ -621,12 +621,12 @@
             <div class="section-heading">
               <h2>ローカルでの起動</h2>
               <p>
-                Node.js、npm、git、Codex CLIの認証があれば起動できます。GitHub Pagesは紹介用の静的ページで、
-                実際のOne Team本体は手元で動かします。
+                Node.js、npm、git、Codex、Claude Code、LM StudioなどのAI providerがあれば起動できます。GitHub Pagesは紹介用の静的ページで、
+                実際のOneTeam本体は手元で動かします。
               </p>
             </div>
             <ol class="usage-list">
-              <li><strong>依存関係をインストール</strong>して、Codex CLIにログインします。</li>
+              <li><strong>依存関係をインストール</strong>して、利用するAI providerを準備します。</li>
               <li><strong>npm run dev</strong>でAPIとVite UIを起動します。</li>
               <li><strong>http://127.0.0.1:3579</strong>を開き、Setupからリポジトリを登録します。</li>
               <li><strong>Issueを作成</strong>し、ラベルやAgent操作でローカルAI開発ループを開始します。</li>
@@ -645,7 +645,7 @@
 
     <footer class="site-footer">
       <div class="section-inner">
-        <span>One Team</span>
+        <span>OneTeam</span>
         <span>Local Loop Engineering for solo developers.</span>
         <span>
           <a href="https://github.com/pluswing/oneteam/">pluswing/oneteam</a>

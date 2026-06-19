@@ -11,7 +11,7 @@ export type CodexAdapterOptions = {
   loadOptions?: () => Promise<Partial<Pick<CodexAdapterOptions, "command" | "model">>>;
 };
 
-function extractJson(text: string): AgentRunResult {
+export function extractAgentRunResult(text: string, fallbackName = "Agent"): AgentRunResult {
   const trimmed = text.trim();
   const parsed = parseAgentRunResult(trimmed);
   if (parsed) {
@@ -28,11 +28,11 @@ function extractJson(text: string): AgentRunResult {
 
   return {
     status: "succeeded",
-    message: trimmed || "Codex completed without a structured response.",
+    message: trimmed || `${fallbackName} completed without a structured response.`,
     activities: [
       {
         type: "progress",
-        title: "Codex response captured",
+        title: `${fallbackName} response captured`,
         body: trimmed
       }
     ]
@@ -174,7 +174,7 @@ export class CodexAdapter implements AgentAdapter {
       }
 
       const finalMessage = await readFile(lastMessagePath, "utf8").catch(() => stdout);
-      return extractJson(finalMessage);
+      return extractAgentRunResult(finalMessage, "Codex");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -202,7 +202,7 @@ const stopReasons = [
   "canceled"
 ] as const;
 
-const agentOutputSchema = {
+export const agentOutputSchema = {
   type: "object",
   properties: {
     status: {

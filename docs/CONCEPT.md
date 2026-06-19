@@ -1,6 +1,6 @@
-# one team
+# OneTeam
 
-one teamは単独開発者向けのAI開発アシストツールです。  
+OneTeamは単独開発者向けのAI開発アシストツールです。  
 GitHubライクな、issue, pull request機能を持ち、  
 gitで管理されたソースコードを管理できるUIツールを持ち、  
 issueに書かれた内容は、AIが自動で開発のための要件定義を行い、  
@@ -27,7 +27,7 @@ Githubのissue, pull request機能を持ちます。
   - pull requestの一覧
   - pull requestの新規作成/更新/削除
   - 状態管理 ( Open / Closed )
-  - タグ管理 ( reviewing / fixing / testing / done など。 )
+  - タグ管理 ( reviewing / fixing / testing / done / ready-to-merge など。 )
   - コメント機能
     - タグとコメントは、issueとほぼ同じ
   - コミット一覧
@@ -61,12 +61,14 @@ Githubのissue, pull request機能を持ちます。
   - 実行環境を自動で用意し、環境を立ち上げる
   - playwright などを利用し、追加・修正された機能をテストする
   - 不具合などがあった場合、コメントに不具合の詳細を書き込み、修正エージェントにバトンタッチ
-  - 問題なければ、検証結果をまとめてコメントし、`done` タグをつける
+  - 問題なければ、検証結果をまとめてコメントし、`done` タグで最終検証へ引き渡す
+- Verifier Agent
+  - Stop Condition と Evidence を確認し、問題なければ `ready-to-merge` タグをつける
 
 # バックエンド、動作環境
-one teamは単独開発者向けのシステムです。
+OneTeamは単独開発者向けのシステムです。
 ポータブルに動作させたいので、立ち上げはシンプルに行えるようにしてください。
 dockerは使用せず、nodejsとgitさえインストールされていれば動作するようにしてください。
 データベースはlibSQLを利用してください。
 UIのポートはユーザが決められるよう設定ファイルを用意してください。
-git repositoryはone team内の特定の場所に作成される、もしくは初回起動時にインポートを行うイメージです。
+git repositoryはOneTeam内の特定の場所に作成される、もしくは初回起動時にインポートを行うイメージです。

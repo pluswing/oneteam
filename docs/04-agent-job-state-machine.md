@@ -94,10 +94,12 @@ stateDiagram-v2
   Fixing --> Reviewing: fixes completed
   Reviewing --> Testing: review approved
   Testing --> Fixing: QA defect
-  Testing --> Completed: QA passed
+  Testing --> Verifying: QA passed
+  Verifying --> ReadyToMerge: stop condition met
+  Verifying --> Fixing: verification failed
   Open --> ConflictFixing: conflict detected
   ConflictFixing --> Reviewing: conflict resolved
-  Completed --> Closed: user closes PR
+  ReadyToMerge --> Closed: user merges or closes PR
 ```
 
 ## 8. Pull Request Label Rules
@@ -110,6 +112,8 @@ stateDiagram-v2
 | `reviewing` | review approved | `testing` |
 | `testing` | QA defect | `fixing` |
 | `testing` | QA passed | `done` |
+| `done` | verifier passed | `ready-to-merge` |
+| `done` | verifier failed | `fixing` |
 | any open PR | merge conflict detected | `resolving-conflicts` |
 | `resolving-conflicts` | conflict resolved | `reviewing` |
 
@@ -187,7 +191,7 @@ Cancel は job status を `canceled` にする。
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant UI as one team UI
+  participant UI as OneTeam UI
   participant G as Git Service
   participant A as Fix Agent
 

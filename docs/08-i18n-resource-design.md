@@ -73,7 +73,7 @@ agents.status.waitingHuman
 ```json
 {
   "app": {
-    "name": "one team"
+    "name": "OneTeam"
   },
   "nav": {
     "issues": "Issues",

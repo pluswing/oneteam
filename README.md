@@ -14,7 +14,7 @@ It provides a GitHub-like local control plane for issues, pull requests, labels,
 - Manage one local Git repository per OneTeam instance.
 - Create local issues and pull requests without GitHub integration.
 - Turn issues into verifiable AI development loops with goal contracts, evidence, and stop reasons.
-- Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, and `done`.
+- Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, `done`, and `ready-to-merge`.
 - Run AI agent jobs through the local Codex CLI.
 - Save AI progress, thinking summaries, command results, changed files, and errors as Activity Log entries.
 - Auto-detect install/dev/build/test/lint commands from the repository.
@@ -115,13 +115,14 @@ npm run codex:version
 ## Loop Workflow
 
 1. Create an issue.
-2. Apply or trigger `requirements`.
+2. OneTeam automatically starts `requirements`.
 3. Requirements Agent turns the request into a goal contract with acceptance criteria, evidence requirements, and stop conditions.
 4. Implementation Agent prepares a branch, runs Codex, verifies commands, and creates a local pull request.
 5. Review Agent checks requirement coverage, evidence, and risk, then sends the pull request to `fixing` or `testing`.
 6. Fix Agent resolves review, QA, or conflict findings and returns to `reviewing`.
-7. QA Agent records evidence and sends defects to `fixing` or completes the pull request with `done`.
-8. The user performs the final merge.
+7. QA Agent records evidence and sends defects to `fixing` or hands the pull request to final verification with `done`.
+8. Verifier Agent checks the stop condition and evidence, then marks the pull request `ready-to-merge`.
+9. The user performs the final merge.
 
 ## Project Structure
 
