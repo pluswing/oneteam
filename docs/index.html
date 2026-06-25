@@ -6,7 +6,7 @@
     <title>OneTeam | Local Loop Engineering</title>
     <meta
       name="description"
-      content="OneTeam is a local web app for solo developers who want to design, run, verify, and remember AI development loops from local issues."
+      content="OneTeam is a local desktop app for solo developers who want issue-first AI development loops with standing objectives, verification gates, scheduler discovery, judge agents, and project memory."
     />
     <style>
       :root {
@@ -339,23 +339,23 @@
         align-items: start;
       }
 
-      .command-list {
+      .download-panel {
         display: grid;
-        gap: 10px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
+        gap: 14px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
       }
 
-      .command-list code {
-        display: block;
-        padding: 13px 14px;
-        border: 1px solid #cad6dc;
-        border-radius: 8px;
-        color: #172027;
-        background: #ffffff;
-        font-size: 14px;
-        overflow-x: auto;
+      .download-panel .button {
+        width: 100%;
+      }
+
+      .download-panel p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
       }
 
       .usage-list {
@@ -458,7 +458,7 @@
         <a href="#overview">Overview</a>
         <a href="#workflow">Workflow</a>
         <a href="#screens">Screens</a>
-        <a href="#setup">Setup</a>
+        <a href="#setup">Download</a>
         <a href="ja.html">日本語</a>
         <a href="https://github.com/pluswing/oneteam/">GitHub</a>
       </nav>
@@ -470,11 +470,12 @@
           <p class="eyebrow">Local Loop Engineering for solo developers</p>
           <h1>OneTeam</h1>
           <p class="hero-copy">
-            Design local AI development loops that start from issues, run through requirements,
-            implementation, review, QA, evidence, and clear stopping conditions.
+            Create issues as usual. OneTeam runs the standing objective behind them,
+            carrying requirements, implementation, review, QA, verification gates, judge decisions,
+            evidence, and project memory through to a pull request you can merge yourself.
           </p>
           <div class="hero-actions" aria-label="Primary links">
-            <a class="button primary" href="#setup">Get started</a>
+            <a class="button primary" href="#setup">Download</a>
             <a class="button" href="#screens">View screens</a>
             <a class="button" href="https://github.com/pluswing/oneteam/">pluswing/oneteam</a>
           </div>
@@ -484,33 +485,54 @@
       <section class="section" id="overview">
         <div class="section-inner">
           <div class="section-heading">
-            <h2>Verifiable AI development loops that stay local</h2>
+            <h2>Issue-first Loop Engineering that stays local</h2>
             <p>
-              OneTeam works with a single Git repository on your machine. It stores issues, pull requests,
-              comments, labels, agent jobs, evidence, and activity logs locally so you can see what the AI is doing
-              and why each loop stopped.
+              OneTeam works with a Git repository on your machine. Each imported project keeps its own
+              `.oneteam` database, skills, and memory under the repository root, so switching projects swaps
+              the whole AI development state with the code.
             </p>
           </div>
           <div class="feature-grid">
             <article class="feature-card">
               <span class="tag green">Issue</span>
-              <h3>Turn issues into goals</h3>
+              <h3>Write issues, not loop settings</h3>
               <p>
-                Write requests, bugs, or improvements in Markdown, then clarify acceptance criteria, evidence, and stop conditions.
+                Describe the work in an issue. Requirements agents infer the goal contract, evidence, risk policy, and handoff conditions.
               </p>
             </article>
             <article class="feature-card">
-              <span class="tag blue">Pull Request</span>
-              <h3>Review local pull requests</h3>
+              <span class="tag blue">Objective</span>
+              <h3>Keep a standing objective</h3>
               <p>
-                Compare the implementation branch with main, inspect commits and files, and keep the linked issue nearby.
+                One objective run follows the issue and linked pull request across implementation, review, fixes, QA, and verifier judgment.
               </p>
             </article>
             <article class="feature-card">
               <span class="tag yellow">Agent Job</span>
-              <h3>Track loop evidence</h3>
+              <h3>Gate completion with evidence</h3>
               <p>
-                Follow provider results, changed files, verification commands, errors, stop reasons, and Human Gate questions.
+                Hard verification gates require command results, changed files, stop reasons, and verifier evidence before the loop can stop safely.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag green">Scheduler</span>
+              <h3>Discover work in the background</h3>
+              <p>
+                The internal scheduler creates missing objectives for open issues and turns repository problems into triage items.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag blue">Judge</span>
+              <h3>Separate builder and judge</h3>
+              <p>
+                Verifier jobs are recorded as judge decisions with their AI provider, missing evidence, notes, and ready-to-merge status.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag yellow">Comments</span>
+              <h3>Use richer agent reports</h3>
+              <p>
+                Agents can write Markdown or sanitized HTML comments, enabling compact tables, callouts, and structured status reports.
               </p>
             </article>
           </div>
@@ -520,27 +542,28 @@
       <section class="section band" id="workflow">
         <div class="section-inner">
           <div class="section-heading">
-            <h2>From Issue to Loop</h2>
+            <h2>From Issue to Verified Pull Request</h2>
             <p>
-              The core flow starts from an issue, gives AI a goal contract, gathers evidence, and ends with a pull request you can inspect.
+              The user-facing flow stays simple: create an issue, answer questions if needed, then inspect the pull request.
+              The loop control plane runs behind that workflow.
             </p>
           </div>
           <ol class="workflow">
             <li>
               <strong>1. Register a repository</strong>
-              <span>Use Setup to import a Git repository, choose an AI provider, then let OneTeam save detected commands.</span>
+              <span>Import a Git repository, choose Codex, Claude Code, or LM Studio, then let OneTeam create project-local `.oneteam` state.</span>
             </li>
             <li>
               <strong>2. Create an issue</strong>
-              <span>Describe the work and use the requirements label to create a goal contract.</span>
+              <span>Describe the work. OneTeam creates a standing objective and uses requirements to define acceptance evidence.</span>
             </li>
             <li>
-              <strong>3. Let AI run the loop</strong>
-              <span>The implementation agent creates a branch, changes files, runs checks, and records evidence.</span>
+              <strong>3. Let agents run and judge</strong>
+              <span>Implementation, review, fix, QA, and verifier agents run in worktrees, collect evidence, and update objective state.</span>
             </li>
             <li>
-              <strong>4. Review the stop reason</strong>
-              <span>When the verifier marks it ready to merge, inspect the evidence and perform the final merge yourself.</span>
+              <strong>4. Merge with judgment</strong>
+              <span>When verifier marks the pull request ready to merge, inspect the objective summary and evidence, then merge yourself.</span>
             </li>
           </ol>
         </div>
@@ -555,7 +578,7 @@
             <figure>
               <figcaption>
                 <strong>Issue detail</strong><br />
-                Requirements, comments, agent jobs, and Human Gate questions are visible in the same workflow.
+                Requirements, rich agent comments, objective status, agent jobs, and Human Gate questions are visible in the same workflow.
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -570,7 +593,7 @@
             <figure>
               <figcaption>
                 <strong>Pull request diff</strong><br />
-                Compare source and target branches, then inspect changed files, diffs, and the linked issue.
+                Compare source and target branches, inspect changed files, and watch the same objective continue through review, QA, and verifier.
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -585,7 +608,7 @@
             <figure>
               <figcaption>
                 <strong>Agent job detail</strong><br />
-                See what the AI changed, which checks ran, what evidence was captured, and why the job stopped.
+                See provider output, changed files, verification commands, hard-gate evidence, and why the job stopped.
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -600,7 +623,7 @@
             <figure>
               <figcaption>
                 <strong>Repository</strong><br />
-                Check detected build, test, and lint commands alongside the current Git state.
+                Check detected build, test, and lint commands. Missing commands can be discovered by the scheduler and routed to triage.
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -619,26 +642,25 @@
         <div class="section-inner setup-panel">
           <div>
             <div class="section-heading">
-              <h2>Run It Locally</h2>
+              <h2>Download the App</h2>
               <p>
-                OneTeam runs with Node.js, npm, git, and an AI provider such as Codex, Claude Code, or LM Studio. This GitHub Pages site is only the
-                product overview; the app itself runs on your machine.
+                OneTeam is distributed as a macOS app from GitHub Releases. Download the latest DMG,
+                open OneTeam.app, then choose Codex, Claude Code, or LM Studio on first launch.
+                No local build is needed.
               </p>
             </div>
             <ol class="usage-list">
-              <li><strong>Install dependencies</strong> and prepare your preferred AI provider.</li>
-              <li><strong>Run npm run dev</strong> to start the API and Vite UI.</li>
-              <li><strong>Open http://127.0.0.1:3579</strong> and register a repository from Setup.</li>
-              <li><strong>Create an issue</strong>, then use labels or agent actions to start a local AI development loop.</li>
+              <li><strong>Download the latest release</strong> from GitHub Releases.</li>
+              <li><strong>Open the DMG</strong> and launch OneTeam.app.</li>
+              <li><strong>Select or add a repository</strong> so OneTeam stores its DB, skills, and memory under that repo.</li>
+              <li><strong>Create an issue</strong> and let OneTeam run the objective-backed AI development loop behind it.</li>
             </ol>
           </div>
 
-          <ul class="command-list" aria-label="Startup commands">
-            <li><code>npm install</code></li>
-            <li><code>npm run codex:login</code></li>
-            <li><code>npm run dev</code></li>
-            <li><code>open http://127.0.0.1:3579</code></li>
-          </ul>
+          <div class="download-panel" aria-label="Download OneTeam">
+            <a class="button primary" href="https://github.com/pluswing/oneteam/releases/latest">Download latest .app</a>
+            <p>macOS builds are attached to each GitHub Release as a DMG containing OneTeam.app.</p>
+          </div>
         </div>
       </section>
     </main>

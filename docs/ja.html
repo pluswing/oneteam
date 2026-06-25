@@ -6,7 +6,7 @@
     <title>OneTeam | ローカルLoop Engineering</title>
     <meta
       name="description"
-      content="OneTeamは、単独開発者がローカル環境でIssueを起点にAI開発ループを設計、実行、検証、記録するためのWebアプリケーションです。"
+      content="OneTeamは、Issueを起点にstanding objective、verification gate、scheduler、judge agent、project memoryをローカルで回す単独開発者向けデスクトップアプリです。"
     />
     <style>
       :root {
@@ -339,23 +339,23 @@
         align-items: start;
       }
 
-      .command-list {
+      .download-panel {
         display: grid;
-        gap: 10px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
+        gap: 14px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
       }
 
-      .command-list code {
-        display: block;
-        padding: 13px 14px;
-        border: 1px solid #cad6dc;
-        border-radius: 8px;
-        color: #172027;
-        background: #ffffff;
-        font-size: 14px;
-        overflow-x: auto;
+      .download-panel .button {
+        width: 100%;
+      }
+
+      .download-panel p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
       }
 
       .usage-list {
@@ -458,7 +458,7 @@
         <a href="#overview">概要</a>
         <a href="#workflow">利用方法</a>
         <a href="#screens">画面</a>
-        <a href="#setup">起動</a>
+        <a href="#setup">ダウンロード</a>
         <a href="index.html">English</a>
         <a href="https://github.com/pluswing/oneteam/">GitHub</a>
       </nav>
@@ -470,11 +470,12 @@
           <p class="eyebrow">単独開発者のためのローカルLoop Engineering</p>
           <h1>OneTeam</h1>
           <p class="hero-copy">
-            Issueを起点に、要件定義、実装、レビュー、QA、証拠記録、停止条件までをローカルで回す、
-            単独開発者向けのAI開発ループ設計ツールです。
+            ユーザーはいつも通りIssueを書く。OneTeamはその裏側でstanding objectiveを回し、
+            要件定義、実装、レビュー、QA、verification gate、judgeの判定、Evidence、Memoryを
+            Pull Requestまで運びます。最後のMerge判断はユーザーに残します。
           </p>
           <div class="hero-actions" aria-label="主要リンク">
-            <a class="button primary" href="#setup">使い始める</a>
+            <a class="button primary" href="#setup">ダウンロード</a>
             <a class="button" href="#screens">画面を見る</a>
             <a class="button" href="https://github.com/pluswing/oneteam/">pluswing/oneteam</a>
           </div>
@@ -484,33 +485,54 @@
       <section class="section" id="overview">
         <div class="section-inner">
           <div class="section-heading">
-            <h2>ローカルで完結する、検証可能なAI開発ループ</h2>
+            <h2>Issue-firstで使える、ローカルLoop Engineering</h2>
             <p>
-              OneTeamはGitHub連携を前提にせず、手元のリポジトリを1つ登録して使います。Issue、Pull Request、
-              コメント、ラベル、Agent Job、Evidence、Activity LogをローカルDBに保存し、AIが何を行い、
-              なぜ止まったかを追える形にします。
+              OneTeamは手元のGitリポジトリを登録して使います。インポートしたリポジトリrootの
+              `.oneteam` 以下にDB、skills、memoryを置くため、プロジェクトを切り替えると
+              コードとAI開発状態をまとめて切り替えられます。
             </p>
           </div>
           <div class="feature-grid">
             <article class="feature-card">
               <span class="tag green">Issue</span>
-              <h3>IssueをGoalに変える</h3>
+              <h3>Loop設定ではなくIssueを書く</h3>
               <p>
-                やりたいことや不具合をMarkdownで記録し、受け入れ条件、証拠、停止条件を明確にします。
+                ユーザーはIssueに要望を書く。Requirements AgentがGoal Contract、Evidence、リスク、引き渡し条件を推定します。
               </p>
             </article>
             <article class="feature-card">
-              <span class="tag blue">Pull Request</span>
-              <h3>差分をローカルPRで確認</h3>
+              <span class="tag blue">Objective</span>
+              <h3>standing objectiveで束ねる</h3>
               <p>
-                実装ブランチとmainの差分、コミット、関連Issue、レビュー結果を同じ画面で確認できます。
+                1つのObjective RunがIssueとPull Requestをまたぎ、実装、レビュー、修正、QA、Verifierまで追跡します。
               </p>
             </article>
             <article class="feature-card">
               <span class="tag yellow">Agent Job</span>
-              <h3>Loopの証拠を残す</h3>
+              <h3>Evidenceで完了を止める</h3>
               <p>
-                AI providerの実行結果、変更ファイル、検証コマンド、エラー、停止理由、Human Gateの質問を追跡できます。
+                Verification gateが、コマンド結果、変更ファイル、停止理由、VerifierのEvidenceなしの完了を止めます。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag green">Scheduler</span>
+              <h3>裏側で作業候補を発見</h3>
+              <p>
+                内部SchedulerがOpen IssueにObjectiveを補完し、不足コマンドなどのリポジトリ問題をTriageへ送ります。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag blue">Judge</span>
+              <h3>作る役と判定役を分ける</h3>
+              <p>
+                Verifier Jobをjudgeとして記録し、AI provider、missing evidence、notes、ready-to-merge状態を残します。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="tag yellow">Comments</span>
+              <h3>表現力の高いAgentコメント</h3>
+              <p>
+                AgentはMarkdownまたはサニタイズ済みHTMLで、表、callout、構造化レポートをコメントできます。
               </p>
             </article>
           </div>
@@ -520,27 +542,28 @@
       <section class="section band" id="workflow">
         <div class="section-inner">
           <div class="section-heading">
-            <h2>利用方法</h2>
+            <h2>Issueから検証済みPull Requestへ</h2>
             <p>
-              OneTeamの基本操作は、Issueを起点にGoal Contractを作り、AI開発ループを証拠付きで回す流れです。
+              ユーザー体験はシンプルです。Issueを作り、必要なら質問に答え、Pull Requestを確認する。
+              その裏側でLoop control planeが動きます。
             </p>
           </div>
           <ol class="workflow">
             <li>
               <strong>1. リポジトリを登録</strong>
-              <span>初回Setupで既存のGitリポジトリを指定し、AI providerを選択してコマンド検出を行います。</span>
+              <span>Gitリポジトリをインポートし、Codex、Claude Code、LM StudioからAI providerを選びます。</span>
             </li>
             <li>
               <strong>2. Issueを作成</strong>
-              <span>実装したい内容を書き、requirementsラベルでGoal Contractを作成します。</span>
+              <span>作りたい内容を書くと、OneTeamがstanding objectiveを作り、必要なEvidenceを定義します。</span>
             </li>
             <li>
-              <strong>3. AIがLoopを実行</strong>
-              <span>実装Agentがブランチを作り、変更、検証、証拠記録まで進めます。</span>
+              <strong>3. Agentが実行しJudgeが判定</strong>
+              <span>実装、レビュー、修正、QA、Verifierがworktreeで動き、EvidenceとObjective状態を更新します。</span>
             </li>
             <li>
-              <strong>4. 停止理由を確認してMerge</strong>
-              <span>Verifierがマージ可にしたら、証拠を確認して最後のMergeはユーザーが実行します。</span>
+              <strong>4. 判断してMerge</strong>
+              <span>Verifierがready-to-mergeにしたら、Objective summaryとEvidenceを確認してユーザーがMergeします。</span>
             </li>
           </ol>
         </div>
@@ -555,7 +578,7 @@
             <figure>
               <figcaption>
                 <strong>Issue詳細</strong><br />
-                要件、コメント、Agent Job、Human Gateの質問を同じタイムラインで確認できます。
+                要件、リッチなAgentコメント、Objective状態、Agent Job、Human Gateの質問を同じ流れで確認できます。
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -570,7 +593,7 @@
             <figure>
               <figcaption>
                 <strong>Pull Request差分</strong><br />
-                source branchとtarget branchを比較し、変更ファイル、diff、関連Issueを追えます。
+                source branchとtarget branchを比較し、レビュー、QA、Verifierまで同じObjectiveで追跡できます。
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -585,7 +608,7 @@
             <figure>
               <figcaption>
                 <strong>Agent Job詳細</strong><br />
-                AIが何を変え、どの検証を実行し、どの証拠を残し、なぜ止まったかをActivity Logとして残します。
+                provider出力、変更ファイル、検証コマンド、hard gateのEvidence、停止理由を確認できます。
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -600,7 +623,7 @@
             <figure>
               <figcaption>
                 <strong>Repository</strong><br />
-                build、test、lintなどのコマンド検出結果と、Gitの現在状態を確認できます。
+                build、test、lintなどの検出結果を確認できます。不足コマンドはSchedulerがTriageへ送れます。
               </figcaption>
               <div class="screenshot-frame">
                 <img
@@ -619,26 +642,25 @@
         <div class="section-inner setup-panel">
           <div>
             <div class="section-heading">
-              <h2>ローカルでの起動</h2>
+              <h2>アプリをダウンロード</h2>
               <p>
-                Node.js、npm、git、Codex、Claude Code、LM StudioなどのAI providerがあれば起動できます。GitHub Pagesは紹介用の静的ページで、
-                実際のOneTeam本体は手元で動かします。
+                OneTeamはmacOS向けアプリとしてGitHub Releasesから配布します。最新のDMGをダウンロードし、
+                OneTeam.appを起動して、初回起動時にCodex、Claude Code、LM Studioのいずれかを選択してください。
+                ローカルでのビルドは不要です。
               </p>
             </div>
             <ol class="usage-list">
-              <li><strong>依存関係をインストール</strong>して、利用するAI providerを準備します。</li>
-              <li><strong>npm run dev</strong>でAPIとVite UIを起動します。</li>
-              <li><strong>http://127.0.0.1:3579</strong>を開き、Setupからリポジトリを登録します。</li>
-              <li><strong>Issueを作成</strong>し、ラベルやAgent操作でローカルAI開発ループを開始します。</li>
+              <li><strong>最新リリースをダウンロード</strong>します。</li>
+              <li><strong>DMGを開き</strong>、OneTeam.appを起動します。</li>
+              <li><strong>リポジトリを選択または追加</strong>し、そのリポジトリ配下にDB、skills、memoryを保存します。</li>
+              <li><strong>Issueを作成</strong>すると、Objectiveに紐づくAI開発ループが裏側で進みます。</li>
             </ol>
           </div>
 
-          <ul class="command-list" aria-label="起動コマンド">
-            <li><code>npm install</code></li>
-            <li><code>npm run codex:login</code></li>
-            <li><code>npm run dev</code></li>
-            <li><code>open http://127.0.0.1:3579</code></li>
-          </ul>
+          <div class="download-panel" aria-label="OneTeamをダウンロード">
+            <a class="button primary" href="https://github.com/pluswing/oneteam/releases/latest">最新の.appをダウンロード</a>
+            <p>macOSビルドは、OneTeam.appを含むDMGとしてGitHub Releaseに添付されます。</p>
+          </div>
         </div>
       </section>
     </main>
