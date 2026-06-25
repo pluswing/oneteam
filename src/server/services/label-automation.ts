@@ -2,6 +2,7 @@ import type { AgentJobDto, AgentJobStatus, AgentType, LabelDto } from "../../sha
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import { ensureSystemLoop, startLoopRun } from "./loop-runner";
+import { ensureObjectiveForTarget } from "./objective-runs";
 
 const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_human"]);
 
@@ -55,6 +56,12 @@ export async function runLabelAutomation(
       continue;
     }
 
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: input.projectId,
+      targetType: input.targetType,
+      targetId: input.targetId
+    });
+
     const started = await startLoopRun(repos, {
       projectId: input.projectId,
       loopId: loop.id,
@@ -62,10 +69,12 @@ export async function runLabelAutomation(
       targetType: input.targetType,
       targetId: input.targetId,
       triggerType: input.triggerType ?? "label_applied",
+      objectiveRunId: objective?.id ?? null,
       jobInput: {
         automation: "label",
         labelName: label.name,
-        loopId: loop.id
+        loopId: loop.id,
+        objectiveRunId: objective?.id ?? null
       }
     });
     await repos.activities.create({

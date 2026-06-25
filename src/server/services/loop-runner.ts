@@ -9,6 +9,7 @@ export type StartLoopRunInput = {
   targetType: "issue" | "pull_request" | "project";
   targetId: number;
   triggerType: string;
+  objectiveRunId?: number | null;
   jobInput?: Record<string, unknown>;
 };
 
@@ -30,6 +31,7 @@ export async function createLoopStepJob(
     triggerType: input.triggerType,
     input: {
       ...(input.jobInput ?? {}),
+      objectiveRunId: input.objectiveRunId ?? input.jobInput?.objectiveRunId ?? null,
       loopRunId: input.loopRunId
     },
     lockKey: resolveAgentJobLockKey({

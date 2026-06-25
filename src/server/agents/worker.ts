@@ -6,12 +6,14 @@ import {
   detectMergeConflicts,
   getChangedFilesSince,
   getDiffLineCountSince,
+  getDiffPatchSince,
   getRepositoryStatus
 } from "../services/git-service";
 import { runLabelAutomation } from "../services/label-automation";
 import { appendLoopMemoryNote } from "../services/knowledge-files";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
 import { cleanupWorktree, prepareIssueWorktree, preparePullRequestWorktree } from "../services/worktree-service";
+import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult } from "../services/objective-runs";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -85,6 +87,12 @@ export class AgentWorker {
     }
 
     try {
+      const objectivePreflightResult = await preflightObjectiveJob(this.repos, runningJob);
+      if (objectivePreflightResult) {
+        await this.applyResult(runningJob, objectivePreflightResult);
+        return;
+      }
+
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
       const worktree = await this.prepareWorktreeForJob(runningJob, project);
       const result = await this.adapter.run({
@@ -132,6 +140,7 @@ export class AgentWorker {
 
       let finalizedResult = await this.finalizeImplementationResult(runningJob, project, worktree?.repoPath ?? project.repoPath, result);
       finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, worktree?.repoPath ?? project.repoPath, finalizedResult);
+      finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
       await this.applyResult(runningJob, finalizedResult);
       if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
         await cleanupWorktree(project, worktree.worktreePath);
@@ -166,7 +175,7 @@ export class AgentWorker {
         },
         error: message
       });
-      await this.updateLoopForResult(runningJob, {
+      const failedResult: AgentRunResult = {
         status: "failed",
         message,
         stopReason: "failed",
@@ -178,7 +187,9 @@ export class AgentWorker {
             payload: null
           }
         ]
-      });
+      };
+      await this.updateLoopForResult(runningJob, failedResult);
+      await recordObjectiveJobResult(this.repos, { job: runningJob, result: failedResult });
     }
   }
 
@@ -501,6 +512,7 @@ export class AgentWorker {
         authorType: "agent",
         agentType: job.agentType,
         body: output.comment.body,
+        bodyFormat: output.comment.bodyFormat === "html" ? "html" : "markdown",
         metadata: commentMetadata
       });
     } else if (output.questions?.length && target) {
@@ -533,6 +545,7 @@ export class AgentWorker {
       error: output.status === "failed" ? output.message : null
     });
     await this.updateLoopForResult(job, output);
+    await recordObjectiveJobResult(this.repos, { job, result: output });
   }
 
   private async updateLoopForResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
@@ -882,7 +895,7 @@ async function implementationRiskSignals(input: {
   riskPolicy: LoopRiskPolicy;
 }): Promise<RiskSignal[]> {
   const signals: RiskSignal[] = [];
-  const { job, loop, repoPath, changedFiles, diffLineCount, riskPolicy } = input;
+  const { job, loop, repoPath, project, changedFiles, diffLineCount, riskPolicy } = input;
 
   if (typeof riskPolicy.maxChangedFiles === "number" && changedFiles.length > riskPolicy.maxChangedFiles) {
     signals.push({
@@ -951,6 +964,9 @@ async function implementationRiskSignals(input: {
     }
   }
 
+  const diffPatch = await getDiffPatchSince(repoPath, project.defaultBranch).catch(() => "");
+  signals.push(...scoreManipulationRiskSignals(diffPatch));
+
   return signals;
 }
 
@@ -978,6 +994,46 @@ function positiveNumber(value: unknown): number | null {
 
 function matchesPathPattern(value: string, pattern: string): boolean {
   return matchesPattern(value, pattern) || value.startsWith(`${pattern.replace(/\/+$/, "")}/`);
+}
+
+function scoreManipulationRiskSignals(diffPatch: string): RiskSignal[] {
+  if (!diffPatch) {
+    return [];
+  }
+
+  const checks: Array<{ title: string; pattern: RegExp; summary: string }> = [
+    {
+      title: "Test skip added",
+      pattern: /^\+(?!\+\+).*?\b(?:it|test|describe)\.(?:skip|only)\s*\(/m,
+      summary: "Diff appears to add .skip or .only to a test block."
+    },
+    {
+      title: "Assertion count weakened",
+      pattern: /^\+(?!\+\+).*?\bexpect\.assertions\s*\(\s*0\s*\)/m,
+      summary: "Diff appears to reduce required assertions to zero."
+    },
+    {
+      title: "Error swallowed",
+      pattern: /^\+(?!\+\+).*?\bcatch\s*\([^)]*\)\s*\{\s*(?:return|\/[/*]|$)/m,
+      summary: "Diff appears to add a catch block that may swallow errors."
+    },
+    {
+      title: "Test file deleted",
+      pattern: /^deleted file mode [^\n]+\nindex [^\n]+\n--- a\/.*(?:__tests__|\.test\.|\.spec\.)/m,
+      summary: "Diff appears to delete a test file."
+    }
+  ];
+
+  return checks
+    .filter((check) => check.pattern.test(diffPatch))
+    .map((check) => ({
+      title: check.title,
+      summary: check.summary,
+      payload: {
+        detector: "score_manipulation_diff_scan"
+      },
+      stopReason: "risk_detected" as const
+    }));
 }
 
 function matchesPattern(value: string, pattern: string): boolean {

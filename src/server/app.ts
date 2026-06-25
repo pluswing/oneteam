@@ -40,6 +40,7 @@ import {
 import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
 import { runLabelAutomation } from "./services/label-automation";
 import { startLoopRun } from "./services/loop-runner";
+import { ensureObjectiveForTarget, markObjectiveMerged } from "./services/objective-runs";
 
 const execFileAsync = promisify(execFile);
 
@@ -656,6 +657,21 @@ export function createApp({
     return c.json({ issue });
   });
 
+  app.get("/api/projects/:projectId/issues/:issueId/objective", async (c) => {
+    const projectId = c.req.param("projectId");
+    const issueId = Number(c.req.param("issueId"));
+    const issue = await repos.issues.get(projectId, issueId);
+    if (!issue) {
+      notFound("Issue was not found.");
+    }
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId,
+      targetType: "issue",
+      targetId: issueId
+    });
+    return c.json({ objective });
+  });
+
   app.patch("/api/projects/:projectId/issues/:issueId", zValidator("json", updateIssueSchema), async (c) => {
     const projectId = c.req.param("projectId");
     const issueId = Number(c.req.param("issueId"));
@@ -771,6 +787,21 @@ export function createApp({
       notFound("Pull request was not found.");
     }
     return c.json({ pullRequest: await enrichPullRequestWithGitStats(project, pullRequest) });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/objective", async (c) => {
+    const projectId = c.req.param("projectId");
+    const pullRequestId = Number(c.req.param("pullRequestId"));
+    const pullRequest = await repos.pullRequests.get(projectId, pullRequestId);
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId,
+      targetType: "pull_request",
+      targetId: pullRequestId
+    });
+    return c.json({ objective });
   });
 
   app.patch(
@@ -947,6 +978,12 @@ export function createApp({
       body: `Merged \`${pullRequest.sourceBranch}\` into \`${pullRequest.targetBranch}\`.\n\nMerge commit: \`${mergeResult.mergeCommit.slice(0, 12)}\`.`
     });
 
+    await markObjectiveMerged(repos, {
+      project,
+      pullRequest: mergedPullRequest,
+      mergeCommit: mergeResult.mergeCommit
+    });
+
     return c.json({
       pullRequest: await enrichPullRequestWithGitStats(project, mergedPullRequest),
       mergeCommit: mergeResult.mergeCommit,
@@ -1029,6 +1066,14 @@ export function createApp({
       targetType: input.targetType,
       targetId: input.targetId,
       triggerType: input.triggerType,
+      objectiveRunId:
+        (typeof input.input?.objectiveRunId === "number" ? input.input.objectiveRunId : null) ??
+        (await ensureObjectiveForTarget(repos, {
+          projectId,
+          targetType: input.targetType,
+          targetId: input.targetId
+        }))?.id ??
+        null,
       jobInput: input.input
     });
     return c.json({ run, job, step }, 201);
@@ -1107,6 +1152,13 @@ export function createApp({
       body: triageItem.body,
       labelIds: requirementsLabel ? [requirementsLabel.id] : []
     });
+    await runLabelAutomation(repos, {
+      projectId,
+      targetType: "issue",
+      targetId: issue.id,
+      labels: issue.labels,
+      triggerType: "triage_converted"
+    });
     const updatedItem = await repos.triage.update(projectId, triageItemId, { status: "converted", issueId: issue.id });
     await repos.loopMemory.create({
       projectId,
@@ -1150,13 +1202,21 @@ export function createApp({
     const input = c.req.valid("json");
     const projectId = c.req.param("projectId");
     const agentType = input.agentType as AgentType;
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId,
+      targetType: input.targetType,
+      targetId: input.targetId
+    });
     const job = await repos.agentJobs.create({
       projectId,
       agentType,
       targetType: input.targetType,
       targetId: input.targetId,
       triggerType: input.triggerType,
-      input: input.input,
+      input: {
+        ...(input.input ?? {}),
+        objectiveRunId: objective?.id ?? null
+      },
       lockKey: resolveAgentJobLockKey({
         projectId,
         agentType,

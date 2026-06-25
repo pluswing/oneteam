@@ -904,7 +904,8 @@ textarea {
   background: #fff8c5;
 }
 
-.status-succeeded {
+.status-succeeded,
+.status-ready_to_merge {
   border-color: #1a7f37;
   color: #116329;
   background: #dafbe1;
@@ -917,7 +918,8 @@ textarea {
   background: #ffebe9;
 }
 
-.status-waiting_human {
+.status-waiting_human,
+.status-waiting {
   border-color: #8250df;
   color: #6639ba;
   background: #fbefff;
@@ -1118,6 +1120,27 @@ textarea {
   background: #f6f8fa;
 }
 
+.html-body {
+  overflow: hidden;
+}
+
+.html-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+.html-body details {
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.html-body summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .muted-text {
   color: #57606a;
   font-size: 13px;
@@ -1146,6 +1169,47 @@ textarea {
 .merge-panel .primary-button,
 .merge-panel .success-banner {
   margin-top: 0;
+}
+
+.objective-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.objective-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #57606a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compact-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.compact-facts div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.compact-facts dt {
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compact-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
 }
 
 .merge-panel p {

@@ -22,7 +22,7 @@ const outputSchema = `Return only JSON with this shape:
 {
   "status": "succeeded" | "waiting_human" | "failed",
   "message": "short user-visible summary",
-  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown" } | null,
+  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown or sanitized raw HTML", "bodyFormat": "markdown" | "html" | null } | null,
   "questions": ["question"] | null,
   "activities": [{ "type": "progress", "title": "short title", "body": "markdown", "payload": {} }],
   "changedFiles": ["path"] | null,
@@ -63,7 +63,14 @@ If you need human input to proceed safely, stop and return waiting_human with
 clear questions. Otherwise continue until the assigned job is complete.
 
 Treat each job as one step in a local AI development loop. Return explicit
-stopReason and evidence so the user can verify why the job stopped.`;
+stopReason and evidence so the user can verify why the job stopped.
+
+Agent comments may use Markdown or raw HTML. Use "bodyFormat": "markdown" for
+normal comments. Use "bodyFormat": "html" only when a structured report,
+table, callout, or compact visual grouping improves the user's understanding.
+HTML must be self-contained and safe: do not include script, iframe, object,
+embed, event handler attributes, javascript: URLs, external CSS, or unsafe style
+functions.`;
 
 const rolePrompts: Record<AgentJobDto["agentType"], string> = {
   requirements: `You are the Requirements Agent.

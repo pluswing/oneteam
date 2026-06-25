@@ -11,6 +11,7 @@ import type {
   LoopRunDto,
   LoopStepDto,
   MergeConflictDto,
+  ObjectiveRunDto,
   ProjectCommandDto,
   ProjectDto,
   ProjectSettingsDto,
@@ -66,6 +67,10 @@ type LoopDetailResponse = {
 type LoopRunDetailResponse = {
   run: LoopRunDto;
   steps: LoopStepDto[];
+};
+
+type ObjectiveResponse = {
+  objective: ObjectiveRunDto | null;
 };
 
 type RepositorySwitchResponse = {
@@ -135,6 +140,11 @@ export const api = {
   async getIssue(projectId: string, issueId: number): Promise<IssueDto> {
     const response = await request<{ issue: IssueDto }>(`/api/projects/${projectId}/issues/${issueId}`);
     return response.issue;
+  },
+
+  async getIssueObjective(projectId: string, issueId: number): Promise<ObjectiveRunDto | null> {
+    const response = await request<ObjectiveResponse>(`/api/projects/${projectId}/issues/${issueId}/objective`);
+    return response.objective;
   },
 
   async createIssue(projectId: string, input: { title: string; body: string; labelIds: number[] }): Promise<IssueDto> {
@@ -238,6 +248,13 @@ export const api = {
       `/api/projects/${projectId}/pull-requests/${pullRequestId}`
     );
     return response.pullRequest;
+  },
+
+  async getPullRequestObjective(projectId: string, pullRequestId: number): Promise<ObjectiveRunDto | null> {
+    const response = await request<ObjectiveResponse>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/objective`
+    );
+    return response.objective;
   },
 
   async createPullRequest(

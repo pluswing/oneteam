@@ -9,6 +9,7 @@ import { createDatabaseContext, type DatabaseContext } from "./db/client";
 import { runMigrations } from "./db/migrations";
 import { createRepositories, type Repositories } from "./db/repositories";
 import type { CodexLoginOptions } from "./services/codex-auth";
+import { ObjectiveScheduler } from "./services/objective-scheduler";
 import { ensureProviderReady } from "./services/provider-readiness";
 
 export type OneTeamRuntime = {
@@ -100,6 +101,7 @@ export async function createOneTeamRuntime(
   });
 
   let worker: AgentWorker | null = null;
+  let objectiveScheduler: ObjectiveScheduler | null = null;
   if (config.agents.workerEnabled) {
     worker = new AgentWorker(
       repos,
@@ -118,6 +120,13 @@ export async function createOneTeamRuntime(
     worker.start();
     console.log("OneTeam agent worker started");
   }
+  if (config.agents.objectiveSchedulerEnabled) {
+    objectiveScheduler = new ObjectiveScheduler(repos, {
+      intervalMs: config.agents.objectiveSchedulerIntervalMs
+    });
+    objectiveScheduler.start();
+    console.log("OneTeam objective scheduler started");
+  }
 
   return {
     app,
@@ -125,6 +134,7 @@ export async function createOneTeamRuntime(
     runtime,
     stop() {
       worker?.stop();
+      objectiveScheduler?.stop();
       activeDatabase.context.client.close();
     }
   };

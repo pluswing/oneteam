@@ -351,6 +351,38 @@ const migrations: Migration[] = [
                ${migrationTimestamp}
         from projects`
     ]
+  },
+  {
+    id: "0007_objective_runs_and_comment_format",
+    statements: [
+      "alter table comments add column body_format text not null default 'markdown'",
+      `create table if not exists objective_runs (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        issue_id integer references issues(id) on delete set null,
+        pull_request_id integer references pull_requests(id) on delete set null,
+        status text not null default 'open',
+        title text not null,
+        goal text not null default '',
+        round_count integer not null default 0,
+        max_rounds integer not null default 12,
+        last_agent_job_id integer references agent_jobs(id) on delete set null,
+        judge_agent_job_id integer references agent_jobs(id) on delete set null,
+        generator_ai_provider text,
+        judge_ai_provider text,
+        last_failure_signature text,
+        repeated_failure_count integer not null default 0,
+        stop_reason text,
+        evidence_json text,
+        summary text not null default '',
+        created_at text not null,
+        updated_at text not null,
+        finished_at text
+      )`,
+      "create index if not exists idx_objective_runs_issue on objective_runs(project_id, issue_id, updated_at desc)",
+      "create index if not exists idx_objective_runs_pull_request on objective_runs(project_id, pull_request_id, updated_at desc)",
+      "create index if not exists idx_objective_runs_project_status on objective_runs(project_id, status, updated_at desc)"
+    ]
   }
 ];
 

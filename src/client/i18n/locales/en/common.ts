@@ -182,6 +182,15 @@ export const en = {
     retryJob: "Retry",
     attempt: "Attempt"
   },
+  objectives: {
+    title: "Objective",
+    noObjective: "No objective yet",
+    stopReason: "Stop reason",
+    evidence: "Evidence",
+    generator: "Generator",
+    judge: "Judge",
+    updated: "Updated"
+  },
   loops: {
     title: "Loops",
     newLoop: "New loop",

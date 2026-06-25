@@ -159,6 +159,15 @@ export async function getDiffLineCountSince(repoPath: string, baseBranch: string
   return Array.from(fileStats.values()).reduce((total, count) => total + count, 0);
 }
 
+export async function getDiffPatchSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<string> {
+  const outputs = await Promise.all([
+    git(repoPath, ["diff", `${baseBranch}...${revision}`]).catch(() => ""),
+    git(repoPath, ["diff"]).catch(() => ""),
+    git(repoPath, ["diff", "--cached"]).catch(() => "")
+  ]);
+  return outputs.filter(Boolean).join("\n");
+}
+
 export async function getCommits(repoPath: string, revision = "HEAD", limit = 20): Promise<RepositoryCommitDto[]> {
   const output = await git(repoPath, [
     "log",

@@ -24,6 +24,7 @@ import type {
   KnownRepositoryDto,
   LabelDto,
   MergeConflictDto,
+  ObjectiveRunDto,
   ProjectCommandDto,
   ProjectDto,
   ProjectSettingsDto,
@@ -174,7 +175,7 @@ function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: Agen
         <strong>{commentAuthorLabel(props.comment)}</strong>
         <span>{formatDateTime(props.comment.createdAt)}</span>
       </header>
-      <MarkdownContent content={readableCommentBody(props.comment, props.relatedJob)} />
+      <MarkdownContent content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
     </article>
   );
 }
@@ -486,6 +487,50 @@ function IssueRelatedLinks(props: {
   );
 }
 
+function objectiveEvidenceCount(objective: ObjectiveRunDto | null): number {
+  const items = objective?.evidence?.items;
+  return Array.isArray(items) ? items.length : 0;
+}
+
+function ObjectivePanel(props: { objective: ObjectiveRunDto | null }) {
+  const objective = props.objective;
+  if (!objective) {
+    return <div className="empty-state">{t("objectives.noObjective")}</div>;
+  }
+
+  return (
+    <div className="objective-panel">
+      <div className="objective-panel-header">
+        <span className={`status-pill status-${objective.status}`}>{objective.status}</span>
+        <span>{objective.roundCount}/{objective.maxRounds}</span>
+      </div>
+      <dl className="compact-facts">
+        <div>
+          <dt>{t("objectives.stopReason")}</dt>
+          <dd>{objective.stopReason ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("objectives.evidence")}</dt>
+          <dd>{objectiveEvidenceCount(objective)}</dd>
+        </div>
+        <div>
+          <dt>{t("objectives.generator")}</dt>
+          <dd>{objective.generatorAiProvider ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("objectives.judge")}</dt>
+          <dd>{objective.judgeAiProvider ?? "-"}</dd>
+        </div>
+        <div>
+          <dt>{t("objectives.updated")}</dt>
+          <dd>{formatDateTime(objective.updatedAt)}</dd>
+        </div>
+      </dl>
+      {objective.summary ? <p className="muted-text">{objective.summary}</p> : null}
+    </div>
+  );
+}
+
 function IssueDetailScreen(props: {
   project: ProjectDto;
   issueId: number;
@@ -497,20 +542,23 @@ function IssueDetailScreen(props: {
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [relatedPullRequests, setRelatedPullRequests] = useState<PullRequestDto[]>([]);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
+  const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isClosing, setClosing] = useState(false);
 
   async function load() {
-    const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse] = await Promise.all([
+    const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getIssue(props.project.id, props.issueId),
       api.listIssueComments(props.project.id, props.issueId),
       api.listPullRequests(props.project.id, { issueId: props.issueId, status: null }),
-      api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId })
+      api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId }),
+      api.getIssueObjective(props.project.id, props.issueId)
     ]);
     setIssue(issueResponse);
     setComments(commentsResponse);
     setRelatedPullRequests(pullRequestResponse.items);
     setRelatedAgentJobs(agentJobResponse);
+    setObjective(objectiveResponse);
   }
 
   useEffect(() => {
@@ -591,6 +639,8 @@ function IssueDetailScreen(props: {
           <CommentForm onSubmit={addComment} />
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("objectives.title")}</h2>
+          <ObjectivePanel objective={objective} />
           <h2>{t("labels.title")}</h2>
           <div className="label-row">
             {issue?.labels.length ? (
@@ -1106,6 +1156,7 @@ function PullRequestDetailScreen(props: {
   const [linkedIssue, setLinkedIssue] = useState<IssueDto | null>(null);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
+  const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
@@ -1116,10 +1167,11 @@ function PullRequestDetailScreen(props: {
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
 
   async function load() {
-    const [pullRequestResponse, commentsResponse, agentJobResponse] = await Promise.all([
+    const [pullRequestResponse, commentsResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
-      api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId })
+      api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId }),
+      api.getPullRequestObjective(props.project.id, props.pullRequestId)
     ]);
     const linkedIssuePromise = pullRequestResponse.issueId
       ? api.getIssue(props.project.id, pullRequestResponse.issueId).catch(() => null)
@@ -1134,6 +1186,7 @@ function PullRequestDetailScreen(props: {
     setLinkedIssue(linkedIssueResponse);
     setRelatedAgentJobs(agentJobResponse);
     setComments(commentsResponse);
+    setObjective(objectiveResponse);
     setFiles(filesResponse);
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
@@ -1324,6 +1377,8 @@ function PullRequestDetailScreen(props: {
           ) : null}
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("objectives.title")}</h2>
+          <ObjectivePanel objective={objective} />
           <h2>{t("pullRequests.merge")}</h2>
           <div className="merge-panel">
             {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}

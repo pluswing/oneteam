@@ -26,9 +26,18 @@ export type ActivityType =
   | "test"
   | "error"
   | "system";
+export type CommentBodyFormat = "markdown" | "html";
 export type LoopStatus = "enabled" | "disabled";
 export type LoopRunStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
 export type LoopStepStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
+export type ObjectiveRunStatus =
+  | "open"
+  | "running"
+  | "waiting_human"
+  | "ready_to_merge"
+  | "succeeded"
+  | "failed"
+  | "canceled";
 export type TriageItemStatus = "open" | "converted" | "ignored";
 
 export type ProjectDto = {
@@ -129,6 +138,7 @@ export type CommentDto = {
   authorType: "user" | "agent" | "system";
   agentType: AgentType | null;
   body: string;
+  bodyFormat: CommentBodyFormat;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -229,6 +239,30 @@ export type LoopMemoryEntryDto = {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type ObjectiveRunDto = {
+  id: number;
+  projectId: string;
+  issueId: number | null;
+  pullRequestId: number | null;
+  status: ObjectiveRunStatus;
+  title: string;
+  goal: string;
+  roundCount: number;
+  maxRounds: number;
+  lastAgentJobId: number | null;
+  judgeAgentJobId: number | null;
+  generatorAiProvider: AiProvider | null;
+  judgeAiProvider: AiProvider | null;
+  lastFailureSignature: string | null;
+  repeatedFailureCount: number;
+  stopReason: string | null;
+  evidence: Record<string, unknown> | null;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
 };
 
 export type TriageItemDto = {

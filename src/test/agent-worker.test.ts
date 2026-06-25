@@ -81,7 +81,8 @@ describe("agent worker", () => {
           comment: {
             targetType: "issue",
             targetId: issue.id,
-            body: "## Requirements\n\nBuild the setup wizard."
+            body: "<section><h2>Requirements</h2><p>Build the setup wizard.</p></section>",
+            bodyFormat: "html"
           },
           activities: [
             {
@@ -107,6 +108,7 @@ describe("agent worker", () => {
     expect(updatedJob?.status).toBe("succeeded");
     expect((updatedJob?.output as AgentRunResult | null | undefined)?.stopReason).toBe("passed");
     expect(comments[0].body).toContain("Build the setup wizard");
+    expect(comments[0].bodyFormat).toBe("html");
     expect(activities.map((activity) => activity.title)).toContain("Reviewed issue");
     expect(updatedIssue?.labels.map((label) => label.name)).toContain("ready-for-implementation");
 

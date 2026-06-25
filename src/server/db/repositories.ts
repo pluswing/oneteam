@@ -8,6 +8,7 @@ import type {
   AgentJobDto,
   AgentJobStatus,
   AgentType,
+  CommentBodyFormat,
   CommandType,
   CommentDto,
   IssueDto,
@@ -20,6 +21,8 @@ import type {
   LoopStepDto,
   LoopStepStatus,
   LoopStatus,
+  ObjectiveRunDto,
+  ObjectiveRunStatus,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
@@ -40,6 +43,7 @@ import {
   loopRuns,
   loopSteps,
   loops,
+  objectiveRuns,
   projectCommands,
   projects,
   pullRequestLabels,
@@ -61,6 +65,7 @@ type LoopRow = typeof loops.$inferSelect;
 type LoopRunRow = typeof loopRuns.$inferSelect;
 type LoopStepRow = typeof loopSteps.$inferSelect;
 type LoopMemoryEntryRow = typeof loopMemoryEntries.$inferSelect;
+type ObjectiveRunRow = typeof objectiveRuns.$inferSelect;
 type TriageItemRow = typeof triageItems.$inferSelect;
 
 function now(): string {
@@ -114,6 +119,7 @@ function mapComment(row: CommentRow): CommentDto {
     authorType: row.authorType,
     agentType: row.agentType ?? null,
     body: row.body,
+    bodyFormat: row.bodyFormat ?? "markdown",
     metadata: parseJsonObject(row.metadataJson),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
@@ -242,6 +248,32 @@ function mapLoopMemoryEntry(row: LoopMemoryEntryRow): LoopMemoryEntryDto {
     tags: parseStringArray(row.tagsJson),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
+  };
+}
+
+function mapObjectiveRun(row: ObjectiveRunRow): ObjectiveRunDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    issueId: row.issueId,
+    pullRequestId: row.pullRequestId,
+    status: row.status,
+    title: row.title,
+    goal: row.goal,
+    roundCount: row.roundCount,
+    maxRounds: row.maxRounds,
+    lastAgentJobId: row.lastAgentJobId,
+    judgeAgentJobId: row.judgeAgentJobId,
+    generatorAiProvider: row.generatorAiProvider,
+    judgeAiProvider: row.judgeAiProvider,
+    lastFailureSignature: row.lastFailureSignature,
+    repeatedFailureCount: row.repeatedFailureCount,
+    stopReason: row.stopReason,
+    evidence: parseJsonObject(row.evidenceJson),
+    summary: row.summary,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    finishedAt: row.finishedAt
   };
 }
 
@@ -878,6 +910,7 @@ export function createRepositories(db: Database) {
         authorType: "user" | "agent" | "system";
         agentType?: AgentType | null;
         body: string;
+        bodyFormat?: CommentBodyFormat;
         metadata?: Record<string, unknown>;
       }): Promise<CommentDto> {
         const timestamp = now();
@@ -890,6 +923,7 @@ export function createRepositories(db: Database) {
             authorType: input.authorType,
             agentType: input.agentType,
             body: input.body,
+            bodyFormat: input.bodyFormat ?? "markdown",
             metadataJson: stringifyJson(input.metadata),
             createdAt: timestamp,
             updatedAt: timestamp
@@ -1364,6 +1398,183 @@ export function createRepositories(db: Database) {
           })
           .returning();
         return mapLoopMemoryEntry(rows[0]);
+      }
+    },
+
+    objectives: {
+      async list(input: {
+        projectId: string;
+        issueId?: number;
+        pullRequestId?: number;
+        status?: ObjectiveRunStatus;
+      }): Promise<ObjectiveRunDto[]> {
+        const filters: SQL[] = [eq(objectiveRuns.projectId, input.projectId)];
+        if (typeof input.issueId === "number") {
+          filters.push(eq(objectiveRuns.issueId, input.issueId));
+        }
+        if (typeof input.pullRequestId === "number") {
+          filters.push(eq(objectiveRuns.pullRequestId, input.pullRequestId));
+        }
+        if (input.status) {
+          filters.push(eq(objectiveRuns.status, input.status));
+        }
+        const rows = await db.select().from(objectiveRuns).where(and(...filters)).orderBy(desc(objectiveRuns.updatedAt));
+        return rows.map(mapObjectiveRun);
+      },
+
+      async get(projectId: string, objectiveRunId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.id, objectiveRunId)))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async findByIssue(projectId: string, issueId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.issueId, issueId)))
+          .orderBy(desc(objectiveRuns.updatedAt))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async findByPullRequest(projectId: string, pullRequestId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.pullRequestId, pullRequestId)))
+          .orderBy(desc(objectiveRuns.updatedAt))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async ensureForIssue(input: {
+        projectId: string;
+        issueId: number;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+      }): Promise<ObjectiveRunDto> {
+        const existing = await this.findByIssue(input.projectId, input.issueId);
+        if (existing) {
+          return existing;
+        }
+
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async ensureForPullRequest(input: {
+        projectId: string;
+        pullRequestId: number;
+        issueId?: number | null;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+      }): Promise<ObjectiveRunDto> {
+        const existingByPullRequest = await this.findByPullRequest(input.projectId, input.pullRequestId);
+        if (existingByPullRequest) {
+          return existingByPullRequest;
+        }
+
+        if (typeof input.issueId === "number") {
+          const existingByIssue = await this.findByIssue(input.projectId, input.issueId);
+          if (existingByIssue) {
+            return (
+              (await this.update(input.projectId, existingByIssue.id, {
+                pullRequestId: input.pullRequestId,
+                title: existingByIssue.title || input.title
+              })) ?? existingByIssue
+            );
+          }
+        }
+
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId ?? null,
+            pullRequestId: input.pullRequestId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        objectiveRunId: number,
+        input: Partial<
+          Pick<
+            ObjectiveRunDto,
+            | "issueId"
+            | "pullRequestId"
+            | "status"
+            | "title"
+            | "goal"
+            | "roundCount"
+            | "maxRounds"
+            | "lastAgentJobId"
+            | "judgeAgentJobId"
+            | "generatorAiProvider"
+            | "judgeAiProvider"
+            | "lastFailureSignature"
+            | "repeatedFailureCount"
+            | "stopReason"
+            | "summary"
+            | "finishedAt"
+          >
+        > & {
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .update(objectiveRuns)
+          .set({
+            issueId: input.issueId,
+            pullRequestId: input.pullRequestId,
+            status: input.status,
+            title: input.title,
+            goal: input.goal,
+            roundCount: input.roundCount,
+            maxRounds: input.maxRounds,
+            lastAgentJobId: input.lastAgentJobId,
+            judgeAgentJobId: input.judgeAgentJobId,
+            generatorAiProvider: input.generatorAiProvider,
+            judgeAiProvider: input.judgeAiProvider,
+            lastFailureSignature: input.lastFailureSignature,
+            repeatedFailureCount: input.repeatedFailureCount,
+            stopReason: input.stopReason,
+            evidenceJson: input.evidence === undefined ? undefined : stringifyJson(input.evidence),
+            summary: input.summary,
+            finishedAt: input.finishedAt,
+            updatedAt: now()
+          })
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.id, objectiveRunId)))
+          .returning();
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
       }
     },
 

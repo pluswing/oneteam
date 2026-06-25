@@ -16,6 +16,8 @@ export type AppConfig = {
   agents: {
     workerEnabled: boolean;
     pollIntervalMs: number;
+    objectiveSchedulerEnabled: boolean;
+    objectiveSchedulerIntervalMs: number;
     ai: AiSettingsDto;
   };
 };
@@ -32,6 +34,8 @@ export function loadConfig(): AppConfig {
     agents: {
       workerEnabled: process.env.ONETEAM_AGENT_WORKER !== "false",
       pollIntervalMs: Number(process.env.ONETEAM_AGENT_POLL_INTERVAL_MS ?? "3000"),
+      objectiveSchedulerEnabled: process.env.ONETEAM_OBJECTIVE_SCHEDULER !== "false",
+      objectiveSchedulerIntervalMs: Number(process.env.ONETEAM_OBJECTIVE_SCHEDULER_INTERVAL_MS ?? "30000"),
       ai: defaultAiSettings({
         provider: isAiProvider(process.env.ONETEAM_AI_PROVIDER) ? process.env.ONETEAM_AI_PROVIDER : "codex",
         codex: {

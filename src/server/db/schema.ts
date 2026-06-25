@@ -4,12 +4,14 @@ import type {
   ActivityType,
   AgentJobStatus,
   AgentType,
+  CommentBodyFormat,
   CommandType,
   IssueStatus,
   LabelKind,
   LoopRunStatus,
   LoopStatus,
   LoopStepStatus,
+  ObjectiveRunStatus,
   PullRequestStatus,
   TriageItemStatus
 } from "../../shared/types";
@@ -128,6 +130,7 @@ export const comments = sqliteTable("comments", {
   authorType: text("author_type").notNull().$type<"user" | "agent" | "system">(),
   agentType: text("agent_type").$type<AgentType>(),
   body: text("body").notNull(),
+  bodyFormat: text("body_format").notNull().default("markdown").$type<CommentBodyFormat>(),
   metadataJson: text("metadata_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
@@ -239,6 +242,30 @@ export const loopMemoryEntries = sqliteTable("loop_memory_entries", {
   tagsJson: text("tags_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
+});
+
+export const objectiveRuns = sqliteTable("objective_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  issueId: integer("issue_id").references(() => issues.id, { onDelete: "set null" }),
+  pullRequestId: integer("pull_request_id").references(() => pullRequests.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("open").$type<ObjectiveRunStatus>(),
+  title: text("title").notNull(),
+  goal: text("goal").notNull().default(""),
+  roundCount: integer("round_count").notNull().default(0),
+  maxRounds: integer("max_rounds").notNull().default(12),
+  lastAgentJobId: integer("last_agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  judgeAgentJobId: integer("judge_agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  generatorAiProvider: text("generator_ai_provider").$type<AiProvider>(),
+  judgeAiProvider: text("judge_ai_provider").$type<AiProvider>(),
+  lastFailureSignature: text("last_failure_signature"),
+  repeatedFailureCount: integer("repeated_failure_count").notNull().default(0),
+  stopReason: text("stop_reason"),
+  evidenceJson: text("evidence_json"),
+  summary: text("summary").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  finishedAt: text("finished_at")
 });
 
 export const triageItems = sqliteTable("triage_items", {

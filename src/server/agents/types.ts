@@ -32,6 +32,7 @@ export type AgentRunResult = {
     targetType: "issue" | "pull_request";
     targetId: number;
     body: string;
+    bodyFormat?: "markdown" | "html" | null;
   } | null;
   questions?: string[] | null;
   activities?: AgentActivityResult[] | null;

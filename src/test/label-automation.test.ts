@@ -63,12 +63,16 @@ describe("label automation", () => {
     const loops = await repos.loops.list(project.id);
     const loopRuns = await repos.loopRuns.list(project.id);
     const requirementSteps = await repos.loopSteps.list(project.id, Number(requirementsJobs[0].input.loopRunId));
+    const objective = await repos.objectives.findByIssue(project.id, issue.id);
 
     expect(requirementsJobs).toHaveLength(1);
     expect(requirementsJobs[0].agentType).toBe("requirements");
     expect(duplicateJobs).toHaveLength(0);
     expect(implementationJobs).toHaveLength(1);
     expect(implementationJobs[0].agentType).toBe("implementation");
+    expect(objective?.title).toBe("Add setup");
+    expect(requirementsJobs[0].input.objectiveRunId).toBe(objective?.id);
+    expect(implementationJobs[0].input.objectiveRunId).toBe(objective?.id);
     expect(implementationJobs[0].lockKey).toBe(
       resolveAgentJobLockKey({
         projectId: project.id,

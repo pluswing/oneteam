@@ -226,9 +226,13 @@ export const agentOutputSchema = {
             },
             body: {
               type: "string"
+            },
+            bodyFormat: {
+              type: ["string", "null"],
+              enum: ["markdown", "html", null]
             }
           },
-          required: ["targetType", "targetId", "body"],
+          required: ["targetType", "targetId", "body", "bodyFormat"],
           additionalProperties: false
         },
         {

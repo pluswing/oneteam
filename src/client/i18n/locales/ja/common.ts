@@ -184,6 +184,15 @@ export const ja = {
     retryJob: "再試行",
     attempt: "試行"
   },
+  objectives: {
+    title: "Objective",
+    noObjective: "Objective はまだありません",
+    stopReason: "停止理由",
+    evidence: "証拠",
+    generator: "生成役",
+    judge: "評価役",
+    updated: "更新"
+  },
   loops: {
     title: "Loop",
     newLoop: "新しい Loop",

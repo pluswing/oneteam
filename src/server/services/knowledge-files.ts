@@ -43,6 +43,7 @@ function safeKnowledgePath(relativePath: string): string {
 }
 
 export async function ensureKnowledgeFiles(repoPath: string): Promise<void> {
+  await ensureOneteamIgnored(repoPath);
   const root = knowledgeRoot(repoPath);
   await mkdir(join(root, "skills"), { recursive: true });
   await mkdir(join(root, "memory"), { recursive: true });
@@ -54,6 +55,16 @@ export async function ensureKnowledgeFiles(repoPath: string): Promise<void> {
       await writeFile(path, file.body, "utf8");
     }
   }
+}
+
+async function ensureOneteamIgnored(repoPath: string): Promise<void> {
+  const excludePath = join(repoPath, ".git", "info", "exclude");
+  const current = await readFile(excludePath, "utf8").catch(() => null);
+  if (current === null || current.split(/\r?\n/).some((line) => line.trim() === ".oneteam/")) {
+    return;
+  }
+  const next = `${current.trimEnd()}\n.oneteam/\n`;
+  await writeFile(excludePath, next, "utf8").catch(() => undefined);
 }
 
 export async function listKnowledgeFiles(repoPath: string): Promise<SkillFileDto[]> {
