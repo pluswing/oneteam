@@ -7,6 +7,7 @@ import type {
   PullRequestDto,
   SkillFileDto
 } from "../../shared/types";
+import { localeLanguageName } from "../../shared/locales";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 
 export type AgentPromptContext = {
@@ -173,9 +174,21 @@ function serializeContext(context: AgentPromptContext): string {
   );
 }
 
+function outputLanguagePrompt(locale: string): string {
+  const language = localeLanguageName(locale);
+  return [
+    "Output language:",
+    `Write all user-visible text in ${language}.`,
+    "This includes message, comment.body, questions, activity titles/bodies, evidence titles/summaries, pull request titles/bodies, findings, notes, and verifier notes.",
+    "Keep JSON keys, enum values, system labels, file paths, branch names, commands, code identifiers, and error codes exactly as required by the schema or repository."
+  ].join("\n");
+}
+
 export function buildAgentPrompt(job: AgentJobDto, context: AgentPromptContext): string {
   return [
     commonPrompt,
+    "",
+    outputLanguagePrompt(context.project.locale),
     "",
     rolePrompts[job.agentType],
     "",

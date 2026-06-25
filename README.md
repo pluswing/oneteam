@@ -16,6 +16,7 @@ It provides a GitHub-like local control plane for issues, pull requests, labels,
 - Turn issues into verifiable AI development loops with goal contracts, evidence, and stop reasons.
 - Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, `done`, and `ready-to-merge`.
 - Run AI agent jobs through the local Codex CLI.
+- Switch the UI and AI agent output language between English and Japanese.
 - Save AI progress, thinking summaries, command results, changed files, and errors as Activity Log entries.
 - Auto-detect install/dev/build/test/lint commands from the repository.
 - Pause safely for human input with Human Gate and resume when the user comments.

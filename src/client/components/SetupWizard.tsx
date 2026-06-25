@@ -2,16 +2,19 @@ import { ArrowLeft, Save } from "lucide-react";
 import { FormEvent, useState } from "react";
 import type { AiProvider } from "../../shared/ai-providers";
 import { aiProviderLabel, aiProviders } from "../../shared/ai-providers";
+import type { SupportedLocale } from "../../shared/locales";
+import { localeLabel, supportedLocales } from "../../shared/locales";
 import type { ProjectDto } from "../../shared/types";
 import { api } from "../api";
 import logoMarkUrl from "../assets/logo.svg";
-import { t } from "../i18n";
+import { getLocale, setLocale as setUiLocale, t } from "../i18n";
 
 export function SetupWizard(props: { onCancel?: () => void; onCreated: (project: ProjectDto) => void }) {
   const [mode, setMode] = useState<"import" | "create">("import");
   const [name, setName] = useState("OneTeam");
   const [repoPath, setRepoPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
+  const [locale, setLocale] = useState<SupportedLocale>(getLocale());
   const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setSubmitting] = useState(false);
@@ -26,7 +29,7 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
         name,
         repoPath,
         defaultBranch,
-        locale: "en",
+        locale,
         aiProvider
       });
       props.onCreated(project);
@@ -65,6 +68,23 @@ export function SetupWizard(props: { onCancel?: () => void; onCreated: (project:
           <label>
             {t("setup.defaultBranch")}
             <input value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
+          </label>
+          <label>
+            {t("setup.locale")}
+            <select
+              value={locale}
+              onChange={(event) => {
+                const nextLocale = event.target.value as SupportedLocale;
+                setLocale(nextLocale);
+                setUiLocale(nextLocale);
+              }}
+            >
+              {supportedLocales.map((item) => (
+                <option key={item} value={item}>
+                  {localeLabel(item)}
+                </option>
+              ))}
+            </select>
           </label>
         </section>
         <section className="form-section">

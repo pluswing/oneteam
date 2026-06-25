@@ -2,12 +2,13 @@
 
 ## 1. 目的
 
-初期 UI は英語で実装しつつ、将来の日本語化・多言語化に対応できるよう、翻訳 resource、key 命名、formatting、テスト方針を定義する。
+英語と日本語の UI に対応しつつ、将来の多言語化にも拡張できるよう、翻訳 resource、key 命名、formatting、テスト方針を定義する。
 
 ## 2. 基本方針
 
-- 初期 locale は `en`。
+- 初期 locale は browser locale を `en` / `ja` に正規化した値。未対応 locale は `en`。
 - fallback locale も `en`。
+- 対応 locale は `en` / `ja`。
 - UI の固定文言は source code に直書きしない。
 - user-generated content は翻訳しない。
 - system labels は内部値と表示文言を分けられるようにする。
@@ -273,14 +274,14 @@ formatDateTime(date, locale);
 MVP で必要な i18n tests:
 
 - missing key がないことを検出する unit test。
-- default locale `en` が読み込めること。
+- default locale `en` と `ja` が読み込めること。
 - AppShell navigation が translation resource から表示されること。
 - status / label display が mapping 経由で表示されること。
 
 ## 16. Acceptance Criteria
 
-- 初期表示は英語 UI。
+- 初期表示は browser locale に応じて英語または日本語 UI。
 - 固定文言は translation resource から取得される。
 - locale は project / settings から参照できる。
 - system label は内部値と表示文言を分離できる。
-- 将来的に `ja` resource を追加すれば日本語 UI に切り替えられる。
+- Agent prompt は project locale に応じて、ユーザー向け出力を英語または日本語にする指示を含める。

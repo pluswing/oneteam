@@ -15,6 +15,8 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AiProvider } from "../shared/ai-providers";
 import { aiProviderLabel, aiProviders } from "../shared/ai-providers";
+import type { SupportedLocale } from "../shared/locales";
+import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
 import type {
   AgentJobDto,
   CommentDto,
@@ -42,7 +44,7 @@ import { AppShell } from "./components/AppShell";
 import { MarkdownContent } from "./components/MarkdownContent";
 import { SetupWizard } from "./components/SetupWizard";
 import { formatDateTime, formatPullRequestStatus } from "./formatters";
-import { t } from "./i18n";
+import { setLocale as setUiLocale, t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
 import { AgentJobsView } from "./views/AgentJobsView";
@@ -1314,7 +1316,7 @@ function PullRequestDetailScreen(props: {
                     <code>{commit.hash.slice(0, 8)}</code>
                   </header>
                   <p>
-                    {commit.authorName} - {new Date(commit.date).toLocaleString()}
+                    {commit.authorName} - {formatDateTime(commit.date)}
                   </p>
                 </article>
               ))}
@@ -1733,9 +1735,9 @@ function PullRequestsView(props: {
   );
 }
 
-function SettingsView(props: { project: ProjectDto }) {
+function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (locale: SupportedLocale) => void }) {
   const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
-  const [locale, setLocale] = useState(props.project.locale);
+  const [locale, setLocale] = useState<SupportedLocale>(normalizeLocale(props.project.locale));
   const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
   const [claudeCommand, setClaudeCommand] = useState("claude");
   const [claudeModel, setClaudeModel] = useState("");
@@ -1753,7 +1755,7 @@ function SettingsView(props: { project: ProjectDto }) {
   async function load() {
     const response = await api.getSettings(props.project.id);
     setSettings(response);
-    setLocale(response.project.locale);
+    setLocale(normalizeLocale(response.project.locale));
     setAiProvider(response.ai.provider);
     setClaudeCommand(response.ai.claudeCode.command);
     setClaudeModel(response.ai.claudeCode.model ?? "");
@@ -1795,6 +1797,9 @@ function SettingsView(props: { project: ProjectDto }) {
       });
       setSettings(response);
       setAiProvider(response.ai.provider);
+      const savedLocale = setUiLocale(response.project.locale);
+      setLocale(savedLocale);
+      props.onProjectLocaleChange(savedLocale);
       setSavedMessage(t("settings.saved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings.");
@@ -1813,7 +1818,13 @@ function SettingsView(props: { project: ProjectDto }) {
       <form className="settings-form" onSubmit={saveSettings}>
         <label>
           {t("settings.locale")}
-          <input value={locale} onChange={(event) => setLocale(event.target.value)} required />
+          <select value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>
+            {supportedLocales.map((item) => (
+              <option key={item} value={item}>
+                {localeLabel(item)}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           {t("settings.provider")}
@@ -2051,6 +2062,13 @@ export function App() {
     navigate({ name: "issues" }, "replace");
     void refreshRepositories();
   }, [navigate, refreshRepositories]);
+  const handleProjectLocaleChange = useCallback((locale: SupportedLocale) => {
+    setProjects((current) => current.map((item, index) => (index === 0 ? { ...item, locale } : item)));
+  }, []);
+
+  if (project) {
+    setUiLocale(project.locale);
+  }
 
   useEffect(() => {
     refreshRepositories().finally(() => setLoading(false));
@@ -2165,7 +2183,9 @@ export function App() {
         />
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
-      {view === "settings" ? <SettingsView project={project} /> : null}
+      {view === "settings" ? (
+        <SettingsView project={project} onProjectLocaleChange={handleProjectLocaleChange} />
+      ) : null}
     </AppShell>
   );
 }

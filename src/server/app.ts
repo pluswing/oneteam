@@ -20,6 +20,7 @@ import type {
   PullRequestDto,
   PullRequestStatus
 } from "../shared/types";
+import { supportedLocales } from "../shared/locales";
 import { issueWorkflowLabelNames, workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
 import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
@@ -55,7 +56,7 @@ const createProjectSchema = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1),
   defaultBranch: z.string().min(1).default("main"),
-  locale: z.string().min(2).default("en"),
+  locale: z.enum(supportedLocales).default("en"),
   aiProvider: z.enum(aiProviders).default("codex")
 });
 
@@ -110,7 +111,7 @@ const detectCommandsSchema = z.object({
 
 const updateProjectSettingsSchema = z
   .object({
-    locale: z.string().min(2),
+    locale: z.enum(supportedLocales),
     ai: z
       .object({
         provider: z.enum(aiProviders).optional(),

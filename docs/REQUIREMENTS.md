@@ -29,7 +29,7 @@ GitHub の issue / pull request に近い UI とワークフローを持ち、is
 - 実装完了後の merge 操作はユーザーが行う。ただし merge conflict の検出と修正は OneTeam が支援する。
 - issue / pull request の削除は論理削除とする。
 - UI は browser で開く Web アプリケーションとする。
-- UI は多言語対応可能な設計にし、初期実装は英語 UI とする。
+- UI は英語と日本語に対応し、Project locale に応じて Agent のユーザー向け出力言語も切り替える。
 
 ## 3. MVP のゴール
 
@@ -137,7 +137,7 @@ MVP では、単独開発者が次の一連の流れをローカル UI から実
 - Agent Job 詳細では、完了判定に使った Evidence を確認できる。
 - UI ポートは設定ファイルで指定できる。
 - UI は i18n を前提に実装し、表示文字列を翻訳リソースから参照する。
-- 初期実装の標準 locale は `en` とする。
+- 対応 locale は `en` / `ja` とし、標準 locale は `en` とする。
 
 ### 7.2 Issues
 
@@ -862,7 +862,7 @@ e2e             Playwright smoke tests
 - 設定ファイルで UI ポートを変更できる。
 - 初回起動時に AI provider を選択できる。
 - libSQL database が初回起動時に作成される。
-- UI は初期表示を英語にでき、表示文字列は i18n リソースで管理される。
+- UI は英語 / 日本語を切り替えられ、表示文字列は i18n リソースで管理される。
 - repository インポート時に install / dev / build / test / lint コマンドを自動検出できる。
 - 不足コマンドがある場合、不足機能実装用の issue が自動作成される。
 
@@ -948,7 +948,7 @@ e2e             Playwright smoke tests
 - 新規 repository では、要件定義時に build / test / lint / dev server / install コマンドを必須要件へ追加する。
 - Agent Job の Activity Log をコメントとは別に時系列で保存する。
 - Codex CLI の command path は runtime 管理とし、Codex / Claude Code は job 実行前に必要な login を自動開始する。Settings から active provider と provider 別設定を変更できる。
-- UI は多言語対応可能な設計とし、初期実装は英語 UI とする。
+- UI は `en` / `ja` を切り替えられ、Agent prompt は Project locale に従ってユーザー向け出力言語を指定する。
 - package manager は npm とする。
 - API framework は Hono とする。
 - ORM / query builder は Drizzle ORM とする。
