@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
 import { resolveAgentJobLockKey } from "../server/services/agent-job-locks";
+import { implementationBranchName } from "../server/services/implementation-preflight";
 import { workflowLabelNames } from "../shared/workflow-labels";
 
 const execFileAsync = promisify(execFile);
@@ -300,6 +301,64 @@ describe("agent worker", () => {
     context.client.close();
   });
 
+  it("auto-requeues recoverable runtime errors instead of failing the workflow", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-recovery-"));
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath: dir,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "requirements",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    let calls = 0;
+    const fakeAdapter: AgentAdapter = {
+      async run() {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("SQLITE_BUSY: database is locked"), { code: "SQLITE_BUSY" });
+        }
+        return {
+          status: "succeeded",
+          message: "Recovered and completed."
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const recoveredJob = await repos.agentJobs.get(project.id, job.id);
+    const activitiesAfterRecovery = await repos.activities.list(project.id, "issue", issue.id);
+
+    expect(recoveredJob?.status).toBe("queued");
+    expect(recoveredJob?.attempt).toBe(2);
+    expect((recoveredJob?.output as Record<string, unknown> | null | undefined)?.stopReason).toBe("auto_recovered");
+    expect(activitiesAfterRecovery.map((activity) => activity.title)).toContain("Agent job auto-recovered");
+
+    await worker.tick();
+    const completedJob = await repos.agentJobs.get(project.id, job.id);
+
+    expect(completedJob?.status).toBe("succeeded");
+    expect(calls).toBe(2);
+
+    context.client.close();
+  });
+
   it("records implementation changed files and verification command results", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-verify-db-"));
     const repoPath = await createGitRepo("oneteam-worker-verify-repo-");
@@ -386,6 +445,76 @@ describe("agent worker", () => {
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
     expect(worktreeStatus).toBe("");
+    expect(sourceDiffFiles).toContain("feature.txt");
+
+    context.client.close();
+  });
+
+  it("recovers implementation jobs by reusing an existing OneTeam worktree for the same branch", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-worker-worktree-recovery-db-"));
+    const repoPath = await createGitRepo("oneteam-worker-worktree-recovery-repo-");
+    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
+    await runMigrations(context.client);
+
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({
+      name: "Example",
+      repoPath,
+      defaultBranch: "main",
+      locale: "en"
+    });
+    const issue = await repos.issues.create({
+      projectId: project.id,
+      title: "Add setup",
+      body: "Create a setup wizard."
+    });
+    const branchName = implementationBranchName(issue);
+    const projectWorktreeRoot = join(homedir(), ".oneteam", "worktrees", project.id);
+    await mkdir(projectWorktreeRoot, { recursive: true });
+    const existingWorktreePath = await mkdtemp(join(projectWorktreeRoot, "run-"));
+    await git(repoPath, ["worktree", "add", "-b", branchName, existingWorktreePath, "main"]);
+
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "implementation",
+      targetType: "issue",
+      targetId: issue.id
+    });
+
+    let adapterRepoPath = "";
+    const fakeAdapter: AgentAdapter = {
+      async run(input) {
+        adapterRepoPath = input.repoPath;
+        await writeFile(join(input.repoPath, "feature.txt"), "implemented\n");
+        const sourceBranch = await git(input.repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        return {
+          status: "succeeded",
+          message: "Implemented in recovered worktree.",
+          metadata: {
+            pullRequest: {
+              title: "Add setup",
+              sourceBranch,
+              targetBranch: "main",
+              issueId: issue.id
+            }
+          }
+        };
+      }
+    };
+
+    const worker = new AgentWorker(repos, fakeAdapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+
+    const updatedJob = await repos.agentJobs.get(project.id, job.id);
+    const activities = await repos.activities.list(project.id, "issue", issue.id);
+    const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
+    const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", `main...${branchName}`]);
+
+    expect(adapterRepoPath).toBe(existingWorktreePath);
+    expect(updatedJob?.status).toBe("succeeded");
+    expect(activities.find((activity) => activity.title === "Worktree ready")?.body).toContain("Recovered");
+    expect(pullRequests.total).toBe(1);
+    expect(pullRequests.items[0].sourceBranch).toBe(branchName);
     expect(sourceDiffFiles).toContain("feature.txt");
 
     context.client.close();

@@ -1083,6 +1083,46 @@ export function createRepositories(db: Database) {
         return rows[0] ? mapAgentJob(rows[0]) : null;
       },
 
+      async requeueAfterRecovery(
+        projectId: string,
+        jobId: number,
+        patch?: { output?: Record<string, unknown> | null; error?: string | null }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            outputJson: patch?.output === undefined ? undefined : stringifyJson(patch.output ?? undefined),
+            error: patch?.error ?? null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "running")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async requeueInterrupted(projectId?: string): Promise<AgentJobDto[]> {
+        const filters: SQL[] = [eq(agentJobs.status, "running")];
+        if (projectId) {
+          filters.push(eq(agentJobs.projectId, projectId));
+        }
+
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: "Recovered interrupted running job.",
+            attempt: sql`${agentJobs.attempt} + 1`,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(...filters))
+          .returning();
+        return rows.map(mapAgentJob);
+      },
+
       async retry(projectId: string, jobId: number): Promise<AgentJobDto | null> {
         const job = await this.get(projectId, jobId);
         if (!job) {

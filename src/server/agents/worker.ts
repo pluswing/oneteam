@@ -12,7 +12,13 @@ import {
 import { runLabelAutomation } from "../services/label-automation";
 import { appendLoopMemoryNote } from "../services/knowledge-files";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
-import { cleanupWorktree, prepareIssueWorktree, preparePullRequestWorktree } from "../services/worktree-service";
+import {
+  cleanupWorktree,
+  prepareIssueWorktree,
+  preparePullRequestWorktree,
+  RecoverableWorktreeError,
+  type PreparedWorktree
+} from "../services/worktree-service";
 import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult } from "../services/objective-runs";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
@@ -147,6 +153,15 @@ export class AgentWorker {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
+      const recovery = classifyRecoverableRuntimeError(error);
+      if (recovery) {
+        await this.requeueAfterRecovery(runningJob, {
+          ...recovery,
+          message
+        });
+        return;
+      }
+
       const target = normalizeActivityTarget(runningJob);
       if (target) {
         await this.repos.activities.create({
@@ -191,6 +206,79 @@ export class AgentWorker {
       await this.updateLoopForResult(runningJob, failedResult);
       await recordObjectiveJobResult(this.repos, { job: runningJob, result: failedResult });
     }
+  }
+
+  private async requeueAfterRecovery(
+    job: AgentJobDto,
+    recovery: { code: string; message: string; payload?: Record<string, unknown> }
+  ): Promise<void> {
+    const currentJob = await this.repos.agentJobs.get(job.projectId, job.id);
+    if (!currentJob || currentJob.status === "canceled") {
+      return;
+    }
+
+    const recoveryMessage = `${recovery.message}\n\nOneTeam marked this as a recoverable runtime error and requeued the job automatically.`;
+    const evidence = [
+      {
+        type: "error" as const,
+        title: "Agent job auto-recovered",
+        summary: recovery.message,
+        payload: {
+          code: recovery.code,
+          ...(recovery.payload ?? {})
+        }
+      }
+    ];
+    const output = {
+      status: "queued",
+      message: recoveryMessage,
+      stopReason: "auto_recovered",
+      evidence,
+      metadata: {
+        autoRecovery: {
+          code: recovery.code,
+          attempt: currentJob.attempt + 1,
+          payload: recovery.payload ?? null
+        }
+      }
+    };
+    const target = normalizeActivityTarget(job);
+    if (target) {
+      await this.repos.activities.create({
+        projectId: job.projectId,
+        agentJobId: job.id,
+        targetType: target.targetType,
+        targetId: target.targetId,
+        activityType: "system",
+        title: "Agent job auto-recovered",
+        body: recoveryMessage,
+        payload: {
+          code: recovery.code,
+          ...(recovery.payload ?? {})
+        }
+      });
+    }
+
+    await this.repos.agentJobs.requeueAfterRecovery(job.projectId, job.id, {
+      output,
+      error: recovery.message
+    });
+
+    const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
+    if (!step) {
+      return;
+    }
+
+    await this.repos.loopSteps.updateForAgentJob(job.projectId, job.id, {
+      status: "queued",
+      output,
+      evidence: { items: evidence }
+    });
+    await this.repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "queued", {
+      summary: recoveryMessage,
+      stopReason: "auto_recovered",
+      evidence: { items: evidence }
+    });
   }
 
   private async getLoopContextForJob(job: AgentJobDto): Promise<{ loop: LoopDto } | null> {
@@ -453,7 +541,7 @@ export class AgentWorker {
     job: AgentJobDto,
     targetType: "issue" | "pull_request",
     targetId: number,
-    worktree: { branchName: string; worktreePath: string }
+    worktree: PreparedWorktree
   ): Promise<void> {
     await this.repos.activities.create({
       projectId: job.projectId,
@@ -462,7 +550,9 @@ export class AgentWorker {
       targetId,
       activityType: "progress",
       title: "Worktree ready",
-      body: `Prepared ${worktree.branchName} in ${worktree.worktreePath}.`,
+      body: worktree.recovered
+        ? `Recovered ${worktree.branchName} in ${worktree.worktreePath}.`
+        : `Prepared ${worktree.branchName} in ${worktree.worktreePath}.`,
       payload: worktree
     });
   }
@@ -730,6 +820,70 @@ export class AgentWorker {
       body
     });
   }
+}
+
+type RuntimeRecovery = {
+  code: string;
+  message: string;
+  payload?: Record<string, unknown>;
+};
+
+const recoverableRuntimeErrorPatterns: Array<{ code: string; pattern: RegExp }> = [
+  {
+    code: "git_worktree_branch_in_use",
+    pattern: /already used by worktree|is already checked out at|is already used by worktree/i
+  },
+  {
+    code: "git_lock",
+    pattern: /index\.lock|cannot lock ref|could not lock|another git process|unable to create .*\.lock/i
+  },
+  {
+    code: "sqlite_busy",
+    pattern: /SQLITE_BUSY|database is locked/i
+  },
+  {
+    code: "transient_process_io",
+    pattern: /\b(?:EBUSY|EAGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|EPIPE|ENFILE|EMFILE)\b/i
+  }
+];
+
+function classifyRecoverableRuntimeError(error: unknown): RuntimeRecovery | null {
+  if (error instanceof RecoverableWorktreeError) {
+    return {
+      code: error.code,
+      message: error.message,
+      payload: error.payload
+    };
+  }
+
+  const output = errorOutput(error);
+  if (!output) {
+    return null;
+  }
+
+  const match = recoverableRuntimeErrorPatterns.find((item) => item.pattern.test(output));
+  if (!match) {
+    return null;
+  }
+
+  return {
+    code: match.code,
+    message: error instanceof Error ? error.message : output,
+    payload: {
+      output: output.slice(0, 4000)
+    }
+  };
+}
+
+function errorOutput(error: unknown): string {
+  if (typeof error !== "object" || error === null) {
+    return typeof error === "string" ? error : "";
+  }
+  const output = error as { message?: unknown; stdout?: unknown; stderr?: unknown; code?: unknown };
+  return [output.stderr, output.stdout, output.message, output.code]
+    .filter((value): value is string | number => (typeof value === "string" && value.length > 0) || typeof value === "number")
+    .map(String)
+    .join("\n");
 }
 
 function changedFileActivities(changedFiles: string[]): AgentActivityResult[] {

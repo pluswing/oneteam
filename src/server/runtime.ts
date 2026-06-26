@@ -51,6 +51,9 @@ export async function createOneTeamRuntime(
     url: config.database.url
   };
   await ensureDefaultAiSettings(activeDatabase.repos, config);
+  if (config.agents.workerEnabled) {
+    await activeDatabase.repos.agentJobs.requeueInterrupted();
+  }
 
   const runtime = {
     server: { ...config.server },
@@ -63,6 +66,8 @@ export async function createOneTeamRuntime(
       return activeDatabase.repos[property];
     }
   });
+  let worker: AgentWorker | null = null;
+  let objectiveScheduler: ObjectiveScheduler | null = null;
 
   async function switchDatabaseForRepository(repoPath: string, name?: string): Promise<KnownRepositoryDto | null> {
     if (process.env.ONETEAM_DATABASE_URL) {
@@ -85,6 +90,9 @@ export async function createOneTeamRuntime(
       url: nextUrl
     };
     await ensureDefaultAiSettings(activeDatabase.repos, config);
+    if (worker) {
+      await activeDatabase.repos.agentJobs.requeueInterrupted();
+    }
     runtime.database.url = nextUrl;
     previousContext.client.close();
     return repository;
@@ -100,8 +108,6 @@ export async function createOneTeamRuntime(
     switchDatabaseForRepository
   });
 
-  let worker: AgentWorker | null = null;
-  let objectiveScheduler: ObjectiveScheduler | null = null;
   if (config.agents.workerEnabled) {
     worker = new AgentWorker(
       repos,
