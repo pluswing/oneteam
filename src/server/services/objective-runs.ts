@@ -1,6 +1,7 @@
 import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
 import { appendLoopMemoryNote } from "./knowledge-files";
+import { getRevisionHash } from "./git-service";
 import type { AgentEvidenceResult, AgentRunResult } from "../agents/types";
 
 const terminalObjectiveStatuses = new Set(["succeeded", "canceled"]);
@@ -186,6 +187,8 @@ export async function recordObjectiveJobResult(
   }
 
   const result = input.result;
+  const evidenceContext = await resolveEvidenceContext(repos, input.job, objective);
+  const stampedResultEvidence = stampEvidence(result.evidence, evidenceContext);
   const roundCount = objective.roundCount + 1;
   const signature = result.status === "failed" ? failureSignature(result) : null;
   const repeatedFailureCount =
@@ -197,7 +200,7 @@ export async function recordObjectiveJobResult(
       : roundCount >= objective.maxRounds && status === "waiting_human"
         ? "max_rounds_exceeded"
         : (result.stopReason ?? objective.stopReason);
-  const evidence = mergeEvidence(objective.evidence, result.evidence, {
+  const evidence = mergeEvidence(objective.evidence, stampedResultEvidence, stampEvidenceItem({
     type: "agent_job",
     title: `${input.job.agentType} job ${result.status}`,
     summary: result.message,
@@ -207,7 +210,7 @@ export async function recordObjectiveJobResult(
       aiProvider: input.job.aiProvider,
       stopReason: result.stopReason ?? null
     }
-  });
+  }, evidenceContext));
 
   const updated = await repos.objectives.update(input.job.projectId, objective.id, {
     status,
@@ -267,6 +270,18 @@ export async function markObjectiveMerged(
     body: `Pull request #${input.pullRequest.id} merged at ${input.mergeCommit.slice(0, 12)}.`,
     tags: ["objective", "merge", "passed"]
   }).catch(() => undefined);
+}
+
+export async function appendObjectiveEvidence(
+  repos: Repositories,
+  objective: ObjectiveRunDto,
+  items: AgentEvidenceResult[]
+): Promise<ObjectiveRunDto | null> {
+  return repos.objectives.update(objective.projectId, objective.id, {
+    evidence: {
+      items: [...evidenceItems(objective.evidence), ...items].slice(-80)
+    }
+  });
 }
 
 export async function objectiveForJob(repos: Repositories, job: AgentJobDto): Promise<ObjectiveRunDto | null> {
@@ -333,6 +348,61 @@ function mergeEvidence(
 ): Record<string, unknown> {
   const items = [...evidenceItems(existing), ...(next ?? []), extra].slice(-80);
   return { items };
+}
+
+type EvidenceContext = {
+  capturedAt: string;
+  sourceBranch: string | null;
+  sourceCommit: string | null;
+  targetBranch: string | null;
+  targetCommit: string | null;
+};
+
+async function resolveEvidenceContext(
+  repos: Repositories,
+  job: AgentJobDto,
+  objective: ObjectiveRunDto
+): Promise<EvidenceContext> {
+  const capturedAt = new Date().toISOString();
+  const project = await repos.projects.get(job.projectId);
+  const pullRequest = objective.pullRequestId
+    ? await repos.pullRequests.get(job.projectId, objective.pullRequestId)
+    : job.targetType === "pull_request"
+      ? await repos.pullRequests.get(job.projectId, job.targetId)
+      : null;
+  if (!project || !pullRequest) {
+    return { capturedAt, sourceBranch: null, sourceCommit: null, targetBranch: null, targetCommit: null };
+  }
+
+  const [sourceCommit, targetCommit] = await Promise.all([
+    getRevisionHash(project.repoPath, pullRequest.sourceBranch).catch(() => null),
+    getRevisionHash(project.repoPath, pullRequest.targetBranch).catch(() => null)
+  ]);
+  return {
+    capturedAt,
+    sourceBranch: pullRequest.sourceBranch,
+    sourceCommit,
+    targetBranch: pullRequest.targetBranch,
+    targetCommit
+  };
+}
+
+function stampEvidence(items: AgentEvidenceResult[] | null | undefined, context: EvidenceContext): AgentEvidenceResult[] {
+  return (items ?? []).map((item) => stampEvidenceItem(item, context));
+}
+
+function stampEvidenceItem(item: AgentEvidenceResult, context: EvidenceContext): AgentEvidenceResult {
+  return {
+    ...item,
+    payload: {
+      ...(item.payload ?? {}),
+      capturedAt: context.capturedAt,
+      sourceBranch: context.sourceBranch,
+      sourceCommit: context.sourceCommit,
+      targetBranch: context.targetBranch,
+      targetCommit: context.targetCommit
+    }
+  };
 }
 
 function failureSignature(result: AgentRunResult): string {

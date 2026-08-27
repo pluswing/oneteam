@@ -112,6 +112,10 @@ export async function getRevisionHash(repoPath: string, revision: string): Promi
   return git(repoPath, ["rev-parse", revision]);
 }
 
+export async function getMergeBase(repoPath: string, leftRevision: string, rightRevision: string): Promise<string> {
+  return git(repoPath, ["merge-base", leftRevision, rightRevision]);
+}
+
 export async function commitAllChanges(
   repoPath: string,
   message: string

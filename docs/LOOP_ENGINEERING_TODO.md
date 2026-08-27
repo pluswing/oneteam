@@ -28,8 +28,8 @@
 - [x] **Done**: VerifierのStop Condition判定と`ready-to-merge`への遷移
 - [x] **Done**: repeated failureと最大round到達時のHuman Gate
 - [x] **Done**: score manipulationの基本diff scan（test skip / only、assertion 0、error swallow、test file deletion）
-- [ ] **Partial**: Evidence Gateは存在するが、Goal Contractの`Evidence Required`を種類・鮮度・対象commit単位で機械的に照合する制御は粗い
-- [ ] **Partial**: Verifier pass後のautomatic merge gate、local merge、PR / Objective / Issue完了処理は接続済み。Evidence鮮度とrequired commandのmerge直前再実行は未完了
+- [ ] **Partial**: Evidenceに取得時刻、source / target branchとcommitを保存し、Verifier Evidenceのcommit / 24時間鮮度をGateで照合する。Goal Contractの`Evidence Required`を種類別に照合する制御は未完了
+- [x] **Done**: Verifier pass後のautomatic merge gateでrequired lint / test / buildをsource worktree上で再実行し、local merge、PR / Objective / Issue完了処理へ接続する
 
 ### Worktree / Safety / Budget
 
@@ -74,13 +74,13 @@
 
 - [ ] **Partial**: project settingsに`autoMergeEnabled`を追加済み。対象branch、merge strategy、risk thresholdは未実装
 - [x] Verifier pass後に`ready-to-merge`をautomatic merge gateへ接続する
-- [ ] **Partial**: merge直前のsource HEAD、target HEAD、conflict、Objective Evidenceは再確認済み。merge-base、required commands、Risk Signalの再評価は未実装
-- [ ] Evidenceに対象commit hashと取得時刻を保存し、stale Evidenceを検出する
+- [ ] **Partial**: merge直前のsource HEAD、target HEAD、merge-base、conflict、Objective Evidence、required commands、score-manipulation Risk Signalを再確認する。LoopごとのRisk Policy再評価は未実装
+- [x] Evidenceに対象commit hashと取得時刻を保存し、stale Verifier Evidenceを検出する
 - [ ] **Partial**: merge gate中のsource / target driftはmergeを止めるが、必要範囲の自動再実行は未実装
 - [x] conflictがある場合は`resolving-conflicts`へ戻し、conflict-resolution workflowをqueueする
 - [x] Gate通過後はOneTeamがmergeし、PR statusを`merged`、Objectiveを`succeeded`にする
 - [ ] **Partial**: conflictと不明な失敗をcorrectable / Human Gateへ分類済み。retryable merge errorのbackoffは未実装
-- [ ] **Partial**: automatic mergeのintegration testを追加済み。target drift / conflict / stale Evidenceの個別回帰testは未実装
+- [ ] **Partial**: automatic merge、required command pass / failure、stale Evidenceのintegration testを追加済み。target drift / conflictの個別回帰testは未実装
 
 ### Issue lifecycle
 

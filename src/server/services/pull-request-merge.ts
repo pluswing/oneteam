@@ -1,16 +1,23 @@
-import type { AgentJobDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import {
   commitAllChanges,
   detectMergeConflicts,
+  getChangedFilesSince,
+  getDiffLineCountSince,
+  getDiffPatchSince,
+  getMergeBase,
   getRepositoryStatus,
   getRevisionHash,
   mergeBranch
 } from "./git-service";
+import { scanScoreManipulationRisks } from "./diff-risk-scanner";
 import { runLabelAutomation } from "./label-automation";
-import { markObjectiveMerged } from "./objective-runs";
+import { appendObjectiveEvidence, markObjectiveMerged } from "./objective-runs";
 import { readAutomationSettings } from "./automation-settings";
+import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
+import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
 
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
@@ -56,6 +63,31 @@ export async function mergePullRequest(
 
   const sourceHead = await getRevisionHash(project.repoPath, pullRequest.sourceBranch);
   const targetHead = await getRevisionHash(project.repoPath, pullRequest.targetBranch);
+  const mergeBase = await getMergeBase(project.repoPath, pullRequest.targetBranch, pullRequest.sourceBranch);
+  let automaticGateEvidence: AutomaticGateEvidence | null = null;
+  if (mode === "automatic" && input.verifierJob) {
+    const verification = await verifyAutomaticMergeCandidate(
+      repos,
+      project,
+      pullRequest,
+      input.verifierJob,
+      sourceHead,
+      targetHead,
+      mergeBase
+    );
+    automaticGateEvidence = verification.evidence;
+    if (verification.blockedReason) {
+      await recordAutomaticMergeBlock(
+        repos,
+        project,
+        pullRequest,
+        input.verifierJob,
+        verification.blockedReason,
+        false
+      );
+      return { state: "blocked", reason: verification.blockedReason };
+    }
+  }
   const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
   if (conflicts.hasConflicts) {
     const reason = `Merge conflicts detected: ${conflicts.files.map((file) => file.path).join(", ")}`;
@@ -95,6 +127,10 @@ export async function mergePullRequest(
     `- Merge commit: \`${mergeResult.mergeCommit.slice(0, 12)}\``,
     `- Source snapshot: \`${sourceHead.slice(0, 12)}\``,
     `- Target snapshot: \`${targetHead.slice(0, 12)}\``,
+    `- Merge base: \`${mergeBase.slice(0, 12)}\``,
+    automaticGateEvidence
+      ? `- Required checks: ${automaticGateEvidence.commandResults.length || "none configured"}`
+      : null,
     input.verifierJob ? `- Verifier job: \`#${input.verifierJob.id}\`` : null
   ]
     .filter((line): line is string => line !== null)
@@ -111,6 +147,8 @@ export async function mergePullRequest(
       mergeCommit: mergeResult.mergeCommit,
       sourceHead,
       targetHead,
+      mergeBase,
+      automaticGateEvidence,
       verifierJobId: input.verifierJob?.id ?? null
     }
   });
@@ -126,7 +164,9 @@ export async function mergePullRequest(
       mergeMode: mode,
       mergeCommit: mergeResult.mergeCommit,
       sourceHead,
-      targetHead
+      targetHead,
+      mergeBase,
+      automaticGateEvidence
     }
   });
 
@@ -143,6 +183,179 @@ export async function mergePullRequest(
     mergeCommit: mergeResult.mergeCommit,
     output: mergeResult.output
   };
+}
+
+type AutomaticGateEvidence = {
+  capturedAt: string;
+  sourceHead: string;
+  targetHead: string;
+  mergeBase: string;
+  changedFiles: string[];
+  diffLineCount: number;
+  commandResults: Array<Omit<VerificationCommandResult, "output"> & { outputExcerpt: string }>;
+  riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown> }>;
+  verifierEvidenceCapturedAt: string;
+};
+
+async function verifyAutomaticMergeCandidate(
+  repos: Repositories,
+  project: ProjectDto,
+  pullRequest: PullRequestDto,
+  verifierJob: AgentJobDto,
+  sourceHead: string,
+  targetHead: string,
+  mergeBase: string
+): Promise<{ blockedReason: string | null; evidence: AutomaticGateEvidence }> {
+  const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
+  const verifierEvidence = objective ? currentVerifierEvidence(objective, verifierJob, sourceHead) : null;
+  const capturedAt = new Date().toISOString();
+  const commands = await repos.commands.list(project.id);
+  const missingRequiredCommands = commands.filter(
+    (command) => command.isRequired && (!command.isAvailable || !command.command)
+  );
+  const emptyEvidence: AutomaticGateEvidence = {
+    capturedAt,
+    sourceHead,
+    targetHead,
+    mergeBase,
+    changedFiles: [],
+    diffLineCount: 0,
+    commandResults: [],
+    riskSignals: [],
+    verifierEvidenceCapturedAt: verifierEvidence?.capturedAt ?? ""
+  };
+
+  if (!objective || !verifierEvidence) {
+    const reason = "Verifier evidence is stale or does not reference the current source commit.";
+    await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
+    return { blockedReason: reason, evidence: emptyEvidence };
+  }
+  if (missingRequiredCommands.length) {
+    const reason = `Required commands are unavailable: ${missingRequiredCommands
+      .map((command) => command.commandType)
+      .join(", ")}.`;
+    await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
+    return { blockedReason: reason, evidence: emptyEvidence };
+  }
+
+  const worktree = await preparePullRequestWorktree(project, pullRequest);
+  try {
+    const beforeStatus = await getRepositoryStatus(worktree.repoPath);
+    if (!beforeStatus.clean) {
+      const reason = `Source worktree contains uncommitted changes: ${beforeStatus.changedFiles.join(", ")}.`;
+      await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
+      return { blockedReason: reason, evidence: emptyEvidence };
+    }
+
+    const commandResults = await runVerificationCommands(worktree.repoPath, commands);
+    const [changedFiles, diffLineCount, diffPatch] = await Promise.all([
+      getChangedFilesSince(worktree.repoPath, pullRequest.targetBranch),
+      getDiffLineCountSince(worktree.repoPath, pullRequest.targetBranch),
+      getDiffPatchSince(worktree.repoPath, pullRequest.targetBranch)
+    ]);
+    const riskSignals = scanScoreManipulationRisks(diffPatch);
+    const evidence: AutomaticGateEvidence = {
+      ...emptyEvidence,
+      capturedAt: new Date().toISOString(),
+      changedFiles,
+      diffLineCount,
+      commandResults: commandResults.map(({ output, ...result }) => ({
+        ...result,
+        outputExcerpt: output.slice(0, 2000)
+      })),
+      riskSignals: riskSignals.map((signal) => ({
+        title: signal.title,
+        summary: signal.summary,
+        payload: signal.payload
+      }))
+    };
+    const failedCommands = commandResults.filter((result) => result.status === "failed");
+    if (failedCommands.length) {
+      const reason = `Required commands failed: ${failedCommands.map((result) => result.commandType).join(", ")}.`;
+      await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
+      return { blockedReason: reason, evidence };
+    }
+    if (riskSignals.length) {
+      const reason = `Risk signals block automatic merge: ${riskSignals.map((signal) => signal.title).join(", ")}.`;
+      await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
+      return { blockedReason: reason, evidence };
+    }
+
+    const [currentSourceHead, afterStatus] = await Promise.all([
+      getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+      getRepositoryStatus(worktree.repoPath)
+    ]);
+    if (currentSourceHead !== sourceHead || !afterStatus.clean) {
+      const reason = currentSourceHead !== sourceHead
+        ? "Source branch changed while merge verification was running."
+        : `Required commands modified tracked files: ${afterStatus.changedFiles.join(", ")}.`;
+      await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
+      return { blockedReason: reason, evidence };
+    }
+
+    await persistAutomaticGateEvidence(repos, objective, evidence, "passed", "All automatic merge checks passed.");
+    return { blockedReason: null, evidence };
+  } finally {
+    if (!worktree.recovered) {
+      await cleanupWorktree(project, worktree.worktreePath);
+    }
+  }
+}
+
+function currentVerifierEvidence(
+  objective: ObjectiveRunDto,
+  verifierJob: AgentJobDto,
+  sourceHead: string
+): { capturedAt: string } | null {
+  const items = Array.isArray(objective.evidence?.items) ? objective.evidence.items : [];
+  const maximumAgeMs = 24 * 60 * 60 * 1000;
+  for (const item of items) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const payload = "payload" in item && typeof item.payload === "object" && item.payload !== null ? item.payload : null;
+    if (!payload) {
+      continue;
+    }
+    const capturedAt = "capturedAt" in payload && typeof payload.capturedAt === "string" ? payload.capturedAt : null;
+    const capturedAtMs = capturedAt ? Date.parse(capturedAt) : Number.NaN;
+    const sourceCommit = "sourceCommit" in payload ? payload.sourceCommit : null;
+    const judgeAgentJobId = "judgeAgentJobId" in payload ? payload.judgeAgentJobId : null;
+    const agentJobId = "agentJobId" in payload ? payload.agentJobId : null;
+    if (
+      capturedAt &&
+      Number.isFinite(capturedAtMs) &&
+      Date.now() - capturedAtMs <= maximumAgeMs &&
+      sourceCommit === sourceHead &&
+      (judgeAgentJobId === verifierJob.id || agentJobId === verifierJob.id)
+    ) {
+      return { capturedAt };
+    }
+  }
+  return null;
+}
+
+async function persistAutomaticGateEvidence(
+  repos: Repositories,
+  objective: ObjectiveRunDto | null,
+  evidence: AutomaticGateEvidence,
+  status: "passed" | "failed",
+  summary: string
+): Promise<void> {
+  if (!objective) {
+    return;
+  }
+  await appendObjectiveEvidence(repos, objective, [
+    {
+      type: "automatic_merge_gate",
+      title: `Automatic merge gate ${status}`,
+      summary,
+      payload: {
+        ...evidence,
+        status
+      }
+    }
+  ]);
 }
 
 async function checkAutomaticMergeGate(

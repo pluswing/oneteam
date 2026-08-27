@@ -9,7 +9,9 @@ import type { AgentAdapter } from "../server/agents/types";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
+import { getRevisionHash } from "../server/services/git-service";
 import { ensureObjectiveForTarget } from "../server/services/objective-runs";
+import { mergePullRequest } from "../server/services/pull-request-merge";
 import { workflowLabelNames } from "../shared/workflow-labels";
 
 const execFileAsync = promisify(execFile);
@@ -93,6 +95,15 @@ describe("automatic delivery pipeline", () => {
     await runMigrations(context.client);
     const repos = createRepositories(context.db);
     const project = await repos.projects.create({ name: "Auto merge", repoPath, defaultBranch: "main" });
+    await repos.commands.upsertMany(project.id, [
+      {
+        commandType: "test",
+        command: "test -f result.txt",
+        detectionSource: "test",
+        isRequired: true,
+        isAvailable: true
+      }
+    ]);
     const issue = await repos.issues.create({ projectId: project.id, title: "Deliver automatically" });
     const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
     const pullRequest = await repos.pullRequests.create({
@@ -152,9 +163,199 @@ describe("automatic delivery pipeline", () => {
     expect(updatedIssue).toMatchObject({ status: "closed" });
     expect(updatedIssue?.labels.map((label) => label.name)).toContain(workflowLabelNames.done);
     expect(updatedObjective).toMatchObject({ status: "succeeded", judgeAgentJobId: job.id });
+    const objectiveEvidence = Array.isArray(updatedObjective?.evidence?.items) ? updatedObjective.evidence.items : [];
+    expect(
+      objectiveEvidence.some(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          "type" in item &&
+          item.type === "automatic_merge_gate" &&
+          "payload" in item &&
+          typeof item.payload === "object" &&
+          item.payload !== null &&
+          "status" in item.payload &&
+          item.payload.status === "passed"
+      )
+    ).toBe(true);
     expect(mergedFile).toBe("verified\n");
     expect(prComments.some((comment) => comment.body.includes("## Automatically merged"))).toBe(true);
     expect(issueComments.some((comment) => comment.body.includes("## Objective completed"))).toBe(true);
+
+    context.client.close();
+  });
+
+  it("blocks automatic merge when verifier evidence references an older source commit", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-stale-evidence-db-"));
+    const repoPath = await createGitRepo("oneteam-stale-evidence-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/stale"]);
+    await writeFile(join(repoPath, "stale.txt"), "first\n");
+    await git(repoPath, ["add", "stale.txt"]);
+    await git(repoPath, ["commit", "-m", "first change"]);
+    const oldSourceHead = await getRevisionHash(repoPath, "feature/stale");
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Stale evidence", repoPath, defaultBranch: "main" });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Stale verification",
+      sourceBranch: "feature/stale",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, verifierJob.id, "succeeded");
+    if (!objective || !completedVerifier) {
+      throw new Error("Failed to prepare stale evidence test.");
+    }
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Old verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: oldSourceHead,
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    await git(repoPath, ["checkout", "feature/stale"]);
+    await writeFile(join(repoPath, "stale.txt"), "second\n");
+    await git(repoPath, ["commit", "-am", "second change"]);
+    await git(repoPath, ["checkout", "main"]);
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+    const [updatedPullRequest, updatedObjective] = await Promise.all([
+      repos.pullRequests.get(project.id, pullRequest.id),
+      repos.objectives.get(project.id, objective.id)
+    ]);
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain("stale");
+    expect(updatedPullRequest?.status).toBe("open");
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
+    expect(updatedObjective?.status).toBe("waiting_human");
+
+    context.client.close();
+  });
+
+  it("blocks automatic merge when a required command fails on the source branch", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-merge-check-db-"));
+    const repoPath = await createGitRepo("oneteam-merge-check-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/check-failure"]);
+    await writeFile(join(repoPath, "candidate.txt"), "candidate\n");
+    await git(repoPath, ["add", "candidate.txt"]);
+    await git(repoPath, ["commit", "-m", "candidate change"]);
+    const sourceHead = await getRevisionHash(repoPath, "feature/check-failure");
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Required check", repoPath, defaultBranch: "main" });
+    await repos.commands.upsertMany(project.id, [
+      {
+        commandType: "test",
+        command: "test -f file-that-does-not-exist",
+        detectionSource: "test",
+        isRequired: true,
+        isAvailable: true
+      }
+    ]);
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Failing required check",
+      sourceBranch: "feature/check-failure",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, verifierJob.id, "succeeded");
+    if (!objective || !completedVerifier) {
+      throw new Error("Failed to prepare required check test.");
+    }
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Current verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: sourceHead,
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+    const updatedObjective = await repos.objectives.get(project.id, objective.id);
+    const objectiveEvidence = Array.isArray(updatedObjective?.evidence?.items) ? updatedObjective.evidence.items : [];
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain("Required commands failed");
+    expect(
+      objectiveEvidence.some(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          "type" in item &&
+          item.type === "automatic_merge_gate" &&
+          "payload" in item &&
+          typeof item.payload === "object" &&
+          item.payload !== null &&
+          "status" in item.payload &&
+          item.payload.status === "failed"
+      )
+    ).toBe(true);
 
     context.client.close();
   });
