@@ -94,6 +94,7 @@ export class CodexAdapter implements AgentAdapter {
     try {
       let activityQueue = Promise.resolve();
       let activityError: unknown = null;
+      const telemetry: CodexTelemetry = { sessionId: null, usage: null };
       const enqueueActivity = (activity: AgentActivityResult) => {
         activityQueue = activityQueue.then(async () => {
           try {
@@ -106,6 +107,7 @@ export class CodexAdapter implements AgentAdapter {
 
       const { stdout, stderr, exitCode, canceled } = await runProcess(command, args, input.prompt, {
         onStdoutLine: (line) => {
+          captureCodexTelemetry(line, telemetry);
           const activity = parseCodexJsonLine(line);
           if (activity) {
             enqueueActivity(activity);
@@ -137,7 +139,10 @@ export class CodexAdapter implements AgentAdapter {
               title: "Codex CLI canceled",
               body: "The running Codex process was terminated after the job was canceled."
             }
-          ]
+          ],
+          metadata: {
+            providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+          }
         };
       }
 
@@ -169,12 +174,22 @@ export class CodexAdapter implements AgentAdapter {
               }
             }
           ],
-          activities: []
+          activities: [],
+          metadata: {
+            providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+          }
         };
       }
 
       const finalMessage = await readFile(lastMessagePath, "utf8").catch(() => stdout);
-      return extractAgentRunResult(finalMessage, "Codex");
+      const result = extractAgentRunResult(finalMessage, "Codex");
+      return {
+        ...result,
+        metadata: {
+          ...(result.metadata ?? {}),
+          providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+        }
+      };
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -187,6 +202,36 @@ export class CodexAdapter implements AgentAdapter {
       model: loaded?.model ?? this.options.model
     };
   }
+}
+
+type CodexTelemetry = {
+  sessionId: string | null;
+  usage: Record<string, unknown> | null;
+};
+
+function captureCodexTelemetry(line: string, telemetry: CodexTelemetry): void {
+  try {
+    const event = JSON.parse(line.trim()) as unknown;
+    if (!isRecord(event)) {
+      return;
+    }
+    if (event.type === "thread.started" && typeof event.thread_id === "string") {
+      telemetry.sessionId = event.thread_id;
+    }
+    if ((event.type === "turn.completed" || event.type === "turn.failed") && isRecord(event.usage)) {
+      telemetry.usage = event.usage;
+    }
+  } catch {
+    // Non-JSON stdout is handled by the normal CLI failure parser.
+  }
+}
+
+function providerExecutionMetadata(model: string | null, telemetry: CodexTelemetry) {
+  return {
+    model,
+    sessionId: telemetry.sessionId,
+    usage: telemetry.usage
+  };
 }
 
 const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);

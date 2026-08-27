@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { AgentWorker } from "../server/agents/worker";
 import type { AgentAdapter } from "../server/agents/types";
+import { createApp } from "../server/app";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
@@ -42,7 +43,17 @@ describe("automatic delivery pipeline", () => {
       async run() {
         calls += 1;
         return calls === 1
-          ? { status: "failed", message: "You've hit your usage limit. Try again later." }
+          ? {
+              status: "failed",
+              message: "You've hit your usage limit. Try again later.",
+              metadata: {
+                providerExecution: {
+                  model: "gpt-test",
+                  sessionId: "thread-wait",
+                  usage: { remaining: 0 }
+                }
+              }
+            }
           : { status: "succeeded", message: "Requirements are complete." };
       }
     };
@@ -59,13 +70,19 @@ describe("automatic delivery pipeline", () => {
     });
     expect(waitingJob?.nextRetryAt).toBeTruthy();
     expect(waitingJob?.waitMetadata?.retryCount).toBe(1);
+    expect(waitingJob?.waitMetadata).toMatchObject({
+      model: "gpt-test",
+      sessionId: "thread-wait",
+      usageSnapshot: { remaining: 0 }
+    });
     expect(waitingObjective).toMatchObject({ status: "waiting_provider", roundCount: 0 });
 
     await context.client.execute({
       sql: "update agent_jobs set next_retry_at = ? where id = ?",
       args: ["2000-01-01T00:00:00.000Z", job.id]
     });
-    await worker.tick();
+    const restartedWorker = new AgentWorker(repos, adapter, { pollIntervalMs: 1000 });
+    await restartedWorker.tick();
 
     const completedJob = await repos.agentJobs.get(project.id, job.id);
     const completedObjective = objective ? await repos.objectives.get(project.id, objective.id) : null;
@@ -78,6 +95,60 @@ describe("automatic delivery pipeline", () => {
     });
     expect(completedObjective?.roundCount).toBe(1);
     expect(calls).toBe(2);
+
+    context.client.close();
+  });
+
+  it("supports manual resume and keeps Objective state consistent when a provider wait is canceled", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-provider-controls-db-"));
+    const repoPath = await createGitRepo("oneteam-provider-controls-repo-");
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Provider controls", repoPath, defaultBranch: "main" });
+    const issue = await repos.issues.create({ projectId: project.id, title: "Control provider wait" });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "issue",
+      targetId: issue.id
+    });
+    const job = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "requirements",
+      targetType: "issue",
+      targetId: issue.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const adapter: AgentAdapter = {
+      async run() {
+        return { status: "failed", message: "You've hit your usage limit. Try again later." };
+      }
+    };
+    const worker = new AgentWorker(repos, adapter, { pollIntervalMs: 1000 });
+    await worker.tick();
+    const app = createApp({ repos });
+
+    const resumeResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/resume`, {
+      method: "POST"
+    });
+    expect(resumeResponse.status).toBe(200);
+    expect((await resumeResponse.json()) as { job: { status: string } }).toMatchObject({ job: { status: "queued" } });
+
+    await worker.tick();
+    const waitingAgain = await repos.agentJobs.get(project.id, job.id);
+    expect(waitingAgain).toMatchObject({ status: "waiting_provider", attempt: 2 });
+    expect(waitingAgain?.waitMetadata?.retryCount).toBe(2);
+
+    const cancelResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/cancel`, {
+      method: "POST"
+    });
+    const [canceledJob, canceledObjective] = await Promise.all([
+      repos.agentJobs.get(project.id, job.id),
+      objective ? repos.objectives.get(project.id, objective.id) : null
+    ]);
+    expect(cancelResponse.status).toBe(200);
+    expect(canceledJob?.status).toBe("canceled");
+    expect(canceledObjective).toMatchObject({ status: "canceled", roundCount: 0, stopReason: "canceled" });
 
     context.client.close();
   });

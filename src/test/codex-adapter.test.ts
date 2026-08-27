@@ -39,7 +39,7 @@ writeFileSync(outputPath, JSON.stringify({
     await chmod(fakeCodexPath, 0o755);
 
     const activities: Array<{ type: string; title: string; body?: string | null }> = [];
-    const adapter = new CodexAdapter({ command: fakeCodexPath });
+    const adapter = new CodexAdapter({ command: fakeCodexPath, model: "gpt-test" });
     const result = await adapter.run({
       job: fakeJob,
       repoPath: dir,
@@ -118,6 +118,11 @@ writeFileSync(outputPath, JSON.stringify({
     expect(findingItemSchema?.required).toEqual(["severity", "path", "line", "title", "body"]);
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Codex completed.");
+    expect(result.metadata?.providerExecution).toEqual({
+      model: "gpt-test",
+      sessionId: "thread-1",
+      usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3, reasoning_output_tokens: 1 }
+    });
     expect(activities.map((activity) => activity.title)).toEqual(
       expect.arrayContaining([
         "Started Codex CLI",
@@ -240,6 +245,7 @@ process.exit(1);
     const failedActivity = activities.find((activity) => activity.title === "Codex CLI failed");
     expect(result.status).toBe("failed");
     expect(result.message).toBe("You've hit your usage limit. Try again later.");
+    expect(result.metadata?.providerExecution?.sessionId).toBe("thread-error");
     expect(failedActivity?.body).toBe("You've hit your usage limit. Try again later.");
     expect(failedActivity?.body).not.toContain("cloudflare");
   });

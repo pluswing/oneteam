@@ -41,7 +41,7 @@ import { startLoopRun } from "./services/loop-runner";
 import { ensureObjectiveForTarget } from "./services/objective-runs";
 import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
 import { mergePullRequest } from "./services/pull-request-merge";
-import { resumeProviderWait } from "./services/provider-wait";
+import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
 
 const execFileAsync = promisify(execFile);
 
@@ -1222,6 +1222,9 @@ export function createApp({
     });
     if (!canceledJob) {
       notFound("Agent job was not found.");
+    }
+    if (job.status === "waiting_provider") {
+      await recordProviderWaitCanceled(repos, job);
     }
 
     if (job.targetType !== "project") {

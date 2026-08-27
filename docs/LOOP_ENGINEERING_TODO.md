@@ -96,20 +96,20 @@
 
 - [x] `waiting_provider` Agent Job / Objective statusを型、DB、migration、API、UIに追加する
 - [x] `provider_quota_exhausted` Wait Reasonを追加する
-- [ ] **Partial**: Codex CLIが集約したstructured error / stderr messageからusage limit / rate limit / HTTP 429を分類する。usage eventの直接分類は未実装
-- [ ] **Partial**: provider、message、detectedAt、resetAt、nextRetryAt、retryCountを保存する。model、usage snapshot、thread / session idは未実装
+- [ ] **Partial**: Codex CLIのstructured error / stderr messageからusage limit / rate limit / HTTP 429を分類し、thread / usage eventを収集する。usage eventだけからquota exhaustionを判定する制御は未実装
+- [x] provider、model、message、usage snapshot、detectedAt、resetAt、nextRetryAt、retryCount、thread / session idをProvider Wait metadataへ保存する
 - [x] provider quota待機をfailed、waiting_human、repeated failure、objective roundとして数えない
 
 ### Wait scheduler / recovery
 
-- [ ] **Partial**: reset timeがある場合は直後、ない場合は上限付きexponential backoffで再開する。jitterは未実装
+- [x] reset timeがある場合は直後、ない場合はjitter付き・上限付きexponential backoffで再開する
 - [ ] quota確認用の軽量probeと、実Job再開を分離して無駄なtoken消費とerror spamを避ける
-- [ ] **Partial**: worktree、branch、job input、Objective、Evidenceを保持する。Codex thread継続は未実装
+- [ ] **Partial**: worktree、branch、job input、Objective、Evidence、Codex thread IDを保持する。Codex CLIを同じthreadで継続する実行方式は未実装
 - [x] quota回復時に同じJob / Objective stepを自動queueし、通常の完了処理でEvidenceを再取得する
 - [x] アプリ再起動時に`waiting_provider`と`nextRetryAt`をDBから復元する
 - [x] 状態条件付きupdateにより、同一Jobの二重再開を防止する
-- [ ] **Partial**: wait開始 / 自動・手動再開 / cancelをActivityへ記録する。軽量probeによる延長 / 回復eventは未実装
-- [ ] **Partial**: usage limit、resetなし、期限到来自動再開のintegration testを追加済み。resetあり、実プロセス再起動、手動Resume、Cancelは未実装
+- [ ] **Partial**: wait開始 / 自動・手動再開 / cancelをActivityへ記録し、Cancel時はObjective / Loopも整合させる。軽量probeによる延長 / 回復eventは未実装
+- [x] usage limit、resetあり / なし、別WorkerによるDB復元、手動Resume、Cancelのunit / integration testを追加する
 
 ### UI
 

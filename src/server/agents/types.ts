@@ -69,6 +69,11 @@ export type AgentRunResult = {
       missingEvidence?: string[] | null;
       notes?: string[] | null;
     } | null;
+    providerExecution?: {
+      model?: string | null;
+      sessionId?: string | null;
+      usage?: Record<string, unknown> | null;
+    } | null;
     [key: string]: unknown;
   } | null;
 };

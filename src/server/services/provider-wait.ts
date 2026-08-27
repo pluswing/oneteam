@@ -7,10 +7,16 @@ export const providerQuotaWaitReason = "provider_quota_exhausted";
 
 export type ProviderWaitDecision = {
   reason: typeof providerQuotaWaitReason;
+  provider: AgentJobDto["aiProvider"];
+  model: string | null;
+  sessionId: string | null;
+  usageSnapshot: Record<string, unknown> | null;
   detectedAt: string;
   resetAt: string | null;
   nextRetryAt: string;
   retryCount: number;
+  retryDelayMs: number;
+  jitterMs: number;
   providerMessage: string;
 };
 
@@ -25,8 +31,9 @@ const providerQuotaPatterns = [
 
 export function classifyProviderWait(
   job: AgentJobDto,
-  result: Pick<AgentRunResult, "status" | "message">,
-  currentTime = new Date()
+  result: Pick<AgentRunResult, "status" | "message" | "metadata">,
+  currentTime = new Date(),
+  random = Math.random
 ): ProviderWaitDecision | null {
   if (result.status !== "failed" || !providerQuotaPatterns.some((pattern) => pattern.test(result.message))) {
     return null;
@@ -35,19 +42,29 @@ export function classifyProviderWait(
   const detectedAt = currentTime.toISOString();
   const previousRetryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
   const retryCount = previousRetryCount + 1;
-  const resetAt = parseResetAt(result.message, currentTime);
+  const providerExecution = result.metadata?.providerExecution;
+  const usageSnapshot = providerExecution?.usage ?? null;
+  const resetAt = resetAtFromUsage(usageSnapshot) ?? parseResetAt(result.message, currentTime);
   const backoffMs = Math.min(5 * 60_000 * 2 ** (retryCount - 1), 60 * 60_000);
+  const jitterFactor = 0.9 + Math.min(Math.max(random(), 0), 1) * 0.2;
+  const jitteredBackoffMs = Math.round(backoffMs * jitterFactor);
+  const jitterMs = jitteredBackoffMs - backoffMs;
   const parsedResetMs = resetAt ? Date.parse(resetAt) : Number.NaN;
-  const nextRetryMs = Number.isFinite(parsedResetMs) && parsedResetMs > currentTime.getTime()
-    ? parsedResetMs + 5_000
-    : currentTime.getTime() + backoffMs;
+  const hasFutureReset = Number.isFinite(parsedResetMs) && parsedResetMs > currentTime.getTime();
+  const nextRetryMs = hasFutureReset ? parsedResetMs + 5_000 : currentTime.getTime() + jitteredBackoffMs;
 
   return {
     reason: providerQuotaWaitReason,
+    provider: job.aiProvider,
+    model: providerExecution?.model ?? null,
+    sessionId: providerExecution?.sessionId ?? null,
+    usageSnapshot,
     detectedAt,
     resetAt,
     nextRetryAt: new Date(nextRetryMs).toISOString(),
     retryCount,
+    retryDelayMs: nextRetryMs - currentTime.getTime(),
+    jitterMs: hasFutureReset ? 0 : jitterMs,
     providerMessage: result.message.slice(0, 4000)
   };
 }
@@ -66,11 +83,15 @@ export async function enterProviderWait(
     `- Job: \`#${job.id}\` (${job.agentType})`,
     `- Reason: \`${decision.reason}\``,
     `- Retry attempt: ${decision.retryCount}`,
+    decision.model ? `- Model: \`${decision.model}\`` : null,
+    decision.sessionId ? `- Session: \`${decision.sessionId}\`` : null,
     `- Next retry: ${decision.nextRetryAt}`,
     decision.resetAt ? `- Provider reset: ${decision.resetAt}` : "- Provider reset: not reported; exponential backoff is active",
     "",
     "This wait does not consume an Objective round. You can also resume the job immediately from the Agent Job screen."
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
   const output = {
     status: "waiting_provider",
     message,
@@ -194,6 +215,27 @@ export async function resumeProviderWait(
   return resumed;
 }
 
+export async function recordProviderWaitCanceled(repos: Repositories, job: AgentJobDto): Promise<void> {
+  const objective = await objectiveForJob(repos, job);
+  if (objective?.status === "waiting_provider") {
+    await repos.objectives.update(job.projectId, objective.id, {
+      status: "canceled",
+      stopReason: "canceled",
+      summary: `Provider wait for job #${job.id} was canceled by the user.`,
+      finishedAt: new Date().toISOString()
+    });
+  }
+
+  const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
+  if (step) {
+    await repos.loopSteps.updateForAgentJob(job.projectId, job.id, { status: "canceled" });
+    await repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "canceled", {
+      summary: `Provider wait for job #${job.id} was canceled by the user.`,
+      stopReason: "canceled"
+    });
+  }
+}
+
 function numericMetadata(value: Record<string, unknown> | null, key: string): number | null {
   const item = value?.[key];
   return typeof item === "number" && Number.isFinite(item) ? item : null;
@@ -208,10 +250,32 @@ function parseResetAt(message: string, currentTime: Date): string | null {
     }
   }
 
-  const durationMatch = message.match(/try again in\s+(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
-  if (durationMatch && (durationMatch[1] || durationMatch[2])) {
-    const durationMs = (Number(durationMatch[1] ?? 0) * 60 + Number(durationMatch[2] ?? 0)) * 60_000;
+  const durationMatch = message.match(
+    /try again in\s+(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?/i
+  );
+  if (durationMatch && (durationMatch[1] || durationMatch[2] || durationMatch[3])) {
+    const durationMs =
+      (Number(durationMatch[1] ?? 0) * 60 * 60 +
+        Number(durationMatch[2] ?? 0) * 60 +
+        Number(durationMatch[3] ?? 0)) *
+      1000;
     return new Date(currentTime.getTime() + durationMs).toISOString();
+  }
+  return null;
+}
+
+function resetAtFromUsage(usage: Record<string, unknown> | null): string | null {
+  if (!usage) {
+    return null;
+  }
+  const value = usage.resetAt ?? usage.reset_at ?? usage.resetsAt ?? usage.resets_at;
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const timestamp = value < 10_000_000_000 ? value * 1000 : value;
+    return new Date(timestamp).toISOString();
   }
   return null;
 }

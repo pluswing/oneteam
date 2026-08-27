@@ -1,0 +1,93 @@
+import { describe, expect, it } from "vitest";
+import { classifyProviderWait } from "../server/services/provider-wait";
+import type { AgentJobDto } from "../shared/types";
+
+describe("provider wait classification", () => {
+  it("uses provider reset telemetry and preserves execution metadata", () => {
+    const currentTime = new Date("2026-08-28T00:00:00.000Z");
+    const resetAt = "2026-08-28T02:00:00.000Z";
+    const decision = classifyProviderWait(
+      fakeJob(),
+      {
+        status: "failed",
+        message: "Usage limit exceeded.",
+        metadata: {
+          providerExecution: {
+            model: "gpt-test",
+            sessionId: "thread-123",
+            usage: { reset_at: resetAt, remaining: 0 }
+          }
+        }
+      },
+      currentTime,
+      () => 0
+    );
+
+    expect(decision).toMatchObject({
+      provider: "codex",
+      model: "gpt-test",
+      sessionId: "thread-123",
+      resetAt,
+      nextRetryAt: "2026-08-28T02:00:05.000Z",
+      retryCount: 1,
+      jitterMs: 0,
+      usageSnapshot: { remaining: 0 }
+    });
+  });
+
+  it("applies bounded jitter to exponential backoff when no reset is reported", () => {
+    const currentTime = new Date("2026-08-28T00:00:00.000Z");
+    const first = classifyProviderWait(
+      fakeJob(),
+      { status: "failed", message: "You've hit your usage limit. Try again later." },
+      currentTime,
+      () => 0
+    );
+    const second = classifyProviderWait(
+      fakeJob({ retryCount: 1 }),
+      { status: "failed", message: "You've hit your usage limit. Try again later." },
+      currentTime,
+      () => 1
+    );
+
+    expect(first).toMatchObject({ retryCount: 1, retryDelayMs: 270_000, jitterMs: -30_000 });
+    expect(second).toMatchObject({ retryCount: 2, retryDelayMs: 660_000, jitterMs: 60_000 });
+  });
+
+  it("parses relative reset durations from provider messages", () => {
+    const decision = classifyProviderWait(
+      fakeJob(),
+      { status: "failed", message: "Rate limit exceeded. Try again in 1 hour 5 minutes 10 seconds." },
+      new Date("2026-08-28T00:00:00.000Z"),
+      () => 0.5
+    );
+
+    expect(decision?.resetAt).toBe("2026-08-28T01:05:10.000Z");
+    expect(decision?.nextRetryAt).toBe("2026-08-28T01:05:15.000Z");
+  });
+});
+
+function fakeJob(waitMetadata: Record<string, unknown> | null = null): AgentJobDto {
+  return {
+    id: 1,
+    projectId: "project-1",
+    aiProvider: "codex",
+    agentType: "implementation",
+    targetType: "issue",
+    targetId: 1,
+    status: "running",
+    triggerType: "manual",
+    parentJobId: null,
+    input: {},
+    output: null,
+    error: null,
+    attempt: 1,
+    lockKey: null,
+    waitReason: null,
+    waitMetadata,
+    nextRetryAt: null,
+    createdAt: "2026-08-28T00:00:00.000Z",
+    startedAt: "2026-08-28T00:00:00.000Z",
+    finishedAt: null
+  };
+}
