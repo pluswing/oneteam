@@ -148,6 +148,9 @@ export const ja = {
     codexCommand: "Codex コマンド",
     model: "モデル",
     fullAccess: "フルアクセス",
+    automation: "自動化",
+    autoMerge: "検証済み Pull Request を自動マージする",
+    autoMergeDescription: "リポジトリがクリーンで、コンフリクトがなく、Objective の証拠と Verifier 成功が揃った場合のみ実行します。",
     saved: "設定を保存しました"
   },
   agents: {
@@ -182,6 +185,12 @@ export const ja = {
     queueVerifier: "検証ジョブをキュー",
     cancelJob: "ジョブをキャンセル",
     retryJob: "再試行",
+    resumeNow: "今すぐ再開",
+    waitingProvider: "AI プロバイダーの利用枠を待機中",
+    nextRetry: "次回再試行",
+    waitReason: "待機理由",
+    lastChecked: "最終確認",
+    retryCount: "再試行回数",
     attempt: "試行"
   },
   objectives: {
@@ -239,6 +248,7 @@ export const ja = {
     queued: "Queued",
     running: "実行中",
     waiting: "待機中",
+    waitingProvider: "利用枠待機",
     failed: "Failed"
   },
   validation: {

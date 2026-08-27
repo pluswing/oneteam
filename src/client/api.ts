@@ -220,6 +220,7 @@ export const api = {
         claudeCode?: Partial<ProjectSettingsDto["ai"]["claudeCode"]>;
         lmStudio?: Partial<ProjectSettingsDto["ai"]["lmStudio"]>;
       };
+      automation?: Partial<ProjectSettingsDto["automation"]>;
     }
   ): Promise<ProjectSettingsDto> {
     return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`, {
@@ -592,5 +593,12 @@ export const api = {
       method: "POST"
     });
     return response.jobId;
+  },
+
+  async resumeAgentJob(projectId: string, jobId: number): Promise<AgentJobDto> {
+    const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs/${jobId}/resume`, {
+      method: "POST"
+    });
+    return response.job;
   }
 };

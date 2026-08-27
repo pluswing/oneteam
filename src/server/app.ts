@@ -27,20 +27,21 @@ import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
 import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
-  commitAllChanges,
   detectMergeConflicts,
   getBranches,
   getCommitCount,
   getCommits,
   getDiffFiles,
   getDiffWithPatches,
-  getRepositoryStatus,
-  mergeBranch
+  getRepositoryStatus
 } from "./services/git-service";
 import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
 import { runLabelAutomation } from "./services/label-automation";
 import { startLoopRun } from "./services/loop-runner";
-import { ensureObjectiveForTarget, markObjectiveMerged } from "./services/objective-runs";
+import { ensureObjectiveForTarget } from "./services/objective-runs";
+import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
+import { mergePullRequest } from "./services/pull-request-merge";
+import { resumeProviderWait } from "./services/provider-wait";
 
 const execFileAsync = promisify(execFile);
 
@@ -134,6 +135,12 @@ const updateProjectSettingsSchema = z
           })
           .strict()
           .optional()
+      })
+      .strict()
+      .optional(),
+    automation: z
+      .object({
+        autoMergeEnabled: z.boolean()
       })
       .strict()
       .optional()
@@ -277,12 +284,13 @@ async function readProjectSettings(
   runtime?: ProjectSettingsDto["runtime"],
   ai?: ProjectSettingsDto["ai"]
 ): Promise<ProjectSettingsDto> {
-  const storedAi = await repos.settings.get("ai");
+  const [storedAi, automation] = await Promise.all([repos.settings.get("ai"), readAutomationSettings(repos)]);
   return {
     project: {
       locale: project.locale
     },
     ai: normalizeAiSettings(storedAi, aiDefaults(ai)),
+    automation,
     runtime: runtimeDefaults(project, runtime)
   };
 }
@@ -567,10 +575,15 @@ export function createApp({
     }
     const currentSettings = await readProjectSettings(repos, updatedProject, runtime, ai);
     const nextAiSettings = patchAiSettings(currentSettings.ai, input.ai);
-    await saveAiSettings(repos, nextAiSettings);
+    const nextAutomationSettings = input.automation ?? currentSettings.automation;
+    await Promise.all([
+      saveAiSettings(repos, nextAiSettings),
+      saveAutomationSettings(repos, nextAutomationSettings)
+    ]);
     return c.json({
       ...currentSettings,
-      ai: nextAiSettings
+      ai: nextAiSettings,
+      automation: nextAutomationSettings
     });
   });
 
@@ -933,59 +946,18 @@ export function createApp({
     if (!pullRequest) {
       notFound("Pull request was not found.");
     }
-    if (pullRequest.status !== "open") {
-      conflict("Only open pull requests can be merged.");
-    }
-
-    const status = await getRepositoryStatus(project.repoPath);
-    if (!status.clean) {
-      if (status.branch !== pullRequest.sourceBranch) {
-        conflict(`Working tree must be clean before merge. Changed files: ${status.changedFiles.join(", ")}`);
-      }
-      try {
-        await commitAllChanges(project.repoPath, `Prepare pull request #${pullRequest.id}: ${pullRequest.title}`);
-      } catch (error) {
-        conflict(`Unable to auto-commit source branch changes before merge. ${errorMessage(error, "Commit failed.")}`);
-      }
-      const updatedStatus = await getRepositoryStatus(project.repoPath);
-      if (!updatedStatus.clean) {
-        conflict(`Working tree must be clean before merge. Changed files: ${updatedStatus.changedFiles.join(", ")}`);
-      }
-    }
-
-    const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
-    if (conflicts.hasConflicts) {
-      conflict(`Merge conflicts detected: ${conflicts.files.map((file) => file.path).join(", ")}`);
-    }
-
-    let mergeResult: { mergeCommit: string; output: string };
+    let mergeResult: Awaited<ReturnType<typeof mergePullRequest>>;
     try {
-      mergeResult = await mergeBranch(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+      mergeResult = await mergePullRequest(repos, { project, pullRequest, mode: "manual" });
     } catch (error) {
       conflict(errorMessage(error, "Merge failed."));
     }
-
-    const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, { status: "merged" });
-    if (!mergedPullRequest) {
-      notFound("Pull request was not found.");
+    if (mergeResult.state !== "merged") {
+      conflict(mergeResult.reason);
     }
 
-    await repos.comments.create({
-      projectId: project.id,
-      targetType: "pull_request",
-      targetId: pullRequest.id,
-      authorType: "system",
-      body: `Merged \`${pullRequest.sourceBranch}\` into \`${pullRequest.targetBranch}\`.\n\nMerge commit: \`${mergeResult.mergeCommit.slice(0, 12)}\`.`
-    });
-
-    await markObjectiveMerged(repos, {
-      project,
-      pullRequest: mergedPullRequest,
-      mergeCommit: mergeResult.mergeCommit
-    });
-
     return c.json({
-      pullRequest: await enrichPullRequestWithGitStats(project, mergedPullRequest),
+      pullRequest: await enrichPullRequestWithGitStats(project, mergeResult.pullRequest),
       mergeCommit: mergeResult.mergeCommit,
       output: mergeResult.output
     });
@@ -1276,6 +1248,22 @@ export function createApp({
       notFound("Agent job was not found.");
     }
     return c.json({ jobId: job.id });
+  });
+
+  app.post("/api/projects/:projectId/agent-jobs/:jobId/resume", async (c) => {
+    const projectId = c.req.param("projectId");
+    const job = await repos.agentJobs.get(projectId, Number(c.req.param("jobId")));
+    if (!job) {
+      notFound("Agent job was not found.");
+    }
+    if (job.status !== "waiting_provider") {
+      conflict("Only jobs waiting for an AI provider can be resumed here.");
+    }
+    const resumed = await resumeProviderWait(repos, job, "manual");
+    if (!resumed) {
+      conflict("The provider wait changed before it could be resumed.");
+    }
+    return c.json({ job: resumed });
   });
 
   app.get("/api/projects/:projectId/agent-jobs/:jobId/activities", async (c) => {

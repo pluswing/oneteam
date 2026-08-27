@@ -4,7 +4,7 @@ import type { Repositories } from "../db/repositories";
 import { ensureSystemLoop, startLoopRun } from "./loop-runner";
 import { ensureObjectiveForTarget } from "./objective-runs";
 
-const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_human"]);
+const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_provider", "waiting_human"]);
 
 const issueLabelAgents = new Map<string, AgentType>([
   [workflowLabelNames.requirements, "requirements"],

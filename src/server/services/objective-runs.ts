@@ -269,7 +269,7 @@ export async function markObjectiveMerged(
   }).catch(() => undefined);
 }
 
-async function objectiveForJob(repos: Repositories, job: AgentJobDto): Promise<ObjectiveRunDto | null> {
+export async function objectiveForJob(repos: Repositories, job: AgentJobDto): Promise<ObjectiveRunDto | null> {
   const objectiveRunId = objectiveRunIdFromJob(job);
   if (objectiveRunId) {
     return repos.objectives.get(job.projectId, objectiveRunId);

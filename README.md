@@ -157,3 +157,5 @@ docs            requirements and implementation documents
 ## Current Status
 
 The MVP implementation is complete. The remaining work is product hardening beyond MVP: deeper UX polish, broader browser coverage, larger repository performance tuning, and future integrations.
+
+The next target is an autonomous local workflow that continues from an issue through implementation, verification, pull request creation, review, and policy-gated merge. It will persist Codex capacity waits and resume after usage recovers, while retaining the existing Loop Engineering gates. UI work will prioritize a GitHub-quality pull request diff and durable Markdown or sanitized HTML system comments. See [the updated design](./docs/LOOP_ENGINEERING_ADAPTATION.md) and [implementation TODO](./docs/LOOP_ENGINEERING_TODO.md).

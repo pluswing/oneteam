@@ -14,6 +14,7 @@ export type AgentType =
 export type AgentJobStatus =
   | "queued"
   | "running"
+  | "waiting_provider"
   | "waiting_human"
   | "succeeded"
   | "failed"
@@ -28,11 +29,26 @@ export type ActivityType =
   | "system";
 export type CommentBodyFormat = "markdown" | "html";
 export type LoopStatus = "enabled" | "disabled";
-export type LoopRunStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
-export type LoopStepStatus = "queued" | "running" | "waiting_human" | "succeeded" | "failed" | "canceled";
+export type LoopRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_provider"
+  | "waiting_human"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+export type LoopStepStatus =
+  | "queued"
+  | "running"
+  | "waiting_provider"
+  | "waiting_human"
+  | "succeeded"
+  | "failed"
+  | "canceled";
 export type ObjectiveRunStatus =
   | "open"
   | "running"
+  | "waiting_provider"
   | "waiting_human"
   | "ready_to_merge"
   | "succeeded"
@@ -62,6 +78,9 @@ export type ProjectSettingsDto = {
     locale: string;
   };
   ai: AiSettingsDto;
+  automation: {
+    autoMergeEnabled: boolean;
+  };
   runtime: {
     server: {
       host: string;
@@ -171,6 +190,9 @@ export type AgentJobDto = {
   error: string | null;
   attempt: number;
   lockKey: string | null;
+  waitReason: string | null;
+  waitMetadata: Record<string, unknown> | null;
+  nextRetryAt: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;

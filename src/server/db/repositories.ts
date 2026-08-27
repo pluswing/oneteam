@@ -156,6 +156,9 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
     error: row.error,
     attempt: row.attempt,
     lockKey: row.lockKey,
+    waitReason: row.waitReason,
+    waitMetadata: parseJsonObject(row.waitMetadataJson),
+    nextRetryAt: row.nextRetryAt,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt
@@ -1076,7 +1079,10 @@ export function createRepositories(db: Database) {
             outputJson: patch?.output === undefined ? undefined : stringifyJson(patch.output ?? undefined),
             error: patch?.error,
             startedAt: status === "running" ? timestamp : undefined,
-            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined
+            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined,
+            waitReason: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined,
+            waitMetadataJson: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined,
+            nextRetryAt: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined
           })
           .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId)))
           .returning();
@@ -1121,6 +1127,57 @@ export function createRepositories(db: Database) {
           .where(and(...filters))
           .returning();
         return rows.map(mapAgentJob);
+      },
+
+      async waitForProvider(
+        projectId: string,
+        jobId: number,
+        input: {
+          reason: string;
+          metadata: Record<string, unknown>;
+          nextRetryAt: string;
+          output: Record<string, unknown>;
+        }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "waiting_provider",
+            outputJson: stringifyJson(input.output),
+            error: null,
+            waitReason: input.reason,
+            waitMetadataJson: stringifyJson(input.metadata),
+            nextRetryAt: input.nextRetryAt,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "running")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async listDueProviderWaits(at: string): Promise<AgentJobDto[]> {
+        const rows = await db
+          .select()
+          .from(agentJobs)
+          .where(and(eq(agentJobs.status, "waiting_provider"), sql`${agentJobs.nextRetryAt} <= ${at}`))
+          .orderBy(agentJobs.nextRetryAt);
+        return rows.map(mapAgentJob);
+      },
+
+      async resumeProviderWait(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            nextRetryAt: null,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "waiting_provider")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
       },
 
       async retry(projectId: string, jobId: number): Promise<AgentJobDto | null> {

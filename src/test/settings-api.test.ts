@@ -120,6 +120,7 @@ describe("settings API", () => {
     expect(updated.project.locale).toBe("ja");
     expect(settings.ai.codex.command).toBe("managed-codex");
     expect(settings.ai.codex.model).toBe("gpt-managed");
+    expect(settings.automation.autoMergeEnabled).toBe(true);
     expect(settings.runtime.database.url).toContain("test.db");
     expect(codexUpdateResponse.status).toBe(400);
 
@@ -167,6 +168,9 @@ describe("settings API", () => {
             maxToolRounds: 12,
             temperature: 0.2
           }
+        },
+        automation: {
+          autoMergeEnabled: false
         }
       })
     });
@@ -193,6 +197,7 @@ describe("settings API", () => {
     expect(settings.ai.provider).toBe("lm_studio");
     expect(settings.ai.lmStudio.model).toBe("qwen-coder");
     expect(settings.ai.lmStudio.maxToolRounds).toBe(12);
+    expect(settings.automation.autoMergeEnabled).toBe(false);
     expect(jobPayload.job.aiProvider).toBe("lm_studio");
 
     context.client.close();

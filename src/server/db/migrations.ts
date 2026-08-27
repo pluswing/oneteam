@@ -383,6 +383,15 @@ const migrations: Migration[] = [
       "create index if not exists idx_objective_runs_pull_request on objective_runs(project_id, pull_request_id, updated_at desc)",
       "create index if not exists idx_objective_runs_project_status on objective_runs(project_id, status, updated_at desc)"
     ]
+  },
+  {
+    id: "0008_provider_wait_state",
+    statements: [
+      "alter table agent_jobs add column wait_reason text",
+      "alter table agent_jobs add column wait_metadata_json text",
+      "alter table agent_jobs add column next_retry_at text",
+      "create index if not exists idx_agent_jobs_provider_wait on agent_jobs(status, next_retry_at)"
+    ]
   }
 ];
 

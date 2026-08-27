@@ -146,6 +146,9 @@ export const en = {
     codexCommand: "Codex command",
     model: "Model",
     fullAccess: "Full access",
+    automation: "Automation",
+    autoMerge: "Automatically merge verified pull requests",
+    autoMergeDescription: "Requires a clean repository, no conflicts, Objective evidence, and a successful verifier.",
     saved: "Settings saved"
   },
   agents: {
@@ -180,6 +183,12 @@ export const en = {
     queueVerifier: "Queue verifier job",
     cancelJob: "Cancel job",
     retryJob: "Retry",
+    resumeNow: "Resume now",
+    waitingProvider: "Waiting for AI provider usage",
+    nextRetry: "Next retry",
+    waitReason: "Wait reason",
+    lastChecked: "Last checked",
+    retryCount: "Retry count",
     attempt: "Attempt"
   },
   objectives: {
@@ -237,6 +246,7 @@ export const en = {
     queued: "Queued",
     running: "Running",
     waiting: "Waiting",
+    waitingProvider: "Provider wait",
     failed: "Failed"
   },
   validation: {

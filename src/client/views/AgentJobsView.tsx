@@ -1,4 +1,4 @@
-import { RotateCcw, Square } from "lucide-react";
+import { Play, RotateCcw, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { aiProviderLabel } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
@@ -16,6 +16,7 @@ function AgentJobActions(props: {
   job: AgentJobDto;
   busyJobId: number | null;
   onCancel: (jobId: number) => Promise<void>;
+  onResume: (jobId: number) => Promise<void>;
   onRetry: (jobId: number) => Promise<void>;
 }) {
   return (
@@ -48,6 +49,21 @@ function AgentJobActions(props: {
         >
           <RotateCcw size={14} />
           {t("agents.retryJob")}
+        </button>
+      ) : null}
+      {props.job.status === "waiting_provider" ? (
+        <button
+          className="primary-button"
+          disabled={props.busyJobId === props.job.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            void props.onResume(props.job.id);
+          }}
+          title={t("agents.resumeNow")}
+          type="button"
+        >
+          <Play size={14} />
+          {t("agents.resumeNow")}
         </button>
       ) : null}
     </div>
@@ -310,6 +326,19 @@ function AgentJobDetailScreen(props: {
     }
   }
 
+  async function resumeJob(jobId: number) {
+    setBusyJobId(jobId);
+    setError(null);
+    try {
+      setJob(await api.resumeAgentJob(props.project.id, jobId));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resume agent job.");
+    } finally {
+      setBusyJobId(null);
+    }
+  }
+
   const visibleActivities = useMemo(
     () => (job ? activities.filter((activity) => isRelevantAgentActivity(job, activity)) : []),
     [activities, job]
@@ -330,8 +359,23 @@ function AgentJobDetailScreen(props: {
             <div className="agent-job-details-summary">
               <div className="agent-job-details-header">
                 <h2>{t("agents.details")}</h2>
-                <AgentJobActions job={job} busyJobId={busyJobId} onCancel={cancelJob} onRetry={retryJob} />
+                <AgentJobActions
+                  job={job}
+                  busyJobId={busyJobId}
+                  onCancel={cancelJob}
+                  onResume={resumeJob}
+                  onRetry={retryJob}
+                />
               </div>
+              {job.status === "waiting_provider" ? (
+                <div className="provider-wait-banner">
+                  <strong>{t("agents.waitingProvider")}</strong>
+                  <span>{t("agents.nextRetry")}: {formatDateTime(job.nextRetryAt)}</span>
+                  <span>{t("agents.waitReason")}: {job.waitReason ?? "-"}</span>
+                  <span>{t("agents.lastChecked")}: {formatDateTime(stringValue(job.waitMetadata?.detectedAt))}</span>
+                  <span>{t("agents.retryCount")}: {numberValue(job.waitMetadata?.retryCount) ?? 0}</span>
+                </div>
+              ) : null}
               <dl className="agent-job-detail-facts">
                 <div>
                   <dt>{t("agents.target")}</dt>

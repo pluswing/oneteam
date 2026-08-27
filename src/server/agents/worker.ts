@@ -20,6 +20,8 @@ import {
   type PreparedWorktree
 } from "../services/worktree-service";
 import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult } from "../services/objective-runs";
+import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../services/provider-wait";
+import { mergePullRequest } from "../services/pull-request-merge";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -62,6 +64,10 @@ export class AgentWorker {
 
     this.isTicking = true;
     try {
+      const dueProviderWaits = await this.repos.agentJobs.listDueProviderWaits(new Date().toISOString());
+      for (const waitingJob of dueProviderWaits) {
+        await resumeProviderWait(this.repos, waitingJob, "automatic");
+      }
       const job = await this.repos.agentJobs.nextQueued();
       if (!job) {
         return;
@@ -144,6 +150,12 @@ export class AgentWorker {
         return;
       }
 
+      const providerWait = classifyProviderWait(runningJob, result);
+      if (providerWait) {
+        await enterProviderWait(this.repos, runningJob, providerWait);
+        return;
+      }
+
       let finalizedResult = await this.finalizeImplementationResult(runningJob, project, worktree?.repoPath ?? project.repoPath, result);
       finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, worktree?.repoPath ?? project.repoPath, finalizedResult);
       finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
@@ -153,6 +165,11 @@ export class AgentWorker {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
+      const providerWait = classifyProviderWait(runningJob, { status: "failed", message });
+      if (providerWait) {
+        await enterProviderWait(this.repos, runningJob, providerWait);
+        return;
+      }
       const recovery = classifyRecoverableRuntimeError(error);
       if (recovery) {
         await this.requeueAfterRecovery(runningJob, {
@@ -636,6 +653,51 @@ export class AgentWorker {
     });
     await this.updateLoopForResult(job, output);
     await recordObjectiveJobResult(this.repos, { job, result: output });
+    if (
+      output.status === "succeeded" &&
+      job.agentType === "verifier" &&
+      job.targetType === "pull_request" &&
+      output.metadata?.verifier?.stopConditionMet === true
+    ) {
+      await this.tryAutomaticMerge(job);
+    }
+  }
+
+  private async tryAutomaticMerge(job: AgentJobDto): Promise<void> {
+    const [project, pullRequest] = await Promise.all([
+      this.repos.projects.get(job.projectId),
+      this.repos.pullRequests.get(job.projectId, job.targetId)
+    ]);
+    if (!project || !pullRequest) {
+      return;
+    }
+    try {
+      await mergePullRequest(this.repos, {
+        project,
+        pullRequest,
+        mode: "automatic",
+        verifierJob: job
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Automatic merge failed unexpectedly.";
+      const objective = await this.repos.objectives.findByPullRequest(job.projectId, pullRequest.id);
+      if (objective) {
+        await this.repos.objectives.update(job.projectId, objective.id, {
+          status: "waiting_human",
+          stopReason: "automatic_merge_failed",
+          summary: message
+        });
+      }
+      await this.repos.comments.create({
+        projectId: job.projectId,
+        targetType: "pull_request",
+        targetId: pullRequest.id,
+        authorType: "system",
+        body: `## Automatic merge failed\n\n${message}\n\nThe verifier result was preserved. Inspect the repository before retrying the merge.`,
+        bodyFormat: "markdown",
+        metadata: { agentJobId: job.id, automaticMerge: "failed" }
+      });
+    }
   }
 
   private async updateLoopForResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {

@@ -919,10 +919,26 @@ textarea {
 }
 
 .status-waiting_human,
+.status-waiting_provider,
 .status-waiting {
   border-color: #8250df;
   color: #6639ba;
   background: #fbefff;
+}
+
+.provider-wait-banner {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #8250df;
+  border-radius: 8px;
+  color: #6639ba;
+  background: #fbefff;
+}
+
+.provider-wait-banner span {
+  font-size: 13px;
 }
 
 .empty-state {
@@ -1713,6 +1729,29 @@ textarea {
   padding: 0 6px;
   color: #24292f;
   font-weight: 700;
+}
+
+.settings-form .checkbox-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.settings-form .checkbox-row input {
+  width: 16px;
+  margin-top: 2px;
+}
+
+.settings-form .checkbox-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-form .checkbox-row small {
+  color: #57606a;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .repository-facts dt,

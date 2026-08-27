@@ -24,6 +24,8 @@
 - OneTeam は 1 インスタンスにつき 1 repository を管理する。
 - AI 実行基盤は Codex、Claude Code、LM Studio を切り替え可能な provider adapter として扱う。
 - Codex / Claude Code は外部 CLI adapter、LM Studio は OpenAI-compatible local API + OneTeam tool loop として扱う。
-- merge はユーザーが行い、merge conflict の修正は OneTeam が支援する。
+- 目標ワークフローでは、Verifier、Evidence Gate、merge 直前検証を通過した PR は OneTeam が自動 merge する。merge conflict、stale Evidence、Risk Signal は修正、再検証、または Human Gate に戻す。
+- Codex の usage remaining 枯渇は `waiting_provider` として待機し、利用枠回復後に自動再開する。
+- UI は GitHub 相当の issue / pull request 体験を目標とし、特に diff と後から読み返せる Agent / system comment を重視する。
 - issue / pull request の削除は論理削除。
 - Agent の作業進捗はコメントとは別に Activity Log として時系列保存する。

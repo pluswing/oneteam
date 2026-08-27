@@ -2,6 +2,8 @@
 
 作成日: 2026-06-25
 
+> 2026-08-27 update: 本文は2026-06-25時点のgap分析として残す。standing objective、内部Scheduler、hard gate、repeated failure、score manipulation scanはその後実装された。現在の実装棚卸しと次の方針は [LOOP_ENGINEERING_TODO.md](./LOOP_ENGINEERING_TODO.md) を参照する。
+
 参照:
 
 - Qiita: [入門から実践 -「 ループエンジニアリング」](https://qiita.com/Syoitu/items/97ed37e7ba9c38dc75d8)

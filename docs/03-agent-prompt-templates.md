@@ -14,6 +14,9 @@ Codex CLI で実行する各 Agent の prompt template、入力 context、出力
 - 人間の判断が必要な場合は `waiting_human` を返し、質問を comments に投稿する。
 - Agent は停止時に `stopReason` を返す。
 - Agent は完了判定、レビュー、QA、人間判断に必要な証拠を `evidence` として返す。
+- Agent / system comment はその場の通知ではなく、後から Issue / PR の判断経緯を復元するための永続的な成果物として作る。
+- 通常は Markdown を使い、表、check summary、callout、比較表示が読みやすさを大きく改善する場合は sanitized HTML を使う。
+- 細かな逐次ログは Activity に残し、Comment は要件確定、PR 作成、review、QA、Provider 待機 / 再開、merge などの節目に圧縮する。
 
 ## 3. 共通 Context Envelope
 
@@ -84,7 +87,8 @@ Return structured JSON that matches the requested output schema.
   "comment": {
     "targetType": "issue",
     "targetId": 24,
-    "body": "Markdown comment to post"
+    "body": "Markdown or sanitized HTML comment to post",
+    "bodyFormat": "markdown"
   },
   "questions": [],
   "activities": [
@@ -121,6 +125,7 @@ Return structured JSON that matches the requested output schema.
 
 - `succeeded`
 - `waiting_human`
+- `waiting_provider`。LLM の自己申告ではなく、provider adapter / workflow controller が quota 枯渇や retryable provider error を検出した場合だけ設定する
 - `failed`
 
 `stopReason`:
@@ -128,12 +133,57 @@ Return structured JSON that matches the requested output schema.
 - `passed`
 - `failed`
 - `waiting_human`
+- `provider_quota_exhausted`
 - `timeout`
 - `max_rounds_exceeded`
 - `budget_exceeded`
 - `risk_detected`
 - `rollback_required`
 - `canceled`
+
+### 5.1 Agent / System Comment Contract
+
+節目のコメントは、可能な範囲で次の順序にする。
+
+1. 結論 / 現在状態
+2. Objective / Goal Contract の要約
+3. 実施した変更または判定
+4. Evidence / checks
+5. review finding、残リスク、未対応事項
+6. file / line diff link、commit、pull request
+7. 次の工程、停止理由、再開条件
+8. Agent role、provider / model、実行時刻
+
+Markdown 例:
+
+```markdown
+## Verification passed
+
+The pull request is ready for the automatic merge gate.
+
+### Changes
+- Added usage-limit detection to the Codex adapter.
+- Persisted provider wait and retry metadata.
+
+### Checks
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Typecheck | Passed | `npm run typecheck` (exit 0) |
+| Tests | Passed | `npm test` (44 tests) |
+
+### Review
+- Blocking findings: none
+- Remaining risk: reset time may be absent; bounded backoff is used.
+
+### References
+- Pull request: #42
+- Commit: `abc12345`
+- Important diff: `src/server/agents/worker.ts:L210`
+
+Next: revalidate source/target HEAD and run the automatic merge gate.
+```
+
+HTML を使う場合も同じ情報階層を維持する。`script`、event handler、`javascript:` URL、unsafe CSS、`iframe`、`object`、`embed`、外部 stylesheet を含めない。色だけで状態を表現しない。
 
 ## 6. Requirements Agent
 
@@ -409,7 +459,7 @@ Tasks:
 5. If Evidence proves failure, return failed with stopReason "failed".
 6. Return metadata.verifier:
    - verdict: "passed", "missing_evidence", or "failed"
-   - nextLabel: "ready-to-merge" when the pull request can be merged by the user
+   - nextLabel: "ready-to-merge" when the pull request can enter the automatic merge gate
    - stopConditionMet: boolean
    - missingEvidence: array of missing evidence names
    - notes: array of user-visible observations

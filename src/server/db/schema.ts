@@ -151,6 +151,9 @@ export const agentJobs = sqliteTable("agent_jobs", {
   error: text("error"),
   attempt: integer("attempt").notNull().default(1),
   lockKey: text("lock_key"),
+  waitReason: text("wait_reason"),
+  waitMetadataJson: text("wait_metadata_json"),
+  nextRetryAt: text("next_retry_at"),
   createdAt: text("created_at").notNull(),
   startedAt: text("started_at"),
   finishedAt: text("finished_at")

@@ -108,6 +108,10 @@ export async function mergeBranch(
   return { mergeCommit, output };
 }
 
+export async function getRevisionHash(repoPath: string, revision: string): Promise<string> {
+  return git(repoPath, ["rev-parse", revision]);
+}
+
 export async function commitAllChanges(
   repoPath: string,
   message: string

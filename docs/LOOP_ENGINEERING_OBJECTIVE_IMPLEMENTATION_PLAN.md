@@ -2,6 +2,8 @@
 
 作成日: 2026-06-25
 
+> 2026-08-27 update: この資料はstanding objective導入時の実装計画として残す。次の目標であるIssueからmergeまでの自動完遂、Provider Gate、GitHub-quality UI / diffは、[LOOP_ENGINEERING_ADAPTATION.md](./LOOP_ENGINEERING_ADAPTATION.md) と [LOOP_ENGINEERING_TODO.md](./LOOP_ENGINEERING_TODO.md) を正とする。
+
 ## 目的
 
 OneTeam のユーザー体験は Issue-first のまま保ち、Issue の裏側で次の 5 つを確実に回す。

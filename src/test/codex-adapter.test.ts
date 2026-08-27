@@ -260,6 +260,9 @@ const fakeJob: AgentJobDto = {
   error: null,
   attempt: 1,
   lockKey: null,
+  waitReason: null,
+  waitMetadata: null,
+  nextRetryAt: null,
   createdAt: "2026-05-21T00:00:00.000Z",
   startedAt: "2026-05-21T00:00:00.000Z",
   finishedAt: null

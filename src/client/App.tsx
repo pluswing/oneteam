@@ -86,7 +86,7 @@ function isCommentInsideJobWindow(comment: CommentDto, job: AgentJobDto): boolea
   const commentTimestamp = timestampMs(comment.createdAt);
   const startTimestamp = timestampMs(job.createdAt) - 30_000;
   const endTimestamp = timestampMs(job.finishedAt ?? job.startedAt ?? job.createdAt);
-  if (!endTimestamp || ["queued", "running", "waiting_human"].includes(job.status)) {
+  if (!endTimestamp || ["queued", "running", "waiting_provider", "waiting_human"].includes(job.status)) {
     return commentTimestamp >= startTimestamp;
   }
   return commentTimestamp >= startTimestamp && commentTimestamp <= endTimestamp + 120_000;
@@ -1803,6 +1803,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [lmStudioModel, setLmStudioModel] = useState("");
   const [lmStudioMaxToolRounds, setLmStudioMaxToolRounds] = useState("8");
   const [lmStudioTemperature, setLmStudioTemperature] = useState("");
+  const [autoMergeEnabled, setAutoMergeEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -1820,6 +1821,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setLmStudioModel(response.ai.lmStudio.model ?? "");
     setLmStudioMaxToolRounds(String(response.ai.lmStudio.maxToolRounds));
     setLmStudioTemperature(response.ai.lmStudio.temperature === null ? "" : String(response.ai.lmStudio.temperature));
+    setAutoMergeEnabled(response.automation.autoMergeEnabled);
   }
 
   useEffect(() => {
@@ -1848,6 +1850,9 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
             maxToolRounds: Number(lmStudioMaxToolRounds || "8"),
             temperature: lmStudioTemperature.trim() ? Number(lmStudioTemperature) : null
           }
+        },
+        automation: {
+          autoMergeEnabled
         }
       });
       setSettings(response);
@@ -1891,6 +1896,20 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
             ))}
           </select>
         </label>
+        <fieldset>
+          <legend>{t("settings.automation")}</legend>
+          <label className="checkbox-row">
+            <input
+              checked={autoMergeEnabled}
+              onChange={(event) => setAutoMergeEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              {t("settings.autoMerge")}
+              <small>{t("settings.autoMergeDescription")}</small>
+            </span>
+          </label>
+        </fieldset>
         <fieldset>
           <legend>{t("settings.claudeCode")}</legend>
           <label>

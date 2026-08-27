@@ -243,6 +243,49 @@ Merge conflict detected between source branch and main.
 [Ask OneTeam to resolve conflicts]
 ```
 
+### 9.2 Diff Viewer 目標
+
+Pull Request detail の中心は `Files changed` とし、GitHub 相当以上に変更の意味と review 状態を追いやすくする。
+
+```text
++--------------------------------------------------------------------------------+
+| Files changed  12 files  +248 -91       [Unified v] [Ignore whitespace]        |
+| Reviewed 7 / 12                              [Previous file] [Next file]         |
++----------------------------+---------------------------------------------------+
+| Filter files               | src/server/agents/worker.ts              +54 -12  |
+|                            | [Viewed] [Comment] [Collapse]                       |
+| src/                       +---------------------------------------------------+
+|   server/                  |  210  210 |   const result = ...                   |
+|     agents/                |  211    - | - return failedResult;                 |
+|       worker.ts            |    -  211 | + return waitForProvider(...);         |
+|     services/              |  212  212 |                                         |
+|       provider-wait.ts     |                                                   |
+| test/                      | Inline finding: Preserve objective round count.    |
+|   agent-worker.test.ts     |                                                   |
++----------------------------+---------------------------------------------------+
+```
+
+必要な機能:
+
+- file tree / file list、file search、sticky file header
+- unified / split 切り替え
+- old / new line number、syntax highlighting、word-level diff
+- context 展開、ファイル折りたたみ、全文表示、whitespace 無視
+- rename / binary / added / deleted の識別と additions / deletions
+- viewed 状態、review progress、previous / next file
+- line comment、review finding、file / line deep link
+- system comment から該当 diff を直接開く導線
+- 大規模 diff の file-level lazy loading と virtualization
+- keyboard navigation、ARIA label、色以外の変更種別表示
+
+### 9.3 Conversation / Checks
+
+- Conversation は GitHub の timeline に近い時系列表示とし、Issue / PR event、Agent comment、system comment、review、merge、Provider Gate を同じ流れで確認できる。
+- Agent / system comment は Markdown または sanitized HTML を使い、結論、変更内容、Evidence、判断、リスク、次工程を見出しと表で整理する。
+- Activity の逐次ログをそのまま timeline に流さず、節目の summary に圧縮する。
+- Checks summary から Agent Job、Evidence、command output、該当 diff へ移動できる。
+- `waiting_provider` は推定再開時刻、最終確認時刻、Resume now、Cancel を表示する。
+
 ## 10. Repository
 
 ```text
