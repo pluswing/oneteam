@@ -38,6 +38,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
+  await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" })).toBeVisible();
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
   await expect(page.locator(".automation-checks")).toContainText("requirements");
   await expect(page.locator(".automation-checks")).toContainText("queued");
@@ -58,6 +59,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByLabel("Goal Contract change reason").fill("Include the newly required contract audit flow.");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Goal Contract changed").first()).toBeVisible();
+  await expect(page.locator(".conversation-activity").filter({ hasText: "Goal Contract changed" })).toBeVisible();
 
   await page.getByRole("button", { name: "Issues", exact: true }).click();
   const issueSummary = page.locator(".work-item-rich").filter({ hasText: "Add smoke workflow" });

@@ -434,6 +434,50 @@ function mapPullRequest(
   };
 }
 
+function sameLabels(left: LabelDto[], right: LabelDto[]): boolean {
+  const leftIds = left.map((label) => label.id).sort((a, b) => a - b);
+  const rightIds = right.map((label) => label.id).sort((a, b) => a - b);
+  return leftIds.length === rightIds.length && leftIds.every((id, index) => id === rightIds[index]);
+}
+
+async function recordLabelActivity(
+  db: Database,
+  input: {
+    projectId: string;
+    targetType: "issue" | "pull_request";
+    targetId: number;
+    previous: LabelDto[];
+    current: LabelDto[];
+    createdAt: string;
+  }
+): Promise<void> {
+  if (sameLabels(input.previous, input.current)) return;
+  const previousNames = input.previous.map((label) => label.name);
+  const currentNames = input.current.map((label) => label.name);
+  const added = currentNames.filter((name) => !previousNames.includes(name));
+  const removed = previousNames.filter((name) => !currentNames.includes(name));
+  const lines = [
+    added.length ? `Applied: ${added.map((name) => `\`${name}\``).join(", ")}.` : null,
+    removed.length ? `Removed: ${removed.map((name) => `\`${name}\``).join(", ")}.` : null
+  ].filter((line): line is string => Boolean(line));
+  await db.insert(agentActivities).values({
+    projectId: input.projectId,
+    agentJobId: null,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    activityType: "system",
+    title: input.previous.length ? "Labels changed" : "Labels applied",
+    body: lines.join("\n\n"),
+    payloadJson: stringifyJson({
+      previousLabelIds: input.previous.map((label) => label.id),
+      currentLabelIds: input.current.map((label) => label.id),
+      added,
+      removed
+    }),
+    createdAt: input.createdAt
+  });
+}
+
 export function createRepositories(db: Database) {
   async function activeAiProvider(): Promise<AiProvider> {
     const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ai")).limit(1);
@@ -697,6 +741,14 @@ export function createRepositories(db: Database) {
         }
 
         const labelMap = await getIssueLabels(db, [issue.id]);
+        await recordLabelActivity(db, {
+          projectId: input.projectId,
+          targetType: "issue",
+          targetId: issue.id,
+          previous: [],
+          current: labelMap.get(issue.id) ?? [],
+          createdAt: timestamp
+        });
         const commentCounts = await getIssueCommentCounts(db, [issue.id]);
         return mapIssue(issue, labelMap, commentCounts);
       },
@@ -707,6 +759,7 @@ export function createRepositories(db: Database) {
         input: Partial<Pick<IssueDto, "title" | "body" | "status">> & { labelIds?: number[] }
       ): Promise<IssueDto | null> {
         const timestamp = now();
+        const previousLabels = input.labelIds ? (await getIssueLabels(db, [issueId])).get(issueId) ?? [] : [];
         const rows = await db
           .update(issues)
           .set({
@@ -734,6 +787,15 @@ export function createRepositories(db: Database) {
               }))
             );
           }
+          const currentLabels = (await getIssueLabels(db, [issueId])).get(issueId) ?? [];
+          await recordLabelActivity(db, {
+            projectId,
+            targetType: "issue",
+            targetId: issueId,
+            previous: previousLabels,
+            current: currentLabels,
+            createdAt: timestamp
+          });
         }
 
         return this.get(projectId, issueId);
@@ -842,6 +904,14 @@ export function createRepositories(db: Database) {
         }
 
         const labelMap = await getPullRequestLabels(db, [pullRequest.id]);
+        await recordLabelActivity(db, {
+          projectId: input.projectId,
+          targetType: "pull_request",
+          targetId: pullRequest.id,
+          previous: [],
+          current: labelMap.get(pullRequest.id) ?? [],
+          createdAt: timestamp
+        });
         const commentCounts = await getPullRequestCommentCounts(db, [pullRequest.id]);
         return mapPullRequest(pullRequest, labelMap, commentCounts);
       },
@@ -854,6 +924,9 @@ export function createRepositories(db: Database) {
         > & { labelIds?: number[]; issueId?: number | null }
       ): Promise<PullRequestDto | null> {
         const timestamp = now();
+        const previousLabels = input.labelIds
+          ? (await getPullRequestLabels(db, [pullRequestId])).get(pullRequestId) ?? []
+          : [];
         const rows = await db
           .update(pullRequests)
           .set({
@@ -886,6 +959,15 @@ export function createRepositories(db: Database) {
               }))
             );
           }
+          const currentLabels = (await getPullRequestLabels(db, [pullRequestId])).get(pullRequestId) ?? [];
+          await recordLabelActivity(db, {
+            projectId,
+            targetType: "pull_request",
+            targetId: pullRequestId,
+            previous: previousLabels,
+            current: currentLabels,
+            createdAt: timestamp
+          });
         }
 
         return this.get(projectId, pullRequestId);

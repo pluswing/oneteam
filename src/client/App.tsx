@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Save,
   Settings,
+  Tag,
   Terminal,
   UserRound,
   XCircle
@@ -29,6 +30,7 @@ import { aiProviderLabel, aiProviders } from "../shared/ai-providers";
 import type { SupportedLocale } from "../shared/locales";
 import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
 import type {
+  ActivityDto,
   AgentJobDto,
   CommentDto,
   IssueDto,
@@ -225,7 +227,8 @@ function AutomationGateBanner(props: {
 
 type ConversationEntry =
   | { kind: "comment"; comment: CommentDto; timestamp: number }
-  | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number };
+  | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number }
+  | { kind: "activity"; activity: ActivityDto; timestamp: number };
 
 function timestampMs(value: string | null): number {
   if (!value) {
@@ -281,14 +284,31 @@ function findRelatedAgentJob(comment: CommentDto, agentJobs: AgentJobDto[]): Age
   })[0];
 }
 
-function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[]): ConversationEntry[] {
+function conversationActivityIsRelevant(activity: ActivityDto): boolean {
+  if (activity.title === "Agent job queued" || activity.title.endsWith(" agent started")) return false;
+  return activity.activityType === "system" || activity.title.toLowerCase().includes("committed");
+}
+
+function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[], activities: ActivityDto[]): ConversationEntry[] {
+  const relevantActivities = activities.filter(conversationActivityIsRelevant);
+  const activityCommentIds = new Set<number>();
+  for (const activity of relevantActivities) {
+    if (!activity.body.trim()) continue;
+    const duplicate = comments.find((comment) =>
+      comment.authorType === "system" &&
+      comment.body.trim() === activity.body.trim() &&
+      Math.abs(timestampMs(comment.createdAt) - timestampMs(activity.createdAt)) < 30_000
+    );
+    if (duplicate) activityCommentIds.add(duplicate.id);
+  }
+  const timelineComments = comments.filter((comment) => !activityCommentIds.has(comment.id));
   const groups = new Map<number, { job: AgentJobDto; comments: CommentDto[] }>();
   for (const job of agentJobs) {
     groups.set(job.id, { job, comments: [] });
   }
 
   const groupedCommentIds = new Set<number>();
-  for (const comment of comments) {
+  for (const comment of timelineComments) {
     const job = findRelatedAgentJob(comment, agentJobs);
     if (!job) {
       continue;
@@ -310,13 +330,46 @@ function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[]): 
       timestamp: Math.min(timestampMs(group.job.createdAt), firstCommentTimestamp)
     });
   }
-  for (const comment of comments) {
+  for (const comment of timelineComments) {
     if (!groupedCommentIds.has(comment.id)) {
       entries.push({ kind: "comment", comment, timestamp: timestampMs(comment.createdAt) });
     }
   }
+  for (const activity of relevantActivities) {
+    entries.push({ kind: "activity", activity, timestamp: timestampMs(activity.createdAt) });
+  }
 
   return entries.sort((left, right) => left.timestamp - right.timestamp);
+}
+
+function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJob: (jobId: number) => void }) {
+  const normalizedTitle = props.activity.title.toLowerCase();
+  const Icon = normalizedTitle.includes("merge")
+    ? GitMerge
+    : normalizedTitle.includes("label")
+      ? Tag
+      : normalizedTitle.includes("commit")
+        ? GitCommitHorizontal
+        : normalizedTitle.includes("provider")
+          ? Bot
+          : Settings;
+  return (
+    <article className="conversation-activity">
+      <span className="conversation-activity-icon"><Icon aria-hidden="true" size={16} /></span>
+      <div>
+        <header>
+          <strong>{props.activity.title}</strong>
+          <span>{formatDateTime(props.activity.createdAt)}</span>
+        </header>
+        {props.activity.body ? <MarkdownContent content={props.activity.body} /> : null}
+        {props.activity.agentJobId ? (
+          <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.activity.agentJobId!)} type="button">
+            {t("issues.openGate")}
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
 }
 
 function commentAuthorLabel(comment: CommentDto): string {
@@ -388,9 +441,10 @@ function ConversationAgentJobCard(props: {
 function ConversationTimeline(props: {
   comments: CommentDto[];
   agentJobs: AgentJobDto[];
+  activities: ActivityDto[];
   onOpenAgentJob: (jobId: number) => void;
 }) {
-  const entries = conversationEntries(props.comments, props.agentJobs);
+  const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
   if (entries.length === 0) {
     return <div className="empty-state">{t("issues.noComments")}</div>;
   }
@@ -400,6 +454,8 @@ function ConversationTimeline(props: {
       {entries.map((entry) =>
         entry.kind === "comment" ? (
           <ConversationCommentCard comment={entry.comment} key={`comment-${entry.comment.id}`} />
+        ) : entry.kind === "activity" ? (
+          <ConversationActivityEvent activity={entry.activity} key={`activity-${entry.activity.id}`} onOpenAgentJob={props.onOpenAgentJob} />
         ) : (
           <ConversationAgentJobCard
             comments={entry.comments}
@@ -788,6 +844,7 @@ function IssueDetailScreen(props: {
 }) {
   const [issue, setIssue] = useState<IssueDto | null>(null);
   const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [relatedPullRequests, setRelatedPullRequests] = useState<PullRequestDto[]>([]);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
@@ -795,15 +852,17 @@ function IssueDetailScreen(props: {
   const [isUpdatingStatus, setUpdatingStatus] = useState(false);
 
   async function load() {
-    const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
+    const [issueResponse, commentsResponse, activityResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getIssue(props.project.id, props.issueId),
       api.listIssueComments(props.project.id, props.issueId),
+      api.listIssueActivities(props.project.id, props.issueId),
       api.listPullRequests(props.project.id, { issueId: props.issueId, status: null }),
       api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId }),
       api.getIssueObjective(props.project.id, props.issueId)
     ]);
     setIssue(issueResponse);
     setComments(commentsResponse);
+    setActivities(activityResponse);
     setRelatedPullRequests(pullRequestResponse.items);
     setRelatedAgentJobs(agentJobResponse);
     setObjective(objectiveResponse);
@@ -906,6 +965,7 @@ function IssueDetailScreen(props: {
             pullRequests={relatedPullRequests}
           />
           <ConversationTimeline
+            activities={activities}
             agentJobs={relatedAgentJobs}
             comments={comments}
             onOpenAgentJob={props.onOpenAgentJob}
@@ -1487,6 +1547,7 @@ function PullRequestDetailScreen(props: {
   const [linkedIssue, setLinkedIssue] = useState<IssueDto | null>(null);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
   const [findings, setFindings] = useState<PullRequestFindingDto[]>([]);
@@ -1503,9 +1564,10 @@ function PullRequestDetailScreen(props: {
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
 
   async function load() {
-    const [pullRequestResponse, commentsResponse, agentJobResponse, objectiveResponse] = await Promise.all([
+    const [pullRequestResponse, commentsResponse, activityResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
+      api.listPullRequestActivities(props.project.id, props.pullRequestId),
       api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId }),
       api.getPullRequestObjective(props.project.id, props.pullRequestId)
     ]);
@@ -1524,6 +1586,7 @@ function PullRequestDetailScreen(props: {
     setLinkedIssue(linkedIssueResponse);
     setRelatedAgentJobs(agentJobResponse);
     setComments(commentsResponse);
+    setActivities(activityResponse);
     setObjective(objectiveResponse);
     setFiles(filesResponse.files);
     setFindings(findingsResponse);
@@ -1697,6 +1760,7 @@ function PullRequestDetailScreen(props: {
                 onOpenIssue={props.onOpenIssue}
               />
               <ConversationTimeline
+                activities={activities}
                 agentJobs={relatedAgentJobs}
                 comments={comments}
                 onOpenAgentJob={props.onOpenAgentJob}

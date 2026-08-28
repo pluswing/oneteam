@@ -1847,6 +1847,58 @@ textarea {
   background: #ffffff;
 }
 
+.conversation-activity {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.conversation-activity-icon {
+  display: grid;
+  align-self: start;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d0d7de;
+  border-radius: 50%;
+  color: #57606a;
+  background: #f6f8fa;
+}
+
+.conversation-activity > div {
+  min-width: 0;
+  padding: 5px 0 10px;
+  border-bottom: 1px solid #d8dee4;
+}
+
+.conversation-activity header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  color: #57606a;
+  font-size: 13px;
+}
+
+.conversation-activity header strong {
+  color: #24292f;
+  overflow-wrap: anywhere;
+}
+
+.conversation-activity .markdown-body {
+  margin: 8px 0 0;
+  color: #57606a;
+  font-size: 13px;
+}
+
+.conversation-activity .secondary-button {
+  min-height: 30px;
+  margin-top: 8px;
+  padding: 4px 8px;
+}
+
 .conversation-agent-job {
   display: grid;
   gap: 10px;
