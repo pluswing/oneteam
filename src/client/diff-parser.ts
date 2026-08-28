@@ -257,4 +257,4 @@ export function diffWordSegments(
   return { before: beforeSegments, after: afterSegments };
 }
 
-export { diffAnchorMatchesPath, diffFileAnchor, diffLineAnchor } from "../shared/diff-anchors";
+export { diffAnchorMatchesPath, diffFileAnchor, diffLineAnchor, parseDiffLineAnchor } from "../shared/diff-anchors";

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { diffLineAnchor } from "../src/shared/diff-anchors";
 
 const repoPath = resolve(".tmp/e2e/repo");
 
@@ -115,6 +116,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
     }
   });
   expect(pullRequestResponse.ok()).toBe(true);
+  const createdPullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
 
   await page.getByRole("button", { name: "Pull Requests" }).click();
   const pullRequestSummary = page.locator(".work-item-rich").filter({ hasText: "Review a large generated diff" });
@@ -149,4 +151,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await page.getByRole("button", { name: "Files changed" }).click();
   await expect(page.locator(".diff-line-comment")).toContainText("Review note: keep this generated value stable.");
+  const linkedLineAnchor = diffLineAnchor("large.ts", "R", 1_500);
+  await page.goto(`/pulls/${createdPullRequest.pullRequest.id}#${linkedLineAnchor}`);
+  await expect(page.getByRole("heading", { name: /Review a large generated diff/ })).toBeVisible();
+  await expect(page.locator(`#${linkedLineAnchor}`)).toBeVisible();
+  await expect.poll(() => page.locator(".diff-table-scroll").evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });

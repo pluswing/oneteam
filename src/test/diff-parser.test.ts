@@ -6,6 +6,7 @@ import {
   diffLineAnchor,
   diffWordSegments,
   limitDiffHunks,
+  parseDiffLineAnchor,
   parseDiffPatch
 } from "../client/diff-parser";
 import { calculateDiffVirtualRange } from "../client/diff-virtualization";
@@ -73,6 +74,9 @@ describe("diff parser", () => {
     expect(diffAnchorMatchesPath(fileAnchor, path)).toBe(true);
     expect(diffAnchorMatchesPath(lineAnchor, path)).toBe(true);
     expect(diffAnchorMatchesPath(lineAnchor, "src/client/other.ts")).toBe(false);
+    expect(parseDiffLineAnchor(lineAnchor, path)).toEqual({ side: "R", line: 42 });
+    expect(parseDiffLineAnchor(fileAnchor, path)).toBeNull();
+    expect(parseDiffLineAnchor(lineAnchor, "src/client/other.ts")).toBeNull();
   });
 
   it("detects binary patches", () => {

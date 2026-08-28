@@ -137,7 +137,7 @@
 - [x] **Done**: additions / deletions、rename、binary、added / deleted statusの表示
 - [x] **Done**: whitespace無視、標準 / 20行context / 全文表示、keyboard accessibleなhunk単位の折りたたみ
 - [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
-- [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
+- [x] **Done**: file / line hash anchor、hash指定時のFiles changed自動表示とvirtual windowの対象行移動、Agent finding / system comment / merge summaryからのdeep link生成を実装
 - [x] **Done**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザー行コメントはsource / target commitを固定して永続化し、stale diffを拒否したうえでMarkdown composerとともに該当行へinline表示する
 - [ ] **Partial**: merge system commentのchanged file linkからdiffへ直接移動できる。check summaryとreview findingからの重要行linkは未実装
 - [x] **Done**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cache、初期1,000行 / 段階描画 / 5,000行レビュー上限、finding focused window、overscan付きscroll virtualizationを実装

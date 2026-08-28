@@ -14,6 +14,7 @@ import {
   diffLineAnchor,
   diffWordSegments,
   limitDiffHunks,
+  parseDiffLineAnchor,
   parseDiffPatch,
   type DiffLineFocus,
   type DiffLine,
@@ -617,7 +618,7 @@ export function DiffViewer(props: {
   const [context, setContext] = useState<"default" | "wide" | "full">("default");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [showResolvedFindings, setShowResolvedFindings] = useState(false);
-  const [focusedFinding, setFocusedFinding] = useState<PullRequestFindingDto | null>(null);
+  const [linkedLineFocus, setLinkedLineFocus] = useState<DiffLineFocus | null>(null);
   const [draftComment, setDraftComment] = useState<LineCommentPosition | null>(null);
   const [lineComments, setLineComments] = useState(props.lineComments);
   const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readViewedPaths(viewedStorageKey));
@@ -645,11 +646,17 @@ export function DiffViewer(props: {
   }, [props.files, selectedPath]);
 
   useEffect(() => {
-    const anchor = window.location.hash.slice(1);
-    const linkedFile = anchor ? props.files.find((file) => diffAnchorMatchesPath(anchor, file.path)) : undefined;
-    if (linkedFile) {
-      setSelectedPath(linkedFile.path);
+    function openLinkedAnchor(): void {
+      const anchor = window.location.hash.slice(1);
+      const linkedFile = anchor ? props.files.find((file) => diffAnchorMatchesPath(anchor, file.path)) : undefined;
+      if (linkedFile) {
+        setSelectedPath(linkedFile.path);
+        setLinkedLineFocus(parseDiffLineAnchor(anchor, linkedFile.path));
+      }
     }
+    openLinkedAnchor();
+    window.addEventListener("hashchange", openLinkedAnchor);
+    return () => window.removeEventListener("hashchange", openLinkedAnchor);
   }, [props.files]);
 
   useEffect(() => {
@@ -660,11 +667,20 @@ export function DiffViewer(props: {
     if (!anchor || !diffAnchorMatchesPath(anchor, selectedFile.path)) {
       return;
     }
-    const animationFrame = window.requestAnimationFrame(() => {
-      document.getElementById(anchor)?.scrollIntoView({ block: "center" });
-    });
+    let animationFrame = 0;
+    let attempts = 0;
+    function revealAnchor(): void {
+      const element = document.getElementById(anchor);
+      if (element) {
+        element.scrollIntoView({ block: "center" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 4) animationFrame = window.requestAnimationFrame(revealAnchor);
+    }
+    animationFrame = window.requestAnimationFrame(revealAnchor);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [selectedFile]);
+  }, [linkedLineFocus, selectedFile]);
 
   useEffect(() => {
     if (!selectedPath || !props.sourceCommit || !props.targetCommit) {
@@ -760,7 +776,7 @@ export function DiffViewer(props: {
   }, [props.files, selectedIndex]);
 
   function selectFile(path: string): void {
-    setFocusedFinding(null);
+    setLinkedLineFocus(null);
     setDraftComment(null);
     setSelectedPath(path);
     const anchor = diffFileAnchor(path);
@@ -788,7 +804,7 @@ export function DiffViewer(props: {
   function openFinding(finding: PullRequestFindingDto): void {
     if (!currentSummary || finding.line === null) return;
     const anchor = diffLineAnchor(currentSummary.path, finding.side, finding.line);
-    setFocusedFinding(finding);
+    setLinkedLineFocus({ side: finding.side, line: finding.line });
     setContext("full");
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
     window.requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "center" }));
@@ -796,6 +812,7 @@ export function DiffViewer(props: {
 
   function startLineComment(position: LineCommentPosition): void {
     setDraftComment(position);
+    setLinkedLineFocus({ side: position.side, line: position.line });
     const anchor = diffLineAnchor(position.path, position.side, position.line);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
   }
@@ -900,8 +917,8 @@ export function DiffViewer(props: {
           ) : null}
           {!loading && !error && selectedFile?.patch !== undefined ? (
             view === "unified"
-              ? <UnifiedDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
-              : <SplitDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
+              ? <UnifiedDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={linkedLineFocus} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
+              : <SplitDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={linkedLineFocus} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
           ) : null}
           {!currentSummary && !props.files.length ? <AsyncState compact kind="empty" message={t("pullRequests.noFiles")} /> : null}
         </div>

@@ -19,3 +19,12 @@ export function diffAnchorMatchesPath(anchor: string, path: string): boolean {
 export function diffLineAnchor(path: string, side: "L" | "R", lineNumber: number): string {
   return `diff-${pathHash(path)}-${side}${lineNumber}`;
 }
+
+export function parseDiffLineAnchor(anchor: string, path: string): { side: "L" | "R"; line: number } | null {
+  const prefix = `diff-${pathHash(path)}-`;
+  if (!anchor.startsWith(prefix)) return null;
+  const match = anchor.slice(prefix.length).match(/^([LR])(\d+)$/);
+  if (!match) return null;
+  const line = Number(match[2]);
+  return Number.isSafeInteger(line) && line > 0 ? { side: match[1] as "L" | "R", line } : null;
+}
