@@ -14,6 +14,7 @@ import { getRevisionHash } from "../server/services/git-service";
 import { ensureObjectiveForTarget } from "../server/services/objective-runs";
 import { mergePullRequest } from "../server/services/pull-request-merge";
 import { workflowLabelNames } from "../shared/workflow-labels";
+import { diffFileAnchor } from "../shared/diff-anchors";
 
 const execFileAsync = promisify(execFile);
 
@@ -251,7 +252,11 @@ describe("automatic delivery pipeline", () => {
     ).toBe(true);
     expect(mergedFile).toBe("verified\n");
     expect(prComments.some((comment) => comment.body.includes("## Automatically merged"))).toBe(true);
+    expect(
+      prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
+    ).toBe(true);
     expect(issueComments.some((comment) => comment.body.includes("## Objective completed"))).toBe(true);
+    expect(issueComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}`))).toBe(true);
 
     context.client.close();
   });

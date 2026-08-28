@@ -1,4 +1,5 @@
 import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import { diffFileAnchor } from "../../shared/diff-anchors";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import {
@@ -135,7 +136,7 @@ export async function mergePullRequest(
       { label: "Merge base", value: mergeBase, code: true },
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
-    sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence) : [],
+    sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : [],
     nextStep: pullRequest.issueId
       ? `The linked Issue #${pullRequest.issueId} will be updated and closed, and the final Objective evidence will remain available for audit.`
       : "No linked Issue requires an update. The Pull Request and Objective retain the merge evidence for audit."
@@ -202,7 +203,7 @@ type AutomaticGateEvidence = {
   verifierEvidenceCapturedAt: string;
 };
 
-function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence): SystemCommentSection[] {
+function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullRequestId: number): SystemCommentSection[] {
   const commandItems = evidence.commandResults.length
     ? evidence.commandResults.map(
         (result) =>
@@ -217,7 +218,8 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence): System
       items: [
         `Verifier evidence captured at ${markdownCode(evidence.verifierEvidenceCapturedAt)}.`,
         ...commandItems,
-        `${evidence.changedFiles.length} changed files and ${evidence.diffLineCount} changed lines were evaluated.`
+        `${evidence.changedFiles.length} changed files and ${evidence.diffLineCount} changed lines were evaluated.`,
+        changedFileLinks(evidence.changedFiles, pullRequestId)
       ]
     },
     {
@@ -227,6 +229,18 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence): System
         : ["[PASS] No score-manipulation risk signal was detected in the verified diff."]
     }
   ];
+}
+
+function changedFileLinks(paths: string[], pullRequestId: number): string {
+  if (!paths.length) {
+    return "No changed file path was recorded by the merge gate.";
+  }
+  const visiblePaths = paths.slice(0, 20);
+  const links = visiblePaths.map(
+    (path) => `[${markdownCode(path)}](/pulls/${pullRequestId}#${diffFileAnchor(path)})`
+  );
+  const remaining = paths.length - visiblePaths.length;
+  return `Changed files: ${links.join(", ")}${remaining > 0 ? `, and ${remaining} more` : ""}.`;
 }
 
 async function verifyAutomaticMergeCandidate(
@@ -557,7 +571,7 @@ async function closeLinkedIssue(
         {
           title: "Final state",
           items: [
-            "The Pull Request is marked as merged.",
+            `[Pull request #${pullRequest.id}](/pulls/${pullRequest.id}) is marked as merged.`,
             "The Objective is marked as succeeded with its final merge evidence.",
             "This Issue is closed with its original description preserved."
           ]

@@ -87,7 +87,7 @@
 - [ ] 要件確定、実装開始、PR作成、review、QA、Provider Gate、mergeの節目でIssueを自動更新する
 - [ ] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [ ] Goal Contract変更時は旧条件との差分と変更理由を残す
-- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / Verifier / required commands / risk decisionを含むMarkdown summaryを投稿する。主要diffのdeep linkとMemory参照の集約は未完了
+- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿する。行単位の主要diffとMemory参照の集約は未完了
 - [ ] **Partial**: merge後のIssue自動closeと`done` labelは実装済み。再open時のObjective選択は未実装
 
 ## P0: Codex usage remaining待機と自動再開
@@ -137,9 +137,9 @@
 - [x] **Done**: additions / deletions、rename、binary、added / deleted statusの表示
 - [ ] **Partial**: whitespace無視、標準 / 20行context / 全文表示は実装済み。hunk単位の折りたたみは未実装
 - [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
-- [ ] **Partial**: file / line hash anchorは実装済み。専用URL routeとcommentからのlink生成は未実装
+- [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
 - [ ] line comment、review finding、Agent findingを該当行へ表示する
-- [ ] system comment / check summaryから重要diffへ直接移動できるようにする
+- [ ] **Partial**: merge system commentのchanged file linkからdiffへ直接移動できる。check summaryとreview findingからの重要行linkは未実装
 - [ ] **Partial**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cacheは実装済み。virtualizationは未実装
 - [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装
 
@@ -165,7 +165,7 @@
 - [x] **Done**: internal system commentはMarkdownを標準とし、表とcalloutを共通builderで生成する
 - [ ] sanitizerのallowlist、URL、CSS、image、data attribute policyとsecurity testを強化する
 - [ ] Activityの逐次ログをcommentへ連投せず、節目単位で圧縮・重複排除する
-- [ ] comment内のfile / line / commit / PR参照を検証可能なdeep linkとして保存する
+- [ ] **Partial**: merge / Issue完了commentのPR / changed file参照はdeep link化済み。Agent commentの参照検証とline / commit link生成は未実装
 - [ ] merge後のfinal summaryをIssueとPRの両方から参照できるようにする
 - [ ] 日本語 / 英語で情報階層と表の読みやすさが崩れないsnapshot / browser testを追加する
 

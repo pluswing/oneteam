@@ -1141,7 +1141,9 @@ function PullRequestDetailScreen(props: {
   const [diffRevision, setDiffRevision] = useState<{ sourceCommit: string; targetCommit: string } | null>(null);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
-  const [tab, setTab] = useState<"conversation" | "files" | "commits">("conversation");
+  const [tab, setTab] = useState<"conversation" | "files" | "commits">(() =>
+    window.location.hash.startsWith("#diff-") ? "files" : "conversation"
+  );
   const [error, setError] = useState<string | null>(null);
   const [mergeMessage, setMergeMessage] = useState<string | null>(null);
   const [isMerging, setMerging] = useState(false);
@@ -1181,6 +1183,16 @@ function PullRequestDetailScreen(props: {
     }, 4000);
     return () => window.clearInterval(interval);
   }, [props.project.id, props.pullRequestId]);
+
+  useEffect(() => {
+    function openLinkedDiff(): void {
+      if (window.location.hash.startsWith("#diff-")) {
+        setTab("files");
+      }
+    }
+    window.addEventListener("hashchange", openLinkedDiff);
+    return () => window.removeEventListener("hashchange", openLinkedDiff);
+  }, []);
 
   async function addComment(body: string) {
     await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
