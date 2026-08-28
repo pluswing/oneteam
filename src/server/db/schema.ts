@@ -12,6 +12,7 @@ import type {
   LoopStatus,
   LoopStepStatus,
   ObjectiveRunStatus,
+  ObjectiveWorkflowStage,
   PullRequestStatus,
   TriageItemStatus
 } from "../../shared/types";
@@ -253,6 +254,7 @@ export const objectiveRuns = sqliteTable("objective_runs", {
   issueId: integer("issue_id").references(() => issues.id, { onDelete: "set null" }),
   pullRequestId: integer("pull_request_id").references(() => pullRequests.id, { onDelete: "set null" }),
   status: text("status").notNull().default("open").$type<ObjectiveRunStatus>(),
+  workflowStage: text("workflow_stage").notNull().default("requirements").$type<ObjectiveWorkflowStage>(),
   title: text("title").notNull(),
   goal: text("goal").notNull().default(""),
   roundCount: integer("round_count").notNull().default(0),

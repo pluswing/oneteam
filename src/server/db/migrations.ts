@@ -392,6 +392,19 @@ const migrations: Migration[] = [
       "alter table agent_jobs add column next_retry_at text",
       "create index if not exists idx_agent_jobs_provider_wait on agent_jobs(status, next_retry_at)"
     ]
+  },
+  {
+    id: "0009_objective_workflow_stage",
+    statements: [
+      "alter table objective_runs add column workflow_stage text not null default 'requirements'",
+      `update objective_runs
+        set workflow_stage = case
+          when status = 'ready_to_merge' then 'ready_to_merge'
+          when status = 'succeeded' then 'merged'
+          when pull_request_id is not null then 'review'
+          else 'requirements'
+        end`
+    ]
   }
 ];
 

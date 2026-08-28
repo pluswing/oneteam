@@ -234,7 +234,7 @@ describe("automatic delivery pipeline", () => {
     expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.done);
     expect(updatedIssue).toMatchObject({ status: "closed" });
     expect(updatedIssue?.labels.map((label) => label.name)).toContain(workflowLabelNames.done);
-    expect(updatedObjective).toMatchObject({ status: "succeeded", judgeAgentJobId: job.id });
+    expect(updatedObjective).toMatchObject({ status: "succeeded", workflowStage: "merged", judgeAgentJobId: job.id });
     const objectiveEvidence = Array.isArray(updatedObjective?.evidence?.items) ? updatedObjective.evidence.items : [];
     expect(
       objectiveEvidence.some(

@@ -261,6 +261,7 @@ function mapObjectiveRun(row: ObjectiveRunRow): ObjectiveRunDto {
     issueId: row.issueId,
     pullRequestId: row.pullRequestId,
     status: row.status,
+    workflowStage: row.workflowStage,
     title: row.title,
     goal: row.goal,
     roundCount: row.roundCount,
@@ -1607,6 +1608,7 @@ export function createRepositories(db: Database) {
             goal: input.goal ?? "",
             maxRounds: input.maxRounds ?? 12,
             status: "open",
+            workflowStage: "requirements",
             createdAt: timestamp,
             updatedAt: timestamp
           })
@@ -1633,7 +1635,8 @@ export function createRepositories(db: Database) {
             return (
               (await this.update(input.projectId, existingByIssue.id, {
                 pullRequestId: input.pullRequestId,
-                title: existingByIssue.title || input.title
+                title: existingByIssue.title || input.title,
+                workflowStage: "review"
               })) ?? existingByIssue
             );
           }
@@ -1650,6 +1653,7 @@ export function createRepositories(db: Database) {
             goal: input.goal ?? "",
             maxRounds: input.maxRounds ?? 12,
             status: "open",
+            workflowStage: "review",
             createdAt: timestamp,
             updatedAt: timestamp
           })
@@ -1666,6 +1670,7 @@ export function createRepositories(db: Database) {
             | "issueId"
             | "pullRequestId"
             | "status"
+            | "workflowStage"
             | "title"
             | "goal"
             | "roundCount"
@@ -1690,6 +1695,7 @@ export function createRepositories(db: Database) {
             issueId: input.issueId,
             pullRequestId: input.pullRequestId,
             status: input.status,
+            workflowStage: input.workflowStage,
             title: input.title,
             goal: input.goal,
             roundCount: input.roundCount,

@@ -675,6 +675,10 @@ describe("agent worker", () => {
     const changesRequestedActivities = await repos.activities.list(project.id, "pull_request", changesRequestedPr.id);
     const approvedActivities = await repos.activities.list(project.id, "pull_request", approvedPr.id);
     const jobs = await repos.agentJobs.list({ projectId: project.id });
+    const [changesRequestedObjective, approvedObjective] = await Promise.all([
+      repos.objectives.findByPullRequest(project.id, changesRequestedPr.id),
+      repos.objectives.findByPullRequest(project.id, approvedPr.id)
+    ]);
     const findingsResponse = await createApp({ repos }).request(
       `/api/projects/${project.id}/pull-requests/${changesRequestedPr.id}/findings`
     );
@@ -686,6 +690,8 @@ describe("agent worker", () => {
     expect(approvedActivities.map((activity) => activity.title)).toContain("Review approval captured");
     expect(jobs.some((job) => job.agentType === "fix" && job.targetId === changesRequestedPr.id)).toBe(true);
     expect(jobs.some((job) => job.agentType === "qa" && job.targetId === approvedPr.id)).toBe(true);
+    expect(changesRequestedObjective?.workflowStage).toBe("fix");
+    expect(approvedObjective?.workflowStage).toBe("qa");
     expect(findings.items).toContainEqual(expect.objectContaining({ path: "src/app.ts", line: 10, status: "open" }));
 
     context.client.close();

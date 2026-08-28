@@ -73,6 +73,7 @@ describe("label automation", () => {
     expect(objective?.title).toBe("Add setup");
     expect(requirementsJobs[0].input.objectiveRunId).toBe(objective?.id);
     expect(implementationJobs[0].input.objectiveRunId).toBe(objective?.id);
+    expect(objective?.workflowStage).toBe("implementation");
     expect(implementationJobs[0].lockKey).toBe(
       resolveAgentJobLockKey({
         projectId: project.id,

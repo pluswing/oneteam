@@ -3,6 +3,11 @@ import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
 import { ensureSystemLoop, startLoopRun } from "./loop-runner";
 import { ensureObjectiveForTarget } from "./objective-runs";
+import {
+  canTransitionWorkflowStage,
+  expectedAgentForWorkflowStage,
+  workflowStageForLabel
+} from "./objective-workflow";
 
 const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_provider", "waiting_human"]);
 
@@ -62,6 +67,15 @@ export async function runLabelAutomation(
       targetId: input.targetId
     });
     if (!objective || ["paused", "canceled", "succeeded"].includes(objective.status)) {
+      continue;
+    }
+    const labelStage = workflowStageForLabel(label.name);
+    const stagedObjective = labelStage && labelStage !== objective.workflowStage &&
+      canTransitionWorkflowStage(objective.workflowStage, labelStage)
+      ? (await repos.objectives.update(input.projectId, objective.id, { workflowStage: labelStage })) ?? objective
+      : objective;
+    const expectedAgent = expectedAgentForWorkflowStage(stagedObjective.workflowStage);
+    if (expectedAgent && expectedAgent !== agentType) {
       continue;
     }
 

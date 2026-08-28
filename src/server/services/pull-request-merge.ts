@@ -470,6 +470,7 @@ async function recordAutomaticMergeBlock(
   if (objective) {
     await repos.objectives.update(project.id, objective.id, {
       status: conflicts ? "running" : "waiting_human",
+      workflowStage: conflicts ? "fix" : objective.workflowStage,
       stopReason: conflicts ? "merge_conflict" : "automatic_merge_blocked",
       summary: reason
     });

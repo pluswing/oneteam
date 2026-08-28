@@ -25,6 +25,7 @@ import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
+import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -654,6 +655,7 @@ export class AgentWorker {
     }
 
     if (output.status === "succeeded") {
+      await advanceObjectiveWorkflowStage(this.repos, job, output);
       await this.applyMetadata(job, output);
     }
     await this.repos.agentJobs.updateStatus(job.projectId, job.id, output.status, {

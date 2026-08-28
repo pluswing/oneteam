@@ -3,6 +3,7 @@ import type { Repositories } from "../db/repositories";
 import { appendLoopMemoryNote } from "./knowledge-files";
 import { getRevisionHash } from "./git-service";
 import type { AgentEvidenceResult, AgentRunResult } from "../agents/types";
+import { workflowStageAfterResult, workflowStageForAgent } from "./objective-workflow";
 
 const terminalObjectiveStatuses = new Set(["succeeded", "canceled"]);
 
@@ -120,6 +121,7 @@ export async function preflightObjectiveJob(repos: Repositories, job: AgentJobDt
 
   await repos.objectives.update(job.projectId, objective.id, {
     status: "running",
+    workflowStage: workflowStageForAgent(job.agentType) ?? objective.workflowStage,
     lastAgentJobId: job.id
   });
   return null;
@@ -214,6 +216,7 @@ export async function recordObjectiveJobResult(
 
   const updated = await repos.objectives.update(input.job.projectId, objective.id, {
     status,
+    workflowStage: workflowStageAfterResult(input.job, result, objective.workflowStage),
     roundCount,
     lastAgentJobId: input.job.id,
     judgeAgentJobId: input.job.agentType === "verifier" ? input.job.id : objective.judgeAgentJobId,
@@ -252,6 +255,7 @@ export async function markObjectiveMerged(
   }
   await repos.objectives.update(input.project.id, objective.id, {
     status: "succeeded",
+    workflowStage: "merged",
     stopReason: "passed",
     summary: `Pull request #${input.pullRequest.id} merged at ${input.mergeCommit.slice(0, 12)}.`,
     evidence: mergeEvidence(objective.evidence, null, {

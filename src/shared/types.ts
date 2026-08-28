@@ -58,6 +58,15 @@ export type ObjectiveRunStatus =
   | "succeeded"
   | "failed"
   | "canceled";
+export type ObjectiveWorkflowStage =
+  | "requirements"
+  | "implementation"
+  | "review"
+  | "fix"
+  | "qa"
+  | "verification"
+  | "ready_to_merge"
+  | "merged";
 export type TriageItemStatus = "open" | "converted" | "ignored";
 
 export type ProjectDto = {
@@ -273,6 +282,7 @@ export type ObjectiveRunDto = {
   issueId: number | null;
   pullRequestId: number | null;
   status: ObjectiveRunStatus;
+  workflowStage: ObjectiveWorkflowStage;
   title: string;
   goal: string;
   roundCount: number;
