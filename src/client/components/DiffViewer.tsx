@@ -8,7 +8,9 @@ import {
   diffFileAnchor,
   diffLineAnchor,
   diffWordSegments,
+  limitDiffHunks,
   parseDiffPatch,
+  type DiffLineFocus,
   type DiffLine,
   type DiffWordSegment
 } from "../diff-parser";
@@ -16,6 +18,9 @@ import { t } from "../i18n";
 import { highlightDiffSyntax } from "../diff-syntax";
 
 type DiffView = "unified" | "split";
+const initialDiffRenderLines = 1_000;
+const diffRenderIncrement = 1_000;
+const maximumDiffRenderLines = 5_000;
 
 function storageKey(projectId: string, pullRequestId: number): string {
   return `oneteam:diff-viewed:${projectId}:${pullRequestId}`;
@@ -134,8 +139,45 @@ function findingsForLine(findings: PullRequestFindingDto[], line: DiffLine): Pul
   );
 }
 
-function UnifiedDiff(props: { findings: PullRequestFindingDto[]; path: string; patch: string }) {
-  const parsed = useMemo(() => parseDiffPatch(props.patch), [props.patch]);
+function useRenderedDiff(patch: string, focus: DiffLineFocus | null) {
+  const parsed = useMemo(() => parseDiffPatch(patch), [patch]);
+  const [lineLimit, setLineLimit] = useState(initialDiffRenderLines);
+  useEffect(() => setLineLimit(initialDiffRenderLines), [patch]);
+  const limited = useMemo(() => limitDiffHunks(parsed.hunks, lineLimit, focus), [focus, lineLimit, parsed.hunks]);
+  return { parsed, limited, lineLimit, setLineLimit };
+}
+
+function DiffRenderFooter(props: {
+  lineLimit: number;
+  renderedLines: number;
+  setLineLimit: (value: number) => void;
+  totalLines: number;
+  truncated: boolean;
+}) {
+  if (!props.truncated) return null;
+  const canRenderMore = props.lineLimit < maximumDiffRenderLines;
+  return (
+    <div className="diff-render-footer">
+      <span>
+        {t("pullRequests.renderedDiffLines")} {props.renderedLines.toLocaleString()} / {props.totalLines.toLocaleString()}
+      </span>
+      {canRenderMore ? (
+        <button
+          className="secondary-button"
+          onClick={() => props.setLineLimit(Math.min(props.lineLimit + diffRenderIncrement, maximumDiffRenderLines))}
+          type="button"
+        >
+          {t("pullRequests.renderMoreDiff")}
+        </button>
+      ) : (
+        <span>{t("pullRequests.diffRenderLimitReached")}</span>
+      )}
+    </div>
+  );
+}
+
+function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
+  const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -146,7 +188,7 @@ function UnifiedDiff(props: { findings: PullRequestFindingDto[]; path: string; p
     <div className="diff-table-scroll">
       <table className="diff-table diff-unified">
         <tbody>
-          {parsed.hunks.map((hunk, hunkIndex) => (
+          {limited.hunks.map((hunk, hunkIndex) => (
             <Fragment key={`${hunk.header}-${hunkIndex}`}>
               <tr className="diff-hunk-row">
                 <td colSpan={3}>{hunk.header}</td>
@@ -170,6 +212,13 @@ function UnifiedDiff(props: { findings: PullRequestFindingDto[]; path: string; p
           ))}
         </tbody>
       </table>
+      <DiffRenderFooter
+        lineLimit={lineLimit}
+        renderedLines={limited.renderedLines}
+        setLineLimit={setLineLimit}
+        totalLines={limited.totalLines}
+        truncated={limited.truncated}
+      />
     </div>
   );
 }
@@ -185,8 +234,8 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
   return <SyntaxLine content={line.content} path={path} />;
 }
 
-function SplitDiff(props: { findings: PullRequestFindingDto[]; path: string; patch: string }) {
-  const parsed = useMemo(() => parseDiffPatch(props.patch), [props.patch]);
+function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
+  const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -197,7 +246,7 @@ function SplitDiff(props: { findings: PullRequestFindingDto[]; path: string; pat
     <div className="diff-table-scroll">
       <table className="diff-table diff-split">
         <tbody>
-          {parsed.hunks.map((hunk, hunkIndex) => (
+          {limited.hunks.map((hunk, hunkIndex) => (
             <Fragment key={`${hunk.header}-${hunkIndex}`}>
               <tr className="diff-hunk-row"><td colSpan={4}>{hunk.header}</td></tr>
               {buildSplitDiffRows(hunk.lines).map((row, rowIndex) => {
@@ -230,6 +279,13 @@ function SplitDiff(props: { findings: PullRequestFindingDto[]; path: string; pat
           ))}
         </tbody>
       </table>
+      <DiffRenderFooter
+        lineLimit={lineLimit}
+        renderedLines={limited.renderedLines}
+        setLineLimit={setLineLimit}
+        totalLines={limited.totalLines}
+        truncated={limited.truncated}
+      />
     </div>
   );
 }
@@ -249,6 +305,7 @@ export function DiffViewer(props: {
   const [context, setContext] = useState<"default" | "wide" | "full">("default");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [showResolvedFindings, setShowResolvedFindings] = useState(false);
+  const [focusedFinding, setFocusedFinding] = useState<PullRequestFindingDto | null>(null);
   const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readViewedPaths(viewedStorageKey));
   const [selectedFile, setSelectedFile] = useState<RepositoryFileChangeDto | null>(null);
   const [loading, setLoading] = useState(false);
@@ -375,6 +432,7 @@ export function DiffViewer(props: {
   }, [props.files, selectedIndex]);
 
   function selectFile(path: string): void {
+    setFocusedFinding(null);
     setSelectedPath(path);
     const anchor = diffFileAnchor(path);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
@@ -401,6 +459,7 @@ export function DiffViewer(props: {
   function openFinding(finding: PullRequestFindingDto): void {
     if (!currentSummary || finding.line === null) return;
     const anchor = diffLineAnchor(currentSummary.path, finding.side, finding.line);
+    setFocusedFinding(finding);
     setContext("full");
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
     window.requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "center" }));
@@ -486,8 +545,8 @@ export function DiffViewer(props: {
           ) : null}
           {!loading && !error && selectedFile?.patch !== undefined ? (
             view === "unified"
-              ? <UnifiedDiff findings={displayedFindings} patch={selectedFile.patch} path={selectedFile.path} />
-              : <SplitDiff findings={displayedFindings} patch={selectedFile.patch} path={selectedFile.path} />
+              ? <UnifiedDiff findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} patch={selectedFile.patch} path={selectedFile.path} />
+              : <SplitDiff findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} patch={selectedFile.patch} path={selectedFile.path} />
           ) : null}
           {!currentSummary && !props.files.length ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
         </div>

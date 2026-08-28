@@ -5,6 +5,7 @@ import {
   diffFileAnchor,
   diffLineAnchor,
   diffWordSegments,
+  limitDiffHunks,
   parseDiffPatch
 } from "../client/diff-parser";
 
@@ -75,5 +76,30 @@ describe("diff parser", () => {
 
   it("detects binary patches", () => {
     expect(parseDiffPatch("Binary files a/image.png and b/image.png differ").binary).toBe(true);
+  });
+
+  it("limits rendered lines while preserving a focused line window", () => {
+    const patch = [
+      "@@ -1,2000 +1,2000 @@",
+      ...Array.from({ length: 2000 }, (_, index) => ` line ${index + 1}`)
+    ].join("\n");
+    const parsed = parseDiffPatch(patch);
+    const limited = limitDiffHunks(parsed.hunks, 100, { side: "R", line: 1500 });
+
+    expect(limited.totalLines).toBe(2000);
+    expect(limited.truncated).toBe(true);
+    expect(limited.focusedWindowAdded).toBe(true);
+    expect(limited.hunks[0].lines).toHaveLength(100);
+    expect(limited.hunks[1].lines.some((line) => line.newLineNumber === 1500)).toBe(true);
+    expect(limited.renderedLines).toBeLessThanOrEqual(141);
+  });
+
+  it("does not duplicate a focused line that is already visible", () => {
+    const parsed = parseDiffPatch("@@ -1,3 +1,3 @@\n first\n second\n third");
+    const limited = limitDiffHunks(parsed.hunks, 2, { side: "R", line: 2 });
+
+    expect(limited.focusedWindowAdded).toBe(false);
+    expect(limited.hunks).toHaveLength(1);
+    expect(limited.renderedLines).toBe(2);
   });
 });

@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repoPath = resolve(".tmp/e2e/repo");
-const fakeCodexPath = resolve(".tmp/e2e/fake-codex.mjs");
 
 test("setup, label automation, and agent job controls", async ({ page }) => {
+  test.setTimeout(90_000);
   await expect
     .poll(async () => {
       const response = await page.request.get("/api/health");
@@ -14,10 +16,11 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await page.goto("/");
 
+  await expect(page.getByRole("heading", { name: "Choose project" })).toBeVisible();
+  await page.getByRole("button", { name: "Add repository" }).click();
   await expect(page.getByRole("heading", { name: "Setup" })).toBeVisible();
   await page.getByLabel("Name").fill("E2E Project");
   await page.getByLabel("Path").fill(repoPath);
-  await page.getByLabel("Command").fill(fakeCodexPath);
   await page.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
@@ -49,4 +52,32 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByText("npm run build")).toBeVisible();
   await expect(page.getByText("npm run test")).toBeVisible();
   await expect(page.getByText("npm run lint")).toBeVisible();
+
+  execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
+  writeFileSync(
+    resolve(repoPath, "large.ts"),
+    Array.from({ length: 6_000 }, (_, index) => `export const value${index + 1} = ${index + 1};`).join("\n") + "\n"
+  );
+  execFileSync("git", ["add", "large.ts"], { cwd: repoPath });
+  execFileSync("git", ["commit", "-m", "add large diff fixture"], { cwd: repoPath });
+
+  const projectsResponse = await page.request.get("/api/projects");
+  const projects = (await projectsResponse.json()) as { items: Array<{ id: string }> };
+  const pullRequestResponse = await page.request.post(`/api/projects/${projects.items[0].id}/pull-requests`, {
+    data: {
+      title: "Review a large generated diff",
+      body: "Exercises bounded progressive diff rendering.",
+      sourceBranch: "feature/large-diff",
+      targetBranch: "main"
+    }
+  });
+  const pullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
+
+  await page.getByRole("button", { name: "Pull Requests" }).click();
+  await page.getByRole("button", { name: /Review a large generated diff/ }).click();
+  await page.getByRole("button", { name: "Files changed" }).click();
+  await expect(page.locator(".diff-render-footer")).toContainText("1,000");
+  await expect(page.locator(".diff-line")).toHaveCount(1_000);
+  await page.getByRole("button", { name: "Render 1,000 more lines" }).click();
+  await expect(page.locator(".diff-line")).toHaveCount(2_000);
 });

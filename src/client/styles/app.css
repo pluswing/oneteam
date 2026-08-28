@@ -2048,6 +2048,28 @@ textarea {
   overflow: auto;
 }
 
+.diff-render-footer {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 100%;
+  padding: 12px;
+  border-top: 1px solid #d0d7de;
+  color: #57606a;
+  background: #f6f8fa;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.diff-render-footer .secondary-button {
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 9px;
+}
+
 .diff-table {
   width: 100%;
   border-collapse: collapse;

@@ -140,8 +140,8 @@
 - [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
 - [ ] **Partial**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザーのline comment作成は未実装
 - [ ] **Partial**: merge system commentのchanged file linkからdiffへ直接移動できる。check summaryとreview findingからの重要行linkは未実装
-- [ ] **Partial**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cacheは実装済み。virtualizationは未実装
-- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装
+- [ ] **Partial**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cache、初期1,000行 / 段階描画 / 5,000行DOM上限、finding focused windowは実装済み。scroll virtualizationは未実装
+- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-link、render limit / focused windowのunit testと6,000行diffのbrowser testは実装済み。component snapshotとscroll virtualization performance計測は未実装
 
 ### Conversation / checks
 

@@ -29,6 +29,19 @@ export type DiffWordSegment = {
   changed: boolean;
 };
 
+export type DiffLineFocus = {
+  side: "L" | "R";
+  line: number;
+};
+
+export type LimitedDiffHunks = {
+  hunks: DiffHunk[];
+  totalLines: number;
+  renderedLines: number;
+  truncated: boolean;
+  focusedWindowAdded: boolean;
+};
+
 const hunkHeaderPattern = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
 export function parseDiffPatch(patch: string): ParsedDiff {
@@ -127,6 +140,58 @@ export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   }
   flushChangedLines(rows, deletions, additions);
   return rows;
+}
+
+function matchesFocus(line: DiffLine, focus: DiffLineFocus): boolean {
+  return focus.side === "L" ? line.oldLineNumber === focus.line : line.newLineNumber === focus.line;
+}
+
+export function limitDiffHunks(
+  hunks: DiffHunk[],
+  maximumLines: number,
+  focus?: DiffLineFocus | null
+): LimitedDiffHunks {
+  const totalLines = hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+  const limit = Math.max(1, Math.floor(maximumLines));
+  const visibleHunks: DiffHunk[] = [];
+  let remaining = limit;
+  let focusAlreadyVisible = false;
+
+  for (const hunk of hunks) {
+    if (remaining <= 0) break;
+    const lines = hunk.lines.slice(0, remaining);
+    if (lines.length) {
+      visibleHunks.push({ ...hunk, lines });
+      focusAlreadyVisible ||= Boolean(focus && lines.some((line) => matchesFocus(line, focus)));
+      remaining -= lines.length;
+    }
+  }
+
+  let focusedWindowAdded = false;
+  if (focus && !focusAlreadyVisible) {
+    for (const hunk of hunks) {
+      const focusIndex = hunk.lines.findIndex((line) => matchesFocus(line, focus));
+      if (focusIndex === -1) continue;
+      const start = Math.max(0, focusIndex - 20);
+      const lines = hunk.lines.slice(start, focusIndex + 21);
+      visibleHunks.push({
+        ...hunk,
+        header: `${hunk.header} · focused ${focus.side}${focus.line}`,
+        lines
+      });
+      focusedWindowAdded = true;
+      break;
+    }
+  }
+
+  const renderedLines = visibleHunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+  return {
+    hunks: visibleHunks,
+    totalLines,
+    renderedLines,
+    truncated: totalLines > limit,
+    focusedWindowAdded
+  };
 }
 
 function tokenize(value: string): string[] {
