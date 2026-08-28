@@ -88,7 +88,7 @@
 - [x] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [ ] Goal Contract変更時は旧条件との差分と変更理由を残す
 - [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / strategy / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿済み。行単位の主要diffとMemory参照の集約は未完了
-- [ ] **Partial**: merge後のIssue自動closeと`done` labelは実装済み。再open時のObjective選択は未実装
+- [x] merge後にIssueを自動closeして`done` labelを付け、再open時は完了Objectiveを保全したfollow-up Objective作成または既存active Objective再選択を行う
 
 ## P0: Codex usage remaining待機と自動再開
 

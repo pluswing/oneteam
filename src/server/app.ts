@@ -52,6 +52,7 @@ import {
   toPullRequestLineComment
 } from "./services/pull-request-line-comments";
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
+import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issue-reopen";
 
 const execFileAsync = promisify(execFile);
 
@@ -721,9 +722,25 @@ export function createApp({
     const projectId = c.req.param("projectId");
     const issueId = Number(c.req.param("issueId"));
     const previousIssue = await repos.issues.get(projectId, issueId);
-    const issue = await repos.issues.update(projectId, issueId, c.req.valid("json"));
+    const input = c.req.valid("json");
+    const isReopening = previousIssue?.status === "closed" && input.status === "open";
+    const previousObjective = isReopening ? await repos.objectives.findByIssue(projectId, issueId) : null;
+    let patch = input;
+    if (isReopening) {
+      const labels = await repos.labels.list(projectId);
+      const selectedLabelIds = new Set(input.labelIds ?? previousIssue.labels.map((label) => label.id));
+      const preservedLabelIds = labels
+        .filter((label) => selectedLabelIds.has(label.id) && !issueWorkflowLabelNameSet.has(label.name))
+        .map((label) => label.id);
+      const workflowLabel = await repos.labels.findByName(projectId, reopenedIssueWorkflowLabel(previousObjective));
+      patch = { ...input, labelIds: workflowLabel ? [...preservedLabelIds, workflowLabel.id] : preservedLabelIds };
+    }
+    const issue = await repos.issues.update(projectId, issueId, patch);
     if (!issue) {
       notFound("Issue was not found.");
+    }
+    if (isReopening) {
+      await recordIssueReopened(repos, { projectId, issue, previousObjective });
     }
     const automationJobs = await runLabelAutomation(repos, {
       projectId,

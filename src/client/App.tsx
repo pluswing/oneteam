@@ -611,7 +611,7 @@ function IssueDetailScreen(props: {
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isClosing, setClosing] = useState(false);
+  const [isUpdatingStatus, setUpdatingStatus] = useState(false);
 
   async function load() {
     const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
@@ -658,19 +658,20 @@ function IssueDetailScreen(props: {
     await load();
   }
 
-  async function closeIssue() {
-    if (!issue || issue.status === "closed") {
+  async function updateIssueStatus(status: IssueDto["status"]) {
+    if (!issue || issue.status === status) {
       return;
     }
-    setClosing(true);
+    setUpdatingStatus(true);
     setError(null);
     try {
-      const response = await api.updateIssue(props.project.id, issue.id, { status: "closed" });
+      const response = await api.updateIssue(props.project.id, issue.id, { status });
       setIssue(response.issue);
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to close issue.");
+      setError(err instanceof Error ? err.message : `Failed to ${status === "closed" ? "close" : "reopen"} issue.`);
     } finally {
-      setClosing(false);
+      setUpdatingStatus(false);
     }
   }
 
@@ -684,11 +685,26 @@ function IssueDetailScreen(props: {
         {issue ? (
           <div className="header-actions">
             {issue.status === "open" ? (
-              <button className="secondary-button" disabled={isClosing} onClick={() => void closeIssue()} type="button">
+              <button
+                className="secondary-button"
+                disabled={isUpdatingStatus}
+                onClick={() => void updateIssueStatus("closed")}
+                type="button"
+              >
                 <CheckCircle2 size={16} />
                 {t("issues.closeIssue")}
               </button>
-            ) : null}
+            ) : (
+              <button
+                className="secondary-button"
+                disabled={isUpdatingStatus}
+                onClick={() => void updateIssueStatus("open")}
+                type="button"
+              >
+                <RefreshCw size={16} />
+                {t("issues.reopenIssue")}
+              </button>
+            )}
             <button className="secondary-button" onClick={() => props.onEdit(issue.id)} type="button">
               <Pencil size={16} />
               {t("actions.edit")}

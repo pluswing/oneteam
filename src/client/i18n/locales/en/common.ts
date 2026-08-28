@@ -68,6 +68,7 @@ export const en = {
     noComments: "No comments yet",
     noActivity: "No activity yet",
     closeIssue: "Close issue",
+    reopenIssue: "Reopen issue",
     deleteConfirm: "Delete this issue?"
   },
   labels: {

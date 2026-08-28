@@ -70,6 +70,7 @@ export const ja = {
     noComments: "コメントはまだありません",
     noActivity: "アクティビティはまだありません",
     closeIssue: "Issue を閉じる",
+    reopenIssue: "Issue を再開",
     deleteConfirm: "この Issue を削除しますか？"
   },
   labels: {

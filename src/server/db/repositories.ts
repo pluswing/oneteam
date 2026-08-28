@@ -1554,7 +1554,11 @@ export function createRepositories(db: Database) {
         if (input.status) {
           filters.push(eq(objectiveRuns.status, input.status));
         }
-        const rows = await db.select().from(objectiveRuns).where(and(...filters)).orderBy(desc(objectiveRuns.updatedAt));
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(...filters))
+          .orderBy(desc(objectiveRuns.updatedAt), desc(objectiveRuns.id));
         return rows.map(mapObjectiveRun);
       },
 
@@ -1572,7 +1576,7 @@ export function createRepositories(db: Database) {
           .select()
           .from(objectiveRuns)
           .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.issueId, issueId)))
-          .orderBy(desc(objectiveRuns.updatedAt))
+          .orderBy(desc(objectiveRuns.updatedAt), desc(objectiveRuns.id))
           .limit(1);
         return rows[0] ? mapObjectiveRun(rows[0]) : null;
       },
@@ -1610,6 +1614,35 @@ export function createRepositories(db: Database) {
             maxRounds: input.maxRounds ?? 12,
             status: "open",
             workflowStage: "requirements",
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async createForIssue(input: {
+        projectId: string;
+        issueId: number;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+        summary?: string;
+        evidence?: Record<string, unknown> | null;
+      }): Promise<ObjectiveRunDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            workflowStage: "requirements",
+            summary: input.summary ?? "",
+            evidenceJson: stringifyJson(input.evidence ?? undefined),
             createdAt: timestamp,
             updatedAt: timestamp
           })

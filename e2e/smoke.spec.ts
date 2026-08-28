@@ -40,6 +40,11 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
   await page.getByRole("button", { name: "Resume automation" }).click();
   await expect(page.locator(".objective-panel .status-pill")).toHaveText("running");
+  await page.getByRole("button", { name: "Close issue" }).click();
+  await expect(page.locator(".page-title-block .status-pill")).toHaveText("closed");
+  await page.getByRole("button", { name: "Reopen issue" }).click();
+  await expect(page.locator(".page-title-block .status-pill")).toHaveText("open");
+  await expect(page.getByText("Existing Objective selected after reopen").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Agent Jobs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
