@@ -8,6 +8,7 @@ import {
   limitDiffHunks,
   parseDiffPatch
 } from "../client/diff-parser";
+import { calculateDiffVirtualRange } from "../client/diff-virtualization";
 
 describe("diff parser", () => {
   it("parses hunks and assigns old and new line numbers", () => {
@@ -101,5 +102,32 @@ describe("diff parser", () => {
     expect(limited.focusedWindowAdded).toBe(false);
     expect(limited.hunks).toHaveLength(1);
     expect(limited.renderedLines).toBe(2);
+  });
+
+  it("calculates bounded diff virtualization windows with overscan and spacers", () => {
+    const middle = calculateDiffVirtualRange({
+      itemCount: 5_000,
+      scrollTop: 24_000,
+      viewportHeight: 480,
+      estimatedRowHeight: 24,
+      overscan: 20
+    });
+    expect(middle).toEqual({
+      start: 980,
+      end: 1_040,
+      beforeHeight: 23_520,
+      afterHeight: 95_040
+    });
+
+    const end = calculateDiffVirtualRange({
+      itemCount: 100,
+      scrollTop: 10_000,
+      viewportHeight: 480,
+      estimatedRowHeight: 24,
+      overscan: 20
+    });
+    expect(end.start).toBe(100);
+    expect(end.end).toBe(100);
+    expect(end.afterHeight).toBe(0);
   });
 });

@@ -126,17 +126,25 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".automation-checks")).toContainText("review");
   await page.getByRole("button", { name: "Files changed" }).click();
   await expect(page.locator(".diff-render-footer")).toContainText("1,000");
-  await expect(page.locator(".diff-line")).toHaveCount(1_000);
+  await expect(page.locator(".diff-virtual-status")).toContainText("Visible diff rows");
+  await expect.poll(() => page.locator(".diff-line").count()).toBeLessThanOrEqual(200);
+  await expect.poll(() => page.locator(".diff-line").count()).toBeGreaterThan(0);
   await page.getByRole("button", { name: /Collapse hunk/ }).click();
   await expect(page.locator(".diff-line")).toHaveCount(0);
   await page.getByRole("button", { name: /Expand hunk/ }).click();
-  await expect(page.locator(".diff-line")).toHaveCount(1_000);
+  await expect.poll(() => page.locator(".diff-line").count()).toBeLessThanOrEqual(200);
   await page.getByRole("button", { exact: true, name: "Comment on line New line 1" }).click();
   await page.getByPlaceholder("Leave a review comment…").fill("**Review note:** keep this generated value stable.");
   await page.getByRole("button", { name: "Add comment" }).click();
   await expect(page.locator(".diff-line-comment")).toContainText("Review note: keep this generated value stable.");
   await page.getByRole("button", { name: "Render 1,000 more lines" }).click();
-  await expect(page.locator(".diff-line")).toHaveCount(2_000);
+  await expect(page.locator(".diff-render-footer")).toContainText("2,000");
+  await page.locator(".diff-table-scroll").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await expect.poll(() => page.locator(".diff-line").count()).toBeLessThanOrEqual(200);
+  await expect(page.locator(".diff-virtual-status")).toContainText("2,001");
   await page.getByRole("button", { name: "Pull Requests" }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await page.getByRole("button", { name: "Files changed" }).click();

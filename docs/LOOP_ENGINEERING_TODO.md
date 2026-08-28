@@ -50,7 +50,7 @@
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
 - [ ] **Partial**: internal system commentと通常Markdown Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成済み。明示的なsanitized HTML reportは原文を保持
-- [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、syntax highlight、word-level diff、Viewed、空白無視、context / 全文切り替え、hunk folding、line anchor、Agent finding / ユーザー行コメントのinline表示まで対応。scroll virtualizationは未実装
+- [x] **Done**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、syntax highlight、word-level diff、Viewed、空白無視、context / 全文切り替え、hunk folding、line anchor、Agent finding / ユーザー行コメントのinline表示、scroll virtualizationに対応
 
 ### Provider / Connector
 
@@ -140,8 +140,8 @@
 - [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
 - [x] **Done**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザー行コメントはsource / target commitを固定して永続化し、stale diffを拒否したうえでMarkdown composerとともに該当行へinline表示する
 - [ ] **Partial**: merge system commentのchanged file linkからdiffへ直接移動できる。check summaryとreview findingからの重要行linkは未実装
-- [ ] **Partial**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cache、初期1,000行 / 段階描画 / 5,000行DOM上限、finding focused windowは実装済み。scroll virtualizationは未実装
-- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-link、render limit / focused windowのunit testと6,000行diffのbrowser testは実装済み。component snapshotとscroll virtualization performance計測は未実装
+- [x] **Done**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cache、初期1,000行 / 段階描画 / 5,000行レビュー上限、finding focused window、overscan付きscroll virtualizationを実装
+- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-link、render limit / focused window / virtual rangeのunit testと6,000行diffのDOM上限browser testは実装済み。component snapshotと実時間のperformance計測は未実装
 
 ### Conversation / checks
 

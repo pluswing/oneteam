@@ -138,6 +138,7 @@ export const ja = {
     loadingDiff: "ファイルの差分を読み込んでいます…",
     diffLoadFailed: "ファイルの差分を読み込めませんでした。",
     renderedDiffLines: "描画済みの差分行:",
+    virtualizedDiffRows: "表示中のdiff行:",
     renderMoreDiff: "さらに1,000行を描画",
     diffRenderLimitReached: "表示上限に達しました。前後の行を狭めてレビューを続けてください。",
     collapseHunk: "hunkを折りたたむ",

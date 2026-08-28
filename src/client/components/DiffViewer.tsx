@@ -17,8 +17,10 @@ import {
   parseDiffPatch,
   type DiffLineFocus,
   type DiffLine,
+  type SplitDiffRow,
   type DiffWordSegment
 } from "../diff-parser";
+import { calculateDiffVirtualRange, type DiffVirtualRange } from "../diff-virtualization";
 import { t } from "../i18n";
 import { AsyncState } from "./AsyncState";
 import { highlightDiffSyntax } from "../diff-syntax";
@@ -29,6 +31,10 @@ type LineCommentPosition = { path: string; line: number; side: "L" | "R" };
 const initialDiffRenderLines = 1_000;
 const diffRenderIncrement = 1_000;
 const maximumDiffRenderLines = 5_000;
+const diffVirtualizationThreshold = 300;
+const diffVirtualRowHeight = 24;
+const diffVirtualOverscan = 30;
+const diffVirtualDefaultViewportHeight = 480;
 
 function storageKey(projectId: string, pullRequestId: number): string {
   return `oneteam:diff-viewed:${projectId}:${pullRequestId}`;
@@ -329,9 +335,111 @@ function useCollapsedHunks(patch: string) {
   return { collapsedHunks, toggleHunk };
 }
 
+function useVirtualDiffRows(itemCount: number, resetKey: string, focusIndex: number) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [range, setRange] = useState<DiffVirtualRange>(() => calculateDiffVirtualRange({
+    itemCount,
+    scrollTop: 0,
+    viewportHeight: diffVirtualDefaultViewportHeight,
+    estimatedRowHeight: diffVirtualRowHeight,
+    overscan: diffVirtualOverscan
+  }));
+  const virtualized = itemCount > diffVirtualizationThreshold;
+
+  function updateRange(element = scrollRef.current): void {
+    if (!element) return;
+    setRange(calculateDiffVirtualRange({
+      itemCount,
+      scrollTop: element.scrollTop,
+      viewportHeight: element.clientHeight || diffVirtualDefaultViewportHeight,
+      estimatedRowHeight: diffVirtualRowHeight,
+      overscan: diffVirtualOverscan
+    }));
+  }
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollTop = 0;
+    setRange(calculateDiffVirtualRange({
+      itemCount,
+      scrollTop: 0,
+      viewportHeight: element?.clientHeight || diffVirtualDefaultViewportHeight,
+      estimatedRowHeight: diffVirtualRowHeight,
+      overscan: diffVirtualOverscan
+    }));
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (!virtualized) return;
+    updateRange();
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateRange(element));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [itemCount, virtualized]);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!virtualized || !element || focusIndex < 0) return;
+    element.scrollTop = Math.max(0, focusIndex * diffVirtualRowHeight - element.clientHeight / 2);
+    updateRange(element);
+  }, [focusIndex, virtualized]);
+
+  return {
+    scrollRef,
+    virtualized,
+    range: virtualized ? range : {
+      start: 0,
+      end: itemCount,
+      beforeHeight: 0,
+      afterHeight: 0
+    },
+    updateRange
+  };
+}
+
+function DiffVirtualSpacer(props: { colSpan: number; height: number }) {
+  if (props.height <= 0) return null;
+  return (
+    <tr aria-hidden="true" className="diff-virtual-spacer">
+      <td colSpan={props.colSpan} style={{ height: props.height }} />
+    </tr>
+  );
+}
+
+function DiffVirtualizationStatus(props: { range: DiffVirtualRange; total: number; virtualized: boolean }) {
+  if (!props.virtualized) return null;
+  return (
+    <div aria-live="polite" className="diff-virtual-status">
+      {t("pullRequests.virtualizedDiffRows")} {props.range.start + 1}–{props.range.end} / {props.total.toLocaleString()}
+    </div>
+  );
+}
+
+type UnifiedVirtualItem =
+  | { kind: "hunk"; key: string; header: string; hunkKey: string }
+  | { kind: "line"; key: string; line: DiffLine };
+
 function UnifiedDiff(props: DiffDiscussionProps) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
+  const items = useMemo(() => limited.hunks.flatMap<UnifiedVirtualItem>((hunk, hunkIndex) => {
+    const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
+    return [
+      { kind: "hunk", key: `hunk:${hunkKey}`, header: hunk.header, hunkKey },
+      ...(collapsedHunks.has(hunkKey) ? [] : hunk.lines.map((line, lineIndex) => ({
+        kind: "line" as const,
+        key: `line:${hunkKey}:${lineIndex}`,
+        line
+      })))
+    ];
+  }), [collapsedHunks, limited.hunks]);
+  const focus = props.focus;
+  const focusIndex = focus ? items.findIndex((item) => item.kind === "line" && (
+    focus.side === "L" ? item.line.oldLineNumber === focus.line : item.line.newLineNumber === focus.line
+  )) : -1;
+  const virtual = useVirtualDiffRows(items.length, props.patch, focusIndex);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -339,42 +447,42 @@ function UnifiedDiff(props: DiffDiscussionProps) {
     return <div className="diff-notice">{t("pullRequests.noVisibleDiff")}</div>;
   }
   return (
-    <div className="diff-table-scroll">
-      <table className="diff-table diff-unified">
-        <tbody>
-          {limited.hunks.map((hunk, hunkIndex) => {
-            const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
-            const collapsed = collapsedHunks.has(hunkKey);
-            return (
-            <Fragment key={`${hunk.header}-${hunkIndex}`}>
-              <DiffHunkHeader collapsed={collapsed} colSpan={3} header={hunk.header} onToggle={() => toggleHunk(hunkKey)} />
-              {!collapsed ? hunk.lines.map((line, lineIndex) => {
-                const lineFindings = findingsForLine(props.findings, line);
-                const lineComments = lineCommentsForLine(props.comments, line);
-                return (
-                  <Fragment key={`${hunkIndex}-${lineIndex}`}>
-                    <tr className={`diff-line diff-line-${line.kind}`}>
-                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="L" value={line.oldLineNumber} /></td>
-                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="R" value={line.newLineNumber} /></td>
+    <div className="diff-table-region">
+      <div className="diff-table-scroll" onScroll={() => virtual.updateRange()} ref={virtual.scrollRef}>
+        <table className="diff-table diff-unified">
+          <tbody>
+            <DiffVirtualSpacer colSpan={3} height={virtual.range.beforeHeight} />
+            {items.slice(virtual.range.start, virtual.range.end).map((item) => {
+              if (item.kind === "hunk") {
+                return <DiffHunkHeader collapsed={collapsedHunks.has(item.hunkKey)} colSpan={3} header={item.header} key={item.key} onToggle={() => toggleHunk(item.hunkKey)} />;
+              }
+              const lineFindings = findingsForLine(props.findings, item.line);
+              const lineComments = lineCommentsForLine(props.comments, item.line);
+              return (
+                  <Fragment key={item.key}>
+                    <tr className={`diff-line diff-line-${item.line.kind}`}>
+                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="L" value={item.line.oldLineNumber} /></td>
+                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="R" value={item.line.newLineNumber} /></td>
                       <td className="diff-code">
-                        <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={line.content} path={props.path} /></code>
+                        <code><span className="diff-prefix" aria-hidden="true">{item.line.kind === "addition" ? "+" : item.line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={item.line.content} path={props.path} /></code>
                       </td>
                     </tr>
                     <InlineDiscussionRows
                       colSpan={3}
                       comments={lineComments}
-                      draft={props.draft?.path === props.path && positionMatchesLine(props.draft, line)}
+                      draft={props.draft?.path === props.path && positionMatchesLine(props.draft, item.line)}
                       findings={lineFindings}
                       onCancelComment={props.onCancelComment}
                       onSubmitComment={props.onSubmitComment}
                     />
                   </Fragment>
-                );
-              }) : null}
-            </Fragment>
-          );})}
-        </tbody>
-      </table>
+              );
+            })}
+            <DiffVirtualSpacer colSpan={3} height={virtual.range.afterHeight} />
+          </tbody>
+        </table>
+      </div>
+      <DiffVirtualizationStatus range={virtual.range} total={items.length} virtualized={virtual.virtualized} />
       <DiffRenderFooter
         lineLimit={lineLimit}
         renderedLines={limited.renderedLines}
@@ -400,6 +508,25 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
 function SplitDiff(props: DiffDiscussionProps) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
+  type SplitVirtualItem =
+    | { kind: "hunk"; key: string; header: string; hunkKey: string }
+    | { kind: "line"; key: string; row: SplitDiffRow };
+  const items = useMemo(() => limited.hunks.flatMap<SplitVirtualItem>((hunk, hunkIndex) => {
+    const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
+    return [
+      { kind: "hunk", key: `hunk:${hunkKey}`, header: hunk.header, hunkKey },
+      ...(collapsedHunks.has(hunkKey) ? [] : buildSplitDiffRows(hunk.lines).map((row, rowIndex) => ({
+        kind: "line" as const,
+        key: `line:${hunkKey}:${rowIndex}`,
+        row
+      })))
+    ];
+  }), [collapsedHunks, limited.hunks]);
+  const focus = props.focus;
+  const focusIndex = focus ? items.findIndex((item) => item.kind === "line" && (
+    focus.side === "L" ? item.row.left?.oldLineNumber === focus.line : item.row.right?.newLineNumber === focus.line
+  )) : -1;
+  const virtual = useVirtualDiffRows(items.length, props.patch, focusIndex);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -407,16 +534,16 @@ function SplitDiff(props: DiffDiscussionProps) {
     return <div className="diff-notice">{t("pullRequests.noVisibleDiff")}</div>;
   }
   return (
-    <div className="diff-table-scroll">
-      <table className="diff-table diff-split">
-        <tbody>
-          {limited.hunks.map((hunk, hunkIndex) => {
-            const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
-            const collapsed = collapsedHunks.has(hunkKey);
-            return (
-            <Fragment key={`${hunk.header}-${hunkIndex}`}>
-              <DiffHunkHeader collapsed={collapsed} colSpan={4} header={hunk.header} onToggle={() => toggleHunk(hunkKey)} />
-              {!collapsed ? buildSplitDiffRows(hunk.lines).map((row, rowIndex) => {
+    <div className="diff-table-region">
+      <div className="diff-table-scroll" onScroll={() => virtual.updateRange()} ref={virtual.scrollRef}>
+        <table className="diff-table diff-split">
+          <tbody>
+            <DiffVirtualSpacer colSpan={4} height={virtual.range.beforeHeight} />
+            {items.slice(virtual.range.start, virtual.range.end).map((item) => {
+              if (item.kind === "hunk") {
+                return <DiffHunkHeader collapsed={collapsedHunks.has(item.hunkKey)} colSpan={4} header={item.header} key={item.key} onToggle={() => toggleHunk(item.hunkKey)} />;
+              }
+              const row = item.row;
                 const lineFindings = props.findings.filter((finding) => {
                   if (finding.line === null) return false;
                   return finding.side === "L"
@@ -432,7 +559,7 @@ function SplitDiff(props: DiffDiscussionProps) {
                   : row.right?.newLineNumber === props.draft.line
                 );
                 return (
-                <Fragment key={`${hunkIndex}-${rowIndex}`}>
+                <Fragment key={item.key}>
                 <tr className="diff-split-row">
                   <td className={`diff-line-number diff-line-${row.left?.kind ?? "empty"}`}>
                     <LineNumber onComment={props.onStartComment} path={props.path} side="L" value={row.left?.oldLineNumber ?? null} />
@@ -456,11 +583,13 @@ function SplitDiff(props: DiffDiscussionProps) {
                   onSubmitComment={props.onSubmitComment}
                 />
                 </Fragment>
-              );}) : null}
-            </Fragment>
-          );})}
-        </tbody>
-      </table>
+              );
+            })}
+            <DiffVirtualSpacer colSpan={4} height={virtual.range.afterHeight} />
+          </tbody>
+        </table>
+      </div>
+      <DiffVirtualizationStatus range={virtual.range} total={items.length} virtualized={virtual.virtualized} />
       <DiffRenderFooter
         lineLimit={lineLimit}
         renderedLines={limited.renderedLines}

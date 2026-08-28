@@ -136,6 +136,7 @@ export const en = {
     loadingDiff: "Loading file diff…",
     diffLoadFailed: "Failed to load file diff.",
     renderedDiffLines: "Rendered diff lines:",
+    virtualizedDiffRows: "Visible diff rows:",
     renderMoreDiff: "Render 1,000 more lines",
     diffRenderLimitReached: "Display limit reached. Use narrower context to continue reviewing.",
     collapseHunk: "Collapse hunk",
