@@ -181,6 +181,47 @@ function AutomationChecksSummary(props: {
   );
 }
 
+function AutomationGateBanner(props: {
+  jobs: AgentJobDto[];
+  objective: ObjectiveRunDto | null;
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const waitingJob = props.jobs.find((job) => job.status === "waiting_provider" || job.status === "waiting_human");
+  const waitingStatus = waitingJob?.status
+    ?? (props.objective?.status === "waiting_provider" || props.objective?.status === "waiting_human"
+      ? props.objective.status
+      : null);
+  if (!waitingStatus) {
+    return null;
+  }
+
+  const isProviderGate = waitingStatus === "waiting_provider";
+  const reason = waitingJob?.waitReason ?? props.objective?.stopReason ?? "-";
+  return (
+    <section
+      aria-live="polite"
+      className={`automation-gate-banner ${isProviderGate ? "automation-gate-provider" : "automation-gate-human"}`}
+    >
+      <div className="automation-gate-icon" aria-hidden="true">
+        {isProviderGate ? <Bot size={20} /> : <CircleAlert size={20} />}
+      </div>
+      <div className="automation-gate-content">
+        <strong>{isProviderGate ? t("issues.providerGate") : t("issues.humanGate")}</strong>
+        <span>{isProviderGate ? t("agents.waitingProvider") : t("issues.humanGateDescription")}</span>
+        <span>{t("agents.waitReason")}: {reason}</span>
+        {isProviderGate && waitingJob?.nextRetryAt ? (
+          <span>{t("agents.nextRetry")}: {formatDateTime(waitingJob.nextRetryAt)}</span>
+        ) : null}
+      </div>
+      {waitingJob ? (
+        <button className="secondary-button" onClick={() => props.onOpenAgentJob(waitingJob.id)} type="button">
+          {t("issues.openGate")}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 type ConversationEntry =
   | { kind: "comment"; comment: CommentDto; timestamp: number }
   | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number };
@@ -847,6 +888,7 @@ function IssueDetailScreen(props: {
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       {issue ? <WorkItemDetailMeta item={issue} /> : null}
+      <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
       <div className="detail-layout">
         <section className="page-section detail-main">
           {issue?.body ? <MarkdownContent content={issue.body} /> : <div className="empty-state">{t("issues.noDescription")}</div>}
@@ -1581,6 +1623,7 @@ function PullRequestDetailScreen(props: {
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       {pullRequest ? <WorkItemDetailMeta item={pullRequest} /> : null}
+      <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
       <div className="detail-layout">
         <section className="page-section detail-main">
           {pullRequest ? (

@@ -497,6 +497,50 @@ textarea {
   gap: 5px;
 }
 
+.automation-gate-banner {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid;
+  border-radius: 8px;
+}
+
+.automation-gate-provider {
+  border-color: #8250df;
+  color: #6639ba;
+  background: #fbefff;
+}
+
+.automation-gate-human {
+  border-color: #d4a72c;
+  color: #633c01;
+  background: #fff8c5;
+}
+
+.automation-gate-icon {
+  display: grid;
+  place-items: center;
+}
+
+.automation-gate-content {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.automation-gate-content span {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.automation-gate-banner .secondary-button {
+  margin-top: 0;
+  background: #ffffff;
+}
+
 .page-title-block {
   display: flex;
   align-items: center;
@@ -2984,6 +3028,15 @@ button.diff-finding-card:hover {
   .repository-path {
     flex-basis: 100%;
     margin-left: 26px;
+  }
+
+  .automation-gate-banner {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .automation-gate-banner .secondary-button {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .nav-tabs {
