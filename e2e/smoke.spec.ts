@@ -24,6 +24,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
+  await expect(page.locator(".repository-identity")).toContainText("E2E Project");
+  await expect(page.locator(".repository-identity")).toContainText("Local");
+  await expect(page.getByRole("navigation", { name: "Repository navigation" })).toBeVisible();
   await expect(page.getByText("No issues")).toBeVisible();
 
   await page.getByRole("button", { name: "New issue" }).click();
@@ -52,7 +55,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Goal Contract changed").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Agent Jobs" }).click();
+  await page.getByRole("button", { name: "Agent runs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
   const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();
   await expect(requirementsJob).toContainText("queued");
@@ -63,14 +66,13 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator(".page-title-block")).toContainText("queued");
 
-  await page.getByRole("button", { name: "Repository and settings" }).click();
-  await page.getByRole("menuitem", { name: "Repository" }).click();
+  await page.getByRole("button", { name: "Repository", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Repository" })).toBeVisible();
   await expect(page.getByText("npm run build")).toBeVisible();
   await expect(page.getByText("npm run test")).toBeVisible();
   await expect(page.getByText("npm run lint")).toBeVisible();
 
-  await page.getByRole("button", { name: "Repository and settings" }).click();
+  await page.getByRole("button", { name: "Project and settings" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.getByLabel("Automatic merge target branches").fill("main, release");
@@ -78,9 +80,8 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByLabel("Diff risk threshold").selectOption("high");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Settings saved")).toBeVisible();
-  await page.getByRole("button", { name: "Repository and settings" }).click();
-  await page.getByRole("menuitem", { name: "Repository" }).click();
-  await page.getByRole("button", { name: "Repository and settings" }).click();
+  await page.getByRole("button", { name: "Repository", exact: true }).click();
+  await page.getByRole("button", { name: "Project and settings" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   await expect(page.getByLabel("Automatic merge target branches")).toHaveValue("main, release");
   await expect(page.getByLabel("Merge strategy")).toHaveValue("squash");

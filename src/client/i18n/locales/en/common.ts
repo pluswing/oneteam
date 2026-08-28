@@ -7,10 +7,13 @@ export const en = {
     pullRequests: "Pull Requests",
     loops: "Loops",
     agentJobs: "Agent Jobs",
+    agentRuns: "Agent runs",
     projects: "Projects",
     repository: "Repository",
     settings: "Settings",
-    tools: "Repository and settings"
+    tools: "Project and settings",
+    repositoryNavigation: "Repository navigation",
+    localRepository: "Local"
   },
   actions: {
     back: "Back",

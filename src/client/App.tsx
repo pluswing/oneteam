@@ -2400,6 +2400,8 @@ export function App() {
       agentState={summarizeAgentJobs(agentJobs)}
       onSwitchProject={handleSwitchProject}
       onViewChange={handleViewChange}
+      projectName={project.name}
+      repositoryPath={project.repoPath}
       view={view}
     >
       {view === "issues" ? (

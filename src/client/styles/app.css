@@ -42,11 +42,57 @@ button {
   background: #24292f;
 }
 
+.topbar-spacer {
+  flex: 1;
+}
+
+.repository-header {
+  padding: 16px 24px 0;
+  border-bottom: 1px solid #d0d7de;
+  background: #ffffff;
+}
+
+.repository-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+  color: #57606a;
+}
+
+.repository-identity strong {
+  color: #0969da;
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
+.repository-visibility {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.repository-path {
+  min-width: 0;
+  margin-left: 4px;
+  color: #6e7781;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nav-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1;
+  overflow-x: auto;
 }
 
 .header-brand {
@@ -76,14 +122,27 @@ button {
 }
 
 .nav-tab {
-  padding: 6px 10px;
-  color: #f0f6fc;
+  position: relative;
+  flex: 0 0 auto;
+  padding: 8px 10px 10px;
+  border-radius: 6px 6px 0 0;
+  color: #24292f;
   background: transparent;
 }
 
-.nav-tab.active,
 .nav-tab:hover {
-  background: #444c56;
+  background: #f6f8fa;
+}
+
+.nav-tab.active::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: #fd8c73;
+  content: "";
 }
 
 .settings-menu {
@@ -2726,16 +2785,26 @@ button.diff-finding-card:hover {
 
 @media (max-width: 860px) {
   .topbar {
-    align-items: flex-start;
-    height: auto;
+    height: 56px;
     padding: 14px;
-    flex-direction: column;
     gap: 12px;
+  }
+
+  .repository-header {
+    padding: 14px 14px 0;
+  }
+
+  .repository-identity {
+    flex-wrap: wrap;
+  }
+
+  .repository-path {
+    flex-basis: 100%;
+    margin-left: 26px;
   }
 
   .nav-tabs {
     width: 100%;
-    overflow-x: auto;
   }
 
   .main {

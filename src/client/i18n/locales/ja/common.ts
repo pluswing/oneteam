@@ -9,10 +9,13 @@ export const ja = {
     pullRequests: "Pull Request",
     loops: "Loop",
     agentJobs: "Agent Job",
+    agentRuns: "Agent run",
     projects: "プロジェクト",
     repository: "リポジトリ",
     settings: "設定",
-    tools: "リポジトリと設定"
+    tools: "プロジェクトと設定",
+    repositoryNavigation: "リポジトリナビゲーション",
+    localRepository: "ローカル"
   },
   actions: {
     back: "戻る",
