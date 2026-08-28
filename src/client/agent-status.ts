@@ -40,6 +40,11 @@ export function summarizeAgentJobs(jobs: AgentJobDto[]): AgentHeaderState {
     return agentHeaderState("waiting", t("status.waitingProvider"), providerWaitingJobs);
   }
 
+  const pausedJobs = jobs.filter((job) => job.status === "paused");
+  if (pausedJobs.length) {
+    return agentHeaderState("waiting", t("status.paused"), pausedJobs);
+  }
+
   const queuedJobs = jobs.filter((job) => job.status === "queued");
   if (queuedJobs.length) {
     return agentHeaderState("queued", t("status.queued"), queuedJobs);

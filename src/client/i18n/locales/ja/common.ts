@@ -237,6 +237,12 @@ export const ja = {
     waitReason: "待機理由",
     lastChecked: "最終確認",
     retryCount: "再試行回数",
+    remainingUntilRetry: "自動再試行まで",
+    retryDue: "再試行時刻です。Schedulerの処理を待っています",
+    daysShort: "日",
+    hoursShort: "時間",
+    minutesShort: "分",
+    secondsShort: "秒",
     attempt: "試行"
   },
   objectives: {
@@ -313,6 +319,7 @@ export const ja = {
     running: "実行中",
     waiting: "待機中",
     waitingProvider: "利用枠待機",
+    paused: "一時停止中",
     failed: "Failed"
   },
   validation: {

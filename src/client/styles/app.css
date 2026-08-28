@@ -942,6 +942,21 @@ textarea {
   font-size: 13px;
 }
 
+.provider-wait-countdown {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 3px 0;
+  padding: 7px 9px;
+  border-radius: 5px;
+  background: rgba(130, 80, 223, 0.1);
+}
+
+.provider-wait-countdown strong {
+  color: #4c2889;
+  font-variant-numeric: tabular-nums;
+}
+
 .empty-state {
   padding: 24px 0;
   color: #57606a;

@@ -235,6 +235,12 @@ export const en = {
     waitReason: "Wait reason",
     lastChecked: "Last checked",
     retryCount: "Retry count",
+    remainingUntilRetry: "Automatic retry in",
+    retryDue: "Due now; waiting for the scheduler",
+    daysShort: "d",
+    hoursShort: "h",
+    minutesShort: "m",
+    secondsShort: "s",
     attempt: "Attempt"
   },
   objectives: {
@@ -311,6 +317,7 @@ export const en = {
     running: "Running",
     waiting: "Waiting",
     waitingProvider: "Provider wait",
+    paused: "Paused",
     failed: "Failed"
   },
   validation: {

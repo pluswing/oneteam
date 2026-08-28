@@ -9,8 +9,28 @@ import { MarkdownContent } from "../components/MarkdownContent";
 import { formatDateTime } from "../formatters";
 import { t } from "../i18n";
 import { numberValue, recordArrayValue, recordValue, stringArrayValue, stringValue } from "../value-parsers";
+import { providerWaitDurationParts, providerWaitRemainingSeconds } from "../provider-wait-countdown";
 
 type AgentJobScreen = { name: "list" } | { name: "detail"; jobId: number };
+
+function ProviderWaitCountdown(props: { nextRetryAt: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [props.nextRetryAt]);
+  const remaining = providerWaitRemainingSeconds(props.nextRetryAt, now);
+  if (remaining === null) return <strong>-</strong>;
+  if (remaining === 0) return <strong>{t("agents.retryDue")}</strong>;
+  const duration = providerWaitDurationParts(remaining);
+  const parts = [
+    duration.days ? `${duration.days}${t("agents.daysShort")}` : null,
+    duration.hours ? `${duration.hours}${t("agents.hoursShort")}` : null,
+    duration.minutes || duration.days || duration.hours ? `${duration.minutes}${t("agents.minutesShort")}` : null,
+    `${duration.seconds}${t("agents.secondsShort")}`
+  ].filter((part): part is string => Boolean(part));
+  return <strong>{parts.join(" ")}</strong>;
+}
 
 function AgentJobActions(props: {
   job: AgentJobDto;
@@ -370,6 +390,9 @@ function AgentJobDetailScreen(props: {
               {job.status === "waiting_provider" ? (
                 <div className="provider-wait-banner">
                   <strong>{t("agents.waitingProvider")}</strong>
+                  <span className="provider-wait-countdown">
+                    {t("agents.remainingUntilRetry")}: <ProviderWaitCountdown nextRetryAt={job.nextRetryAt} />
+                  </span>
                   <span>{t("agents.nextRetry")}: {formatDateTime(job.nextRetryAt)}</span>
                   <span>{t("agents.waitReason")}: {job.waitReason ?? "-"}</span>
                   <span>{t("agents.lastChecked")}: {formatDateTime(stringValue(job.waitMetadata?.detectedAt))}</span>
