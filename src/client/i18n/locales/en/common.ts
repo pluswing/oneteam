@@ -305,6 +305,8 @@ export const en = {
     stopReason: "Stop reason",
     evidence: "Evidence",
     requiredEvidence: "Evidence Required",
+    providerTokens: "Provider tokens",
+    reportedCost: "Reported cost (USD)",
     generator: "Generator",
     judge: "Judge",
     updated: "Updated",

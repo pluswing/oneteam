@@ -34,10 +34,11 @@ export function normalizeProviderUsage(value: unknown): ProviderUsageTotals {
   if (!record) return { ...emptyProviderUsage };
   const inputTokens = nonnegativeMetric(record, aliases.inputTokens);
   const canonicalCachedInputTokens = nonnegativeMetric(record, aliases.cachedInputTokens);
-  const cachedInputTokens = canonicalCachedInputTokens || (
+  const additionalCachedInputTokens = (
     nonnegativeMetric(record, aliases.cacheReadInputTokens) +
     nonnegativeMetric(record, aliases.cacheCreationInputTokens)
   );
+  const cachedInputTokens = canonicalCachedInputTokens || additionalCachedInputTokens;
   const outputTokens = nonnegativeMetric(record, aliases.outputTokens);
   const reasoningTokens = nonnegativeMetric(record, aliases.reasoningTokens);
   const reportedTotal = nonnegativeMetric(record, aliases.totalTokens);
@@ -50,7 +51,7 @@ export function normalizeProviderUsage(value: unknown): ProviderUsageTotals {
     cachedInputTokens,
     outputTokens,
     reasoningTokens,
-    totalTokens: reportedTotal || inputTokens + outputTokens,
+    totalTokens: reportedTotal || inputTokens + (canonicalCachedInputTokens ? 0 : additionalCachedInputTokens) + outputTokens,
     costUsd: roundCost(costUsd),
     requestCount: Math.floor(reportedRequestCount || (hasUsage ? 1 : 0))
   };

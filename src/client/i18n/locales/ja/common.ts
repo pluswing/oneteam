@@ -307,6 +307,8 @@ export const ja = {
     stopReason: "停止理由",
     evidence: "証拠",
     requiredEvidence: "必須証拠",
+    providerTokens: "Provider token",
+    reportedCost: "報告済みcost (USD)",
     generator: "生成役",
     judge: "評価役",
     updated: "更新",

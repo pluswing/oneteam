@@ -33,9 +33,22 @@ describe("provider usage normalization", () => {
       cachedInputTokens: 50,
       outputTokens: 25,
       reasoningTokens: 0,
-      totalTokens: 105,
+      totalTokens: 155,
       costUsd: 0.004322,
       requestCount: 1
+    });
+  });
+
+  it("treats canonical cached input tokens as a subset of input tokens", () => {
+    expect(normalizeProviderUsage({
+      input_tokens: 10,
+      cached_input_tokens: 4,
+      output_tokens: 3
+    })).toMatchObject({
+      inputTokens: 10,
+      cachedInputTokens: 4,
+      outputTokens: 3,
+      totalTokens: 13
     });
   });
 

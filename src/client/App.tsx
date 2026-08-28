@@ -1015,6 +1015,20 @@ function ObjectivePanel(props: {
           </dd>
         </div>
         <div>
+          <dt>{t("objectives.providerTokens")}</dt>
+          <dd>
+            {objective.providerUsage.totalTokens.toLocaleString()} / {objective.tokenBudget?.toLocaleString() ?? "∞"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("objectives.reportedCost")}</dt>
+          <dd>
+            ${objective.providerUsage.costUsd.toFixed(6)} / {objective.costBudgetUsd === null
+              ? "∞"
+              : `$${objective.costBudgetUsd.toFixed(6)}`}
+          </dd>
+        </div>
+        <div>
           <dt>{t("objectives.generator")}</dt>
           <dd>{objective.generatorAiProvider ?? "-"}</dd>
         </div>

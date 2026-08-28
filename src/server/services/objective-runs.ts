@@ -6,7 +6,9 @@ import {
   type EvidenceGateEvaluation
 } from "../../shared/evidence-requirements";
 import type { Repositories } from "../db/repositories";
+import { addProviderUsage, normalizeProviderUsage } from "../../shared/provider-usage";
 import { appendLoopMemoryNote } from "./knowledge-files";
+import { readAutomationSettings } from "./automation-settings";
 import { getRevisionHash } from "./git-service";
 import type { AgentEvidenceResult, AgentRunResult } from "../agents/types";
 import { workflowStageAfterResult, workflowStageForAgent } from "./objective-workflow";
@@ -94,8 +96,59 @@ export async function preflightObjectiveJob(repos: Repositories, job: AgentJobDt
           summary: `Objective #${objective.id} is ${objective.status}.`,
           payload: { objectiveRunId: objective.id, status: objective.status }
         }
+      ],
+      metadata: { nextLabel: null, objectivePreflightGate: true }
+    };
+  }
+
+  const budgetPolicy = await resolveObjectiveBudgetPolicy(repos, job);
+  if (
+    (budgetPolicy.tokenBudget !== null && objective.providerUsage.totalTokens >= budgetPolicy.tokenBudget) ||
+    (budgetPolicy.costBudgetUsd !== null && objective.providerUsage.costUsd >= budgetPolicy.costBudgetUsd)
+  ) {
+    const reason = budgetExceededSummary(objective, budgetPolicy);
+    await repos.objectives.update(job.projectId, objective.id, {
+      status: "waiting_human",
+      stopReason: "budget_exceeded",
+      tokenBudget: budgetPolicy.tokenBudget,
+      costBudgetUsd: budgetPolicy.costBudgetUsd,
+      summary: reason
+    });
+    await rememberObjectiveEvent(repos, job.projectId, {
+      title: `Objective #${objective.id} stopped at usage budget`,
+      body: reason,
+      tags: ["objective", "budget", "usage", "human_gate"]
+    });
+    return {
+      status: "waiting_human",
+      message: reason,
+      questions: ["Review provider usage, then raise or remove the Objective budget before resuming."],
+      stopReason: "budget_exceeded",
+      metadata: { nextLabel: null, objectivePreflightGate: true },
+      evidence: [
+        {
+          type: "provider_usage_budget",
+          title: "Objective usage budget exceeded",
+          summary: reason,
+          payload: {
+            objectiveRunId: objective.id,
+            tokenBudget: budgetPolicy.tokenBudget,
+            costBudgetUsd: budgetPolicy.costBudgetUsd,
+            providerUsage: objective.providerUsage
+          }
+        }
       ]
     };
+  }
+
+  if (
+    objective.tokenBudget !== budgetPolicy.tokenBudget ||
+    objective.costBudgetUsd !== budgetPolicy.costBudgetUsd
+  ) {
+    await repos.objectives.update(job.projectId, objective.id, {
+      tokenBudget: budgetPolicy.tokenBudget,
+      costBudgetUsd: budgetPolicy.costBudgetUsd
+    });
   }
 
   if (objective.roundCount >= objective.maxRounds) {
@@ -121,7 +174,8 @@ export async function preflightObjectiveJob(repos: Repositories, job: AgentJobDt
           summary: `Objective #${objective.id} used ${objective.roundCount}/${objective.maxRounds} rounds.`,
           payload: { objectiveRunId: objective.id, roundCount: objective.roundCount, maxRounds: objective.maxRounds }
         }
-      ]
+      ],
+      metadata: { nextLabel: null, objectivePreflightGate: true }
     };
   }
 
@@ -244,6 +298,42 @@ export async function recordObjectiveJobResult(
   const result = input.result;
   const evidenceContext = await resolveEvidenceContext(repos, input.job, objective);
   const stampedResultEvidence = stampEvidence(result.evidence, evidenceContext);
+  if (result.metadata?.objectivePreflightGate === true) {
+    return repos.objectives.update(input.job.projectId, objective.id, {
+      lastAgentJobId: input.job.id,
+      evidence: mergeEvidence(objective.evidence, stampedResultEvidence, stampEvidenceItem({
+        type: "agent_job",
+        title: `${input.job.agentType} job ${result.status}`,
+        summary: result.message,
+        payload: {
+          agentJobId: input.job.id,
+          agentType: input.job.agentType,
+          aiProvider: input.job.aiProvider,
+          aiModel: input.job.aiModel,
+          stopReason: result.stopReason ?? null,
+          preflightGate: true
+        }
+      }, evidenceContext))
+    });
+  }
+  const providerUsageDelta = normalizeProviderUsage(result.metadata?.providerExecution?.usage);
+  const providerUsage = addProviderUsage(objective.providerUsage, providerUsageDelta);
+  const usageEvidence = providerUsageDelta.requestCount > 0
+    ? stampEvidence([{
+        type: "provider_usage",
+        title: "Provider usage recorded",
+        summary: `${providerUsageDelta.totalTokens.toLocaleString("en-US")} tokens${
+          providerUsageDelta.costUsd > 0 ? ` / $${providerUsageDelta.costUsd.toFixed(6)}` : ""
+        } for agent job #${input.job.id}.`,
+        payload: {
+          agentJobId: input.job.id,
+          aiProvider: input.job.aiProvider,
+          aiModel: result.metadata?.providerExecution?.model ?? input.job.aiModel,
+          usage: providerUsageDelta,
+          cumulativeUsage: providerUsage
+        }
+      }], evidenceContext)
+    : [];
   const roundCount = objective.roundCount + 1;
   const signature = result.status === "failed" ? failureSignature(result) : null;
   const repeatedFailureCount =
@@ -258,7 +348,7 @@ export async function recordObjectiveJobResult(
   const evidenceRequirements = input.job.agentType === "requirements" && result.status === "succeeded" && result.metadata?.goalContract
     ? normalizeEvidenceRequirements(result.metadata.goalContract.evidenceRequired)
     : objective.evidenceRequirements;
-  const evidence = mergeEvidence(objective.evidence, stampedResultEvidence, stampEvidenceItem({
+  const evidence = mergeEvidence(objective.evidence, [...stampedResultEvidence, ...usageEvidence], stampEvidenceItem({
     type: "agent_job",
     title: `${input.job.agentType} job ${result.status}`,
     summary: result.message,
@@ -266,6 +356,9 @@ export async function recordObjectiveJobResult(
       agentJobId: input.job.id,
       agentType: input.job.agentType,
       aiProvider: input.job.aiProvider,
+      aiModel: result.metadata?.providerExecution?.model ?? input.job.aiModel,
+      providerUsage: providerUsageDelta,
+      cumulativeProviderUsage: providerUsage,
       stopReason: result.stopReason ?? null
     }
   }, evidenceContext));
@@ -281,6 +374,7 @@ export async function recordObjectiveJobResult(
     lastFailureSignature: signature,
     repeatedFailureCount,
     stopReason,
+    providerUsage,
     evidenceRequirements,
     evidence,
     summary: result.message,
@@ -296,6 +390,38 @@ export async function recordObjectiveJobResult(
   }
 
   return updated;
+}
+
+type ObjectiveBudgetPolicy = {
+  tokenBudget: number | null;
+  costBudgetUsd: number | null;
+};
+
+async function resolveObjectiveBudgetPolicy(
+  repos: Repositories,
+  job: AgentJobDto
+): Promise<ObjectiveBudgetPolicy> {
+  const automation = await readAutomationSettings(repos);
+  const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
+  const run = step ? await repos.loopRuns.get(job.projectId, step.loopRunId) : null;
+  const loop = run ? await repos.loops.get(job.projectId, run.loopId) : null;
+  return {
+    tokenBudget: automation.objectiveTokenBudget,
+    costBudgetUsd: loop?.costBudget ?? automation.objectiveCostBudgetUsd
+  };
+}
+
+function budgetExceededSummary(objective: ObjectiveRunDto, policy: ObjectiveBudgetPolicy): string {
+  const limits: string[] = [];
+  if (policy.tokenBudget !== null && objective.providerUsage.totalTokens >= policy.tokenBudget) {
+    limits.push(
+      `${objective.providerUsage.totalTokens.toLocaleString("en-US")}/${policy.tokenBudget.toLocaleString("en-US")} tokens`
+    );
+  }
+  if (policy.costBudgetUsd !== null && objective.providerUsage.costUsd >= policy.costBudgetUsd) {
+    limits.push(`$${objective.providerUsage.costUsd.toFixed(6)}/$${policy.costBudgetUsd.toFixed(6)}`);
+  }
+  return `Objective #${objective.id} reached its provider usage budget (${limits.join(", ")}).`;
 }
 
 export async function markObjectiveMerged(
