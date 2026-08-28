@@ -13,6 +13,7 @@ import {
   type DiffWordSegment
 } from "../diff-parser";
 import { t } from "../i18n";
+import { highlightDiffSyntax } from "../diff-syntax";
 
 type DiffView = "unified" | "split";
 
@@ -76,6 +77,19 @@ function WordSegments(props: { segments: DiffWordSegment[] }) {
   );
 }
 
+function SyntaxLine(props: { content: string; path: string }) {
+  const tokens = highlightDiffSyntax(props.path, props.content);
+  return (
+    <>
+      {tokens.map((token, index) => (
+        <span className={token.kind === "plain" ? undefined : `syntax-${token.kind}`} key={`${index}-${token.value}`}>
+          {token.value}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function UnifiedDiff(props: { path: string; patch: string }) {
   const parsed = useMemo(() => parseDiffPatch(props.patch), [props.patch]);
   if (parsed.binary) {
@@ -98,7 +112,7 @@ function UnifiedDiff(props: { path: string; patch: string }) {
                   <td className="diff-line-number"><LineNumber path={props.path} side="L" value={line.oldLineNumber} /></td>
                   <td className="diff-line-number"><LineNumber path={props.path} side="R" value={line.newLineNumber} /></td>
                   <td className="diff-code">
-                    <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span>{line.content}</code>
+                    <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={line.content} path={props.path} /></code>
                   </td>
                 </tr>
               ))}
@@ -110,7 +124,7 @@ function UnifiedDiff(props: { path: string; patch: string }) {
   );
 }
 
-function splitContent(line: DiffLine | null, other: DiffLine | null, side: "before" | "after") {
+function splitContent(line: DiffLine | null, other: DiffLine | null, side: "before" | "after", path: string) {
   if (!line) {
     return null;
   }
@@ -118,7 +132,7 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
     const segments = diffWordSegments(line.content, other.content);
     return <WordSegments segments={segments[side]} />;
   }
-  return line.content;
+  return <SyntaxLine content={line.content} path={path} />;
 }
 
 function SplitDiff(props: { path: string; patch: string }) {
@@ -142,13 +156,13 @@ function SplitDiff(props: { path: string; patch: string }) {
                     <LineNumber path={props.path} side="L" value={row.left?.oldLineNumber ?? null} />
                   </td>
                   <td className={`diff-code diff-line-${row.left?.kind ?? "empty"}`}>
-                    <code>{row.left ? <><span className="diff-prefix" aria-hidden="true">{row.left.kind === "deletion" ? "-" : " "}</span>{splitContent(row.left, row.right, "before")}</> : null}</code>
+                    <code>{row.left ? <><span className="diff-prefix" aria-hidden="true">{row.left.kind === "deletion" ? "-" : " "}</span>{splitContent(row.left, row.right, "before", props.path)}</> : null}</code>
                   </td>
                   <td className={`diff-line-number diff-line-${row.right?.kind ?? "empty"}`}>
                     <LineNumber path={props.path} side="R" value={row.right?.newLineNumber ?? null} />
                   </td>
                   <td className={`diff-code diff-line-${row.right?.kind ?? "empty"}`}>
-                    <code>{row.right ? <><span className="diff-prefix" aria-hidden="true">{row.right.kind === "addition" ? "+" : " "}</span>{splitContent(row.right, row.left, "after")}</> : null}</code>
+                    <code>{row.right ? <><span className="diff-prefix" aria-hidden="true">{row.right.kind === "addition" ? "+" : " "}</span>{splitContent(row.right, row.left, "after", props.path)}</> : null}</code>
                   </td>
                 </tr>
               ))}
@@ -249,6 +263,26 @@ export function DiffViewer(props: {
   const currentSummary = selectedIndex >= 0 ? props.files[selectedIndex] : null;
   const viewedCount = props.files.filter((file) => viewedPaths.has(file.path)).length;
 
+  useEffect(() => {
+    function handleKeyboardNavigation(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea, select, button, [contenteditable='true']")) {
+        return;
+      }
+      const offset = event.key.toLowerCase() === "j" ? 1 : event.key.toLowerCase() === "k" ? -1 : 0;
+      const next = offset ? props.files[selectedIndex + offset] : null;
+      if (next) {
+        event.preventDefault();
+        selectFile(next.path);
+      }
+    }
+    window.addEventListener("keydown", handleKeyboardNavigation);
+    return () => window.removeEventListener("keydown", handleKeyboardNavigation);
+  }, [props.files, selectedIndex]);
+
   function selectFile(path: string): void {
     setSelectedPath(path);
     const anchor = diffFileAnchor(path);
@@ -319,8 +353,8 @@ export function DiffViewer(props: {
               </div>
               <div className="diff-file-actions">
                 <span className="diff-file-stats"><span className="addition">+{currentSummary.additions}</span><span className="deletion">−{currentSummary.deletions}</span></span>
-                <button aria-label={t("pullRequests.previousFile")} disabled={selectedIndex <= 0} onClick={() => moveSelection(-1)} title={t("pullRequests.previousFile")} type="button"><ChevronUp size={16} /></button>
-                <button aria-label={t("pullRequests.nextFile")} disabled={selectedIndex < 0 || selectedIndex >= props.files.length - 1} onClick={() => moveSelection(1)} title={t("pullRequests.nextFile")} type="button"><ChevronDown size={16} /></button>
+                <button aria-keyshortcuts="k" aria-label={t("pullRequests.previousFile")} disabled={selectedIndex <= 0} onClick={() => moveSelection(-1)} title={`${t("pullRequests.previousFile")} (k)`} type="button"><ChevronUp size={16} /></button>
+                <button aria-keyshortcuts="j" aria-label={t("pullRequests.nextFile")} disabled={selectedIndex < 0 || selectedIndex >= props.files.length - 1} onClick={() => moveSelection(1)} title={`${t("pullRequests.nextFile")} (j)`} type="button"><ChevronDown size={16} /></button>
                 <label className="diff-viewed-toggle"><input checked={viewedPaths.has(currentSummary.path)} onChange={toggleViewed} type="checkbox" />{t("pullRequests.markViewed")}</label>
               </div>
             </header>

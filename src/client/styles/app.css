@@ -2118,6 +2118,33 @@ textarea {
   background: rgba(70, 191, 104, 0.42);
 }
 
+.syntax-keyword {
+  color: #cf222e;
+  font-weight: 600;
+}
+
+.syntax-string {
+  color: #0a3069;
+}
+
+.syntax-comment {
+  color: #656d76;
+  font-style: italic;
+}
+
+.syntax-number {
+  color: #0550ae;
+}
+
+.syntax-tag {
+  color: #116329;
+}
+
+.syntax-heading {
+  color: #8250df;
+  font-weight: 700;
+}
+
 .diff-notice {
   padding: 28px 16px;
   color: #656d76;

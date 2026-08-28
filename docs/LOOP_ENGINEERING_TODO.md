@@ -50,7 +50,7 @@
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
 - [ ] **Partial**: internal system commentはOutcome / Record / Evidence or Decision / Next step / timestampの共通Markdown contractへ統一済み。Agent出力のserver-side再構成とdiff deep link生成は未実装
-- [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、word-level diff、Viewed、空白無視、line anchorまで対応。syntax highlight、context展開、inline review、virtualizationは未実装
+- [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、syntax highlight、word-level diff、Viewed、空白無視、line anchorまで対応。context展開、inline review、virtualizationは未実装
 
 ### Provider / Connector
 
@@ -127,13 +127,13 @@
 - [ ] Issue / PR detailをheader、conversation timeline、checks、sidebar metadataに整理する
 - [ ] Objective、Evidence、Human Gate、Provider Gateを別のLoop管理画面ではなくIssue / PRの文脈内に統合する
 - [ ] loading / empty / error / waiting / retrying状態のvisual languageを統一する
-- [ ] keyboard操作、focus、ARIA、contrast、色以外のstatus表現を整備する
+- [ ] **Partial**: diffの`j` / `k` file navigation、ARIA shortcut、text statusは実装済み。全画面のfocus、keyboard、contrast auditは未実装
 
 ### Diff viewer（最優先）
 
-- [x] **Done**: file list、file search、sticky file header、previous / next navigation（tree表示は必要性を見て追加）
+- [x] **Done**: file list、file search、sticky file header、previous / next navigation、`j` / `k` keyboard navigation（tree表示は必要性を見て追加）
 - [x] **Done**: unified / split diff切り替え
-- [ ] **Partial**: old / new line numberとsplit表示のword-level diffは実装済み。syntax highlightingは未実装
+- [x] **Done**: old / new line number、主要なcode / markup / Markdownのsyntax highlighting、split表示のword-level diff
 - [x] **Done**: additions / deletions、rename、binary、added / deleted statusの表示
 - [ ] **Partial**: whitespace無視は実装済み。context展開、折りたたみ、全文表示は未実装
 - [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
@@ -141,7 +141,7 @@
 - [ ] line comment、review finding、Agent findingを該当行へ表示する
 - [ ] system comment / check summaryから重要diffへ直接移動できるようにする
 - [ ] **Partial**: 大規模diffのfile-level lazy loadingと選択変更時のabortは実装済み。virtualizationとcacheは未実装
-- [ ] **Partial**: diff parser、split row、word diff、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装
+- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装
 
 ### Conversation / checks
 
