@@ -2233,6 +2233,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
     const response = await api.getSettings(props.project.id);
@@ -2254,7 +2255,11 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings."));
+    setLoading(true);
+    setError(null);
+    void load()
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings."))
+      .finally(() => setLoading(false));
   }, [props.project.id]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -2305,9 +2310,12 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
       <div className="section-header">
         <h1>{t("settings.title")}</h1>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
-      <form className="settings-form" onSubmit={saveSettings}>
+      {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      {!isLoading && settings ? (
+      <>
+        <form className="settings-form" onSubmit={saveSettings}>
         <label>
           {t("settings.locale")}
           <select value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>
@@ -2447,8 +2455,8 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           <Save size={16} />
           {t("actions.save")}
         </button>
-      </form>
-      <dl className="repository-facts">
+        </form>
+        <dl className="repository-facts">
         <div>
           <dt>{t("settings.server")}</dt>
           <dd>
@@ -2475,7 +2483,9 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           <dt>{t("settings.fullAccess")}</dt>
           <dd>{settings?.ai.codex.fullAccess ? t("status.ready") : "-"}</dd>
         </div>
-      </dl>
+        </dl>
+      </>
+      ) : null}
     </section>
   );
 }

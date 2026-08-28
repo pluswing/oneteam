@@ -126,7 +126,7 @@
 - [x] Issue / PRの作成主体をuser / agent / systemとして永続化し、一覧にstatus、label、author role、comments、latest Agent check、PR commit / file統計、branch、updated timeを集約する
 - [x] Issue / PR detailをauthor・作成/更新時刻・comment数を含むheader、conversation timeline、Objective連動Checks summary、sidebar metadataに整理する
 - [x] Objective stage / Evidence件数をChecks summaryへ、Human Gate / Provider Gateの理由・再開予定・Agent run導線をIssue / PR上部calloutへ統合する
-- [ ] **Partial**: 共通AsyncStateで主要一覧・detail・diffのloading / empty / errorをARIA付きで統一し、Human / Provider waiting calloutを共通化した。retryingの主要画面適用は未完了
+- [ ] **Partial**: 共通AsyncStateで主要一覧・detail・diff・Settingsのloading / empty / errorをARIA付きで統一し、未読込Settingsの編集を防止、Human / Provider waiting calloutを共通化した。retryingの主要画面適用は未完了
 - [ ] **Partial**: diffの`j` / `k` file navigation、ARIA shortcut、text statusは実装済み。全画面のfocus、keyboard、contrast auditは未実装
 
 ### Diff viewer（最優先）
