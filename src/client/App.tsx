@@ -30,6 +30,7 @@ import type { AiProvider } from "../shared/ai-providers";
 import { aiProviderLabel, aiProviders } from "../shared/ai-providers";
 import type { SupportedLocale } from "../shared/locales";
 import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
+import { repositoryCommitAnchor } from "../shared/repository-anchors";
 import type {
   ActivityDto,
   AgentJobDto,
@@ -1424,21 +1425,36 @@ function IssuesView(props: {
 
 function RepositoryView(props: { project: ProjectDto }) {
   const [commands, setCommands] = useState<ProjectCommandDto[]>([]);
+  const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [status, setStatus] = useState<RepositoryStatusDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
-    const [commandResponse, statusResponse] = await Promise.all([
-      api.listCommands(props.project.id),
-      api.getRepositoryStatus(props.project.id)
-    ]);
-    setCommands(commandResponse);
-    setStatus(statusResponse);
+    try {
+      const [commandResponse, statusResponse, commitResponse] = await Promise.all([
+        api.listCommands(props.project.id),
+        api.getRepositoryStatus(props.project.id),
+        api.listRepositoryCommits(props.project.id)
+      ]);
+      setCommands(commandResponse);
+      setStatus(statusResponse);
+      setCommits(commitResponse);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load commands."));
   }, [props.project.id]);
+
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1);
+    if (!/^commit-[0-9a-f]{7,64}$/i.test(anchor) || commits.length === 0) return;
+    const target = document.getElementById(anchor);
+    target?.scrollIntoView({ block: "center" });
+  }, [commits]);
 
   async function detectAgain() {
     await api.detectCommands(props.project.id);
@@ -1497,6 +1513,28 @@ function RepositoryView(props: { project: ProjectDto }) {
           ))}
         </tbody>
       </table>
+      <h2>{t("repository.commits")}</h2>
+      {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      {!isLoading && commits.length === 0 ? <AsyncState kind="empty" message={t("repository.noCommits")} /> : null}
+      <div className="repository-commit-list">
+        {commits.map((commit) => {
+          const anchor = repositoryCommitAnchor(commit.hash);
+          return (
+            <article className="repository-commit" id={anchor ?? undefined} key={commit.hash}>
+              <div>
+                <strong>{commit.subject}</strong>
+                <span>{commit.authorName} · {formatDateTime(commit.date)}</span>
+              </div>
+              {anchor ? (
+                <a className="repository-commit-hash" href={`#${anchor}`} title={commit.hash}>
+                  <GitCommitHorizontal aria-hidden="true" size={14} />
+                  <code>{commit.hash.slice(0, 12)}</code>
+                </a>
+              ) : <code>{commit.hash.slice(0, 12)}</code>}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }

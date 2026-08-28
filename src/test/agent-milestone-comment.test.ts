@@ -20,6 +20,7 @@ describe("agent milestone comment", () => {
         },
         evidence: [{ type: "test", title: "Focused test", summary: "Reproduced the invalid save." }],
         metadata: {
+          implementationCommit: "a1234567890abcdef1234567890abcdef1234567",
           nextLabel: "fixing",
           providerExecution: { model: "gpt-test", sessionId: "thread-1" },
           review: {
@@ -44,6 +45,7 @@ describe("agent milestone comment", () => {
     expect(comment).toContain("## review completed");
     expect(comment).toContain("> **Outcome · BLOCKED**");
     expect(comment).toContain("| Model | `gpt-test` |");
+    expect(comment).toContain("/repository#commit-a1234567890abcdef1234567890abcdef1234567");
     expect(comment).toContain("### Agent summary\n\nThe input path bypasses validation.");
     expect(comment).toContain("### Evidence");
     expect(comment).toContain(`/pulls/7#${diffLineAnchor("src/form.ts", "R", 42)}`);

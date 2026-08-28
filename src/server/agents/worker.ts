@@ -1,5 +1,6 @@
 import type { AgentJobDto, LabelDto, LoopDto, ProjectCommandDto, ProjectDto } from "../../shared/types";
 import { workflowLabelNames } from "../../shared/workflow-labels";
+import { repositoryCommitPath } from "../../shared/repository-anchors";
 import type { Repositories } from "../db/repositories";
 import {
   commitAllChanges,
@@ -442,7 +443,7 @@ export class AgentWorker {
           {
             type: "command" as const,
             title: "Implementation changes committed",
-            body: `Committed ${commitResult.changedFiles.length} changed file(s).\n\nCommit: ${commitResult.commitHash.slice(0, 12)}`,
+            body: `Committed ${commitResult.changedFiles.length} changed file(s).\n\nCommit: [\`${commitResult.commitHash}\`](${repositoryCommitPath(commitResult.commitHash)})`,
             payload: {
               commitHash: commitResult.commitHash,
               changedFiles: commitResult.changedFiles
@@ -458,9 +459,11 @@ export class AgentWorker {
       testResults,
       stopReason: result.stopReason ?? "passed",
       evidence,
-      metadata: riskSignals.length
-        ? {
-            ...(result.metadata ?? {}),
+      metadata: {
+        ...(result.metadata ?? {}),
+        implementationCommit: commitResult.commitHash,
+        ...(riskSignals.length
+          ? {
             riskSignals: riskSignals.map((signal) => ({
               title: signal.title,
               summary: signal.summary,
@@ -468,7 +471,8 @@ export class AgentWorker {
               stopReason: signal.stopReason ?? "risk_detected"
             }))
           }
-        : result.metadata
+          : {})
+      }
     };
   }
 

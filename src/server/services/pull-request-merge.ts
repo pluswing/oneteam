@@ -1,6 +1,7 @@
 import type { AgentJobDto, ObjectiveRunDto, ProjectDto, ProjectSettingsDto, PullRequestDto } from "../../shared/types";
 import { diffFileAnchor } from "../../shared/diff-anchors";
 import { workflowLabelNames } from "../../shared/workflow-labels";
+import { repositoryCommitPath } from "../../shared/repository-anchors";
 import type { Repositories } from "../db/repositories";
 import {
   commitAllChanges,
@@ -25,6 +26,11 @@ export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
   | { state: "blocked"; reason: string }
   | { state: "skipped"; reason: string };
+
+function commitReference(hash: string): string {
+  const path = repositoryCommitPath(hash);
+  return path ? `[${markdownCode(hash)}](${path})` : markdownCode(hash);
+}
 
 export async function mergePullRequest(
   repos: Repositories,
@@ -144,10 +150,10 @@ export async function mergePullRequest(
       { label: "Merge strategy", value: automation.autoMergeStrategy, code: true },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
-      { label: "Merge commit", value: mergeResult.mergeCommit, code: true },
-      { label: "Source snapshot", value: sourceHead, code: true },
-      { label: "Target snapshot", value: targetHead, code: true },
-      { label: "Merge base", value: mergeBase, code: true },
+      { label: "Merge commit", value: commitReference(mergeResult.mergeCommit) },
+      { label: "Source snapshot", value: commitReference(sourceHead) },
+      { label: "Target snapshot", value: commitReference(targetHead) },
+      { label: "Merge base", value: commitReference(mergeBase) },
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : [],
@@ -644,12 +650,12 @@ async function closeLinkedIssue(
       },
       { label: "Merge mode", value: input.mode, code: true },
       { label: "Merge strategy", value: input.mergeStrategy, code: true },
-      { label: "Merge commit", value: input.mergeCommit, code: true },
+      { label: "Merge commit", value: commitReference(input.mergeCommit) },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
-      { label: "Source snapshot", value: input.sourceHead, code: true },
+      { label: "Source snapshot", value: commitReference(input.sourceHead) },
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
-      { label: "Target snapshot", value: input.targetHead, code: true },
-      { label: "Merge base", value: input.mergeBase, code: true },
+      { label: "Target snapshot", value: commitReference(input.targetHead) },
+      { label: "Merge base", value: commitReference(input.mergeBase) },
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: [

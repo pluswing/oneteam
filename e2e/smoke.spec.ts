@@ -211,6 +211,12 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByText("npm run build")).toBeVisible();
   await expect(page.getByText("npm run test")).toBeVisible();
   await expect(page.getByText("npm run lint")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Commit history" })).toBeVisible();
+  const repositoryCommit = page.locator(".repository-commit").first();
+  await expect(repositoryCommit).toBeVisible();
+  await expect(repositoryCommit).toHaveAttribute("id", /^commit-[0-9a-f]{40}$/);
+  await repositoryCommit.locator(".repository-commit-hash").click();
+  await expect(page).toHaveURL(/\/repository#commit-[0-9a-f]{40}$/);
 
   await page.getByRole("button", { name: "Project and settings" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();

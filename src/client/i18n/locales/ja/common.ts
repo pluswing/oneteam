@@ -201,6 +201,8 @@ export const ja = {
     clean: "クリーン",
     dirty: "変更ファイル",
     commands: "コマンド",
+    commits: "コミット履歴",
+    noCommits: "コミットはありません",
     command: "コマンド",
     source: "検出元",
     available: "利用可能",

@@ -199,6 +199,8 @@ export const en = {
     clean: "Clean",
     dirty: "Changed files",
     commands: "Commands",
+    commits: "Commit history",
+    noCommits: "No commits",
     command: "Command",
     source: "Source",
     available: "Available",

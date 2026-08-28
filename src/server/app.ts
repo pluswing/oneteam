@@ -1617,7 +1617,7 @@ export function createApp({
 
   app.get("/api/projects/:projectId/repository/commits", async (c) => {
     const project = await getProjectOr404(repos, c.req.param("projectId"));
-    return c.json({ items: await getCommits(project.repoPath) });
+    return c.json({ items: await getCommits(project.repoPath, "--all", 50) });
   });
 
   app.get("/api/projects/:projectId/repository/files", async (c) => {

@@ -1,4 +1,5 @@
 import { diffFileAnchor, diffLineAnchor } from "../../shared/diff-anchors";
+import { repositoryCommitPath } from "../../shared/repository-anchors";
 import type { AgentJobDto } from "../../shared/types";
 import type { AgentRunResult } from "../agents/types";
 import { buildSystemComment, markdownCode, type SystemCommentOutcome, type SystemCommentSection } from "./system-comment";
@@ -48,6 +49,11 @@ function titleForJob(job: AgentJobDto, result: AgentRunResult): string {
 
 function markdownLinkLabel(value: string): string {
   return value.replaceAll("[", "\\[").replaceAll("]", "\\]");
+}
+
+function commitReference(hash: string): string {
+  const path = repositoryCommitPath(hash);
+  return path ? `[${markdownCode(hash)}](${path})` : markdownCode(hash);
 }
 
 function fileReference(job: AgentJobDto, path: string, line: number | null, side: "L" | "R"): string {
@@ -164,6 +170,7 @@ function nextStep(job: AgentJobDto, result: AgentRunResult): string {
 
 export function buildAgentMilestoneComment(job: AgentJobDto, result: AgentRunResult, recordedAt = new Date()): string {
   const providerExecution = recordValue(result.metadata?.providerExecution);
+  const implementationCommit = stringValue(result.metadata?.implementationCommit);
   return buildSystemComment({
     title: titleForJob(job, result),
     outcome: outcomeForResult(result),
@@ -176,6 +183,7 @@ export function buildAgentMilestoneComment(job: AgentJobDto, result: AgentRunRes
       stringValue(providerExecution?.sessionId)
         ? { label: "Session", value: stringValue(providerExecution?.sessionId)!, code: true }
         : null,
+      implementationCommit ? { label: "Commit", value: commitReference(implementationCommit) } : null,
       { label: "Status", value: result.status, code: true },
       { label: "Stop reason", value: result.stopReason ?? "not reported", code: true }
     ],

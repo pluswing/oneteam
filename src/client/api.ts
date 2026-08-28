@@ -472,6 +472,13 @@ export const api = {
     return request<RepositoryStatusDto>(`/api/projects/${projectId}/repository/status`);
   },
 
+  async listRepositoryCommits(projectId: string): Promise<RepositoryCommitDto[]> {
+    const response = await request<ListResponse<RepositoryCommitDto>>(
+      `/api/projects/${projectId}/repository/commits`
+    );
+    return response.items;
+  },
+
   async listLoops(projectId: string): Promise<LoopDto[]> {
     const response = await request<ListResponse<LoopDto>>(`/api/projects/${projectId}/loops`);
     return response.items;

@@ -3384,6 +3384,65 @@ button.diff-finding-card:hover {
   font-size: 13px;
 }
 
+.repository-commit-list {
+  display: grid;
+  margin-top: 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.repository-commit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid #d8dee4;
+  scroll-margin-top: 16px;
+}
+
+.repository-commit:last-child {
+  border-bottom: 0;
+}
+
+.repository-commit:target {
+  position: relative;
+  z-index: 1;
+  background: #fff8c5;
+  box-shadow: inset 3px 0 #bf8700;
+}
+
+.repository-commit > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.repository-commit > div strong {
+  color: #24292f;
+  overflow-wrap: anywhere;
+}
+
+.repository-commit > div span {
+  color: #57606a;
+  font-size: 12px;
+}
+
+.repository-commit-hash {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  color: #0969da;
+  text-decoration: none;
+}
+
+.repository-commit-hash:hover {
+  text-decoration: underline;
+}
+
 .ok-icon {
   color: #1a7f37;
 }
