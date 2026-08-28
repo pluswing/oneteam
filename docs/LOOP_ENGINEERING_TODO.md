@@ -179,7 +179,7 @@
 - [x] stale Objective、failed verification / CI Evidence、regression、tracked TODO / FIXME discoveryをSchedulerへ追加し、直接testで再走査時のdedupeまで検証する
 - [x] TriageをIssuesの通知セクションへ統合し、rich Markdownの発見内容、priority、discovery種別を確認してその場でIssue化 / 無視できるようにする
 - [x] Worktree cleanup / retention policyを成功、失敗、Human Gate、Provider Gate別に定義し、Objective / Job取消時のcleanupまで実行する
-- [ ] objective hard gate、max rounds、repeated failure、score manipulation、schedulerの直接testを追加する
+- [x] objective hard gate、max rounds、repeated failure、score manipulation、schedulerの直接testを追加し、preflight gateがroundを消費しない境界も固定する
 
 ## P3: Connector / Plugin
 
