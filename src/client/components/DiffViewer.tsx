@@ -176,8 +176,44 @@ function DiffRenderFooter(props: {
   );
 }
 
+function DiffHunkHeader(props: {
+  collapsed: boolean;
+  colSpan: number;
+  header: string;
+  onToggle: () => void;
+}) {
+  return (
+    <tr className="diff-hunk-row">
+      <td colSpan={props.colSpan}>
+        <button aria-expanded={!props.collapsed} onClick={props.onToggle} type="button">
+          <ChevronDown aria-hidden="true" className={props.collapsed ? "collapsed" : ""} size={14} />
+          <span>{props.header}</span>
+          <span className="diff-hunk-action">
+            {props.collapsed ? t("pullRequests.expandHunk") : t("pullRequests.collapseHunk")}
+          </span>
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function useCollapsedHunks(patch: string) {
+  const [collapsedHunks, setCollapsedHunks] = useState<Set<string>>(new Set());
+  useEffect(() => setCollapsedHunks(new Set()), [patch]);
+  function toggleHunk(key: string): void {
+    setCollapsedHunks((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  return { collapsedHunks, toggleHunk };
+}
+
 function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
+  const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -188,12 +224,13 @@ function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLine
     <div className="diff-table-scroll">
       <table className="diff-table diff-unified">
         <tbody>
-          {limited.hunks.map((hunk, hunkIndex) => (
+          {limited.hunks.map((hunk, hunkIndex) => {
+            const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
+            const collapsed = collapsedHunks.has(hunkKey);
+            return (
             <Fragment key={`${hunk.header}-${hunkIndex}`}>
-              <tr className="diff-hunk-row">
-                <td colSpan={3}>{hunk.header}</td>
-              </tr>
-              {hunk.lines.map((line, lineIndex) => {
+              <DiffHunkHeader collapsed={collapsed} colSpan={3} header={hunk.header} onToggle={() => toggleHunk(hunkKey)} />
+              {!collapsed ? hunk.lines.map((line, lineIndex) => {
                 const lineFindings = findingsForLine(props.findings, line);
                 return (
                   <Fragment key={`${hunkIndex}-${lineIndex}`}>
@@ -207,9 +244,9 @@ function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLine
                     <InlineFindingRows colSpan={3} findings={lineFindings} />
                   </Fragment>
                 );
-              })}
+              }) : null}
             </Fragment>
-          ))}
+          );})}
         </tbody>
       </table>
       <DiffRenderFooter
@@ -236,6 +273,7 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
 
 function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
+  const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
   }
@@ -246,10 +284,13 @@ function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFo
     <div className="diff-table-scroll">
       <table className="diff-table diff-split">
         <tbody>
-          {limited.hunks.map((hunk, hunkIndex) => (
+          {limited.hunks.map((hunk, hunkIndex) => {
+            const hunkKey = `${hunk.oldStart}:${hunk.newStart}:${hunkIndex}`;
+            const collapsed = collapsedHunks.has(hunkKey);
+            return (
             <Fragment key={`${hunk.header}-${hunkIndex}`}>
-              <tr className="diff-hunk-row"><td colSpan={4}>{hunk.header}</td></tr>
-              {buildSplitDiffRows(hunk.lines).map((row, rowIndex) => {
+              <DiffHunkHeader collapsed={collapsed} colSpan={4} header={hunk.header} onToggle={() => toggleHunk(hunkKey)} />
+              {!collapsed ? buildSplitDiffRows(hunk.lines).map((row, rowIndex) => {
                 const lineFindings = props.findings.filter((finding) => {
                   if (finding.line === null) return false;
                   return finding.side === "L"
@@ -274,9 +315,9 @@ function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFo
                 </tr>
                 <InlineFindingRows colSpan={4} findings={lineFindings} />
                 </Fragment>
-              );})}
+              );}) : null}
             </Fragment>
-          ))}
+          );})}
         </tbody>
       </table>
       <DiffRenderFooter

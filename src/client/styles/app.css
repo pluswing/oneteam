@@ -2150,10 +2150,45 @@ textarea {
 }
 
 .diff-hunk-row td {
-  padding: 6px 10px;
+  padding: 0;
   color: #0550ae;
   background: #ddf4ff;
   white-space: pre-wrap;
+}
+
+.diff-hunk-row button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.diff-hunk-row button:hover {
+  background: #b6e3ff;
+}
+
+.diff-hunk-row svg {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.diff-hunk-row svg.collapsed {
+  transform: rotate(-90deg);
+}
+
+.diff-hunk-action {
+  margin-left: auto;
+  color: #57606a;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .diff-split .diff-line-number {

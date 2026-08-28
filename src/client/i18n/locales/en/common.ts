@@ -119,6 +119,8 @@ export const en = {
     renderedDiffLines: "Rendered diff lines:",
     renderMoreDiff: "Render 1,000 more lines",
     diffRenderLimitReached: "Display limit reached. Use narrower context to continue reviewing.",
+    collapseHunk: "Collapse hunk",
+    expandHunk: "Expand hunk",
     noVisibleDiff: "No visible changes with the current whitespace setting.",
     binaryDiff: "Binary files cannot be displayed as a text diff.",
     binary: "Binary",

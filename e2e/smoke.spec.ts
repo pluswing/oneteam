@@ -78,6 +78,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Files changed" }).click();
   await expect(page.locator(".diff-render-footer")).toContainText("1,000");
   await expect(page.locator(".diff-line")).toHaveCount(1_000);
+  await page.getByRole("button", { name: /Collapse hunk/ }).click();
+  await expect(page.locator(".diff-line")).toHaveCount(0);
+  await page.getByRole("button", { name: /Expand hunk/ }).click();
+  await expect(page.locator(".diff-line")).toHaveCount(1_000);
   await page.getByRole("button", { name: "Render 1,000 more lines" }).click();
   await expect(page.locator(".diff-line")).toHaveCount(2_000);
 });

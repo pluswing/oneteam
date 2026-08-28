@@ -121,6 +121,8 @@ export const ja = {
     renderedDiffLines: "描画済みの差分行:",
     renderMoreDiff: "さらに1,000行を描画",
     diffRenderLimitReached: "表示上限に達しました。前後の行を狭めてレビューを続けてください。",
+    collapseHunk: "hunkを折りたたむ",
+    expandHunk: "hunkを展開",
     noVisibleDiff: "現在の空白設定では表示する変更がありません。",
     binaryDiff: "バイナリファイルはテキスト差分として表示できません。",
     binary: "バイナリ",

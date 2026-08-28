@@ -135,7 +135,7 @@
 - [x] **Done**: unified / split diff切り替え
 - [x] **Done**: old / new line number、主要なcode / markup / Markdownのsyntax highlighting、split表示のword-level diff
 - [x] **Done**: additions / deletions、rename、binary、added / deleted statusの表示
-- [ ] **Partial**: whitespace無視、標準 / 20行context / 全文表示は実装済み。hunk単位の折りたたみは未実装
+- [x] **Done**: whitespace無視、標準 / 20行context / 全文表示、keyboard accessibleなhunk単位の折りたたみ
 - [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
 - [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
 - [ ] **Partial**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザーのline comment作成は未実装
