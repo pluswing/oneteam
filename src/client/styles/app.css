@@ -1870,6 +1870,7 @@ textarea {
 
 .conversation-comment,
 .conversation-agent-job {
+  position: relative;
   min-width: 0;
   border: 1px solid #d8dee4;
   border-radius: 8px;
@@ -1937,6 +1938,18 @@ textarea {
 .conversation-activity:target > div {
   border-color: #0969da;
   box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.18);
+}
+
+.conversation-comment:has(> .conversation-semantic-anchor:target) {
+  border-color: #0969da;
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.18);
+}
+
+.conversation-semantic-anchor {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  scroll-margin-top: 16px;
 }
 
 .conversation-report {

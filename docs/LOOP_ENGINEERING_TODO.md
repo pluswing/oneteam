@@ -166,7 +166,7 @@
 - [ ] sanitizerのallowlist、URL、CSS、image、data attribute policyとsecurity testを強化する
 - [ ] Activityの逐次ログをcommentへ連投せず、節目単位で圧縮・重複排除する
 - [ ] **Partial**: merge / Issue完了 / Agent review・QA commentのPR / changed file / finding line参照はdeep link化済み。自由文中の参照検証とcommit link生成は未実装
-- [ ] merge後のfinal summaryをIssueとPRの両方から参照できるようにする
+- [x] merge後のfinal summaryにstable anchorを付け、Issueの完了サマリーとPRのmergeサマリーを相互参照できるようにする
 - [ ] 日本語 / 英語で情報階層と表の読みやすさが崩れないsnapshot / browser testを追加する
 
 ## P2: Loop Engineering制御の強化

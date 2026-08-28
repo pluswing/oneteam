@@ -134,6 +134,12 @@ export async function mergePullRequest(
     summary: `Merged ${pullRequest.sourceBranch} into ${pullRequest.targetBranch}. The recorded commit snapshots identify the exact candidate that passed the merge decision.`,
     fields: [
       { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+      pullRequest.issueId
+        ? {
+            label: "Linked issue",
+            value: `[#${pullRequest.issueId} — completion summary](/issues/${pullRequest.issueId}#completion-summary)`
+          }
+        : null,
       { label: "Merge mode", value: mode, code: true },
       { label: "Merge strategy", value: automation.autoMergeStrategy, code: true },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
@@ -146,7 +152,7 @@ export async function mergePullRequest(
     ],
     sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : [],
     nextStep: pullRequest.issueId
-      ? `The linked Issue #${pullRequest.issueId} will be updated and closed, and the final Objective evidence will remain available for audit.`
+      ? `Review the linked [Issue #${pullRequest.issueId} completion summary](/issues/${pullRequest.issueId}#completion-summary) for the final Objective state and audit evidence.`
       : "No linked Issue requires an update. The Pull Request and Objective retain the merge evidence for audit."
   });
   await repos.comments.create({
@@ -157,6 +163,7 @@ export async function mergePullRequest(
     body: mergeBody,
     bodyFormat: "markdown",
     metadata: {
+      summaryAnchor: "merge-summary",
       mergeMode: mode,
       mergeStrategy: automation.autoMergeStrategy,
       mergeCommit: mergeResult.mergeCommit,
@@ -631,7 +638,10 @@ async function closeLinkedIssue(
     outcome: "success",
     summary: `Pull request #${pullRequest.id} was merged and this linked Issue was closed. The snapshots below identify the exact candidate and policy decision.`,
     fields: [
-      { label: "Pull request", value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id})` },
+      {
+        label: "Pull request",
+        value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id}#merge-summary)`
+      },
       { label: "Merge mode", value: input.mode, code: true },
       { label: "Merge strategy", value: input.mergeStrategy, code: true },
       { label: "Merge commit", value: input.mergeCommit, code: true },
@@ -649,7 +659,7 @@ async function closeLinkedIssue(
       {
         title: "Final state",
         items: [
-          `[Pull request #${pullRequest.id}](/pulls/${pullRequest.id}) is marked as merged.`,
+          `[Pull request #${pullRequest.id} merge summary](/pulls/${pullRequest.id}#merge-summary) records the merge decision and exact snapshots.`,
           "The Objective is marked as succeeded with its final merge evidence.",
           "This Issue is closed with its original description preserved."
         ]
@@ -658,6 +668,7 @@ async function closeLinkedIssue(
     nextStep: "Use the linked changed files, Pull Request timeline, and Objective evidence when auditing the implementation or planning follow-up work."
   });
   const metadata = {
+    summaryAnchor: "completion-summary",
     mergeCompletionEventKey: eventKey,
     pullRequestId: pullRequest.id,
     mergeMode: input.mode,

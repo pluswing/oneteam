@@ -330,6 +330,7 @@ describe("automatic delivery pipeline", () => {
     const issueComments = await repos.comments.list(project.id, "issue", issue.id);
     const issueActivities = await repos.activities.list(project.id, "issue", issue.id);
     const mergeParents = (await git(repoPath, ["rev-list", "--parents", "-n", "1", "main"])).split(" ");
+    const mergeComment = prComments.find((comment) => comment.body.includes("## Automatically merged"));
     const completionComment = issueComments.find((comment) => comment.body.includes("## Objective completed"));
 
     expect(updatedJob?.status).toBe("succeeded");
@@ -355,7 +356,9 @@ describe("automatic delivery pipeline", () => {
     ).toBe(true);
     expect(mergedFile).toBe("verified\n");
     expect(mergeParents).toHaveLength(2);
-    expect(prComments.some((comment) => comment.body.includes("## Automatically merged"))).toBe(true);
+    expect(mergeComment).toBeDefined();
+    expect(mergeComment?.body).toContain(`/issues/${issue.id}#completion-summary`);
+    expect(mergeComment?.metadata?.summaryAnchor).toBe("merge-summary");
     expect(prComments.some((comment) => comment.body.includes("| Merge strategy | `squash` |"))).toBe(true);
     expect(
       prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
@@ -368,7 +371,9 @@ describe("automatic delivery pipeline", () => {
     expect(completionComment?.body).toContain("test -f result.txt");
     expect(completionComment?.body).toContain("No diff risk signal met the `high` automatic-merge threshold");
     expect(completionComment?.body).toContain(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`);
+    expect(completionComment?.body).toContain(`/pulls/${pullRequest.id}#merge-summary`);
     expect(completionComment?.metadata).toMatchObject({
+      summaryAnchor: "completion-summary",
       mergeMode: "automatic",
       mergeStrategy: "squash",
       verifierJobId: job.id

@@ -434,10 +434,17 @@ function readableCommentBody(comment: CommentDto, relatedJob?: AgentJobDto): str
   return relatedJob ? agentJobMessage(relatedJob, []) ?? t("agents.noConciseComment") : t("agents.noConciseComment");
 }
 
+function commentSummaryAnchor(comment: CommentDto): "merge-summary" | "completion-summary" | null {
+  const anchor = comment.metadata?.summaryAnchor;
+  return anchor === "merge-summary" || anchor === "completion-summary" ? anchor : null;
+}
+
 function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: AgentJobDto }) {
   const anchor = `comment-${props.comment.id}`;
+  const summaryAnchor = commentSummaryAnchor(props.comment);
   return (
     <article className="conversation-comment" id={anchor}>
+      {summaryAnchor ? <span aria-hidden="true" className="conversation-semantic-anchor" id={summaryAnchor} /> : null}
       <header>
         <strong>{commentAuthorLabel(props.comment)}</strong>
         <ConversationPermalink anchor={anchor} createdAt={props.comment.createdAt} />
@@ -496,7 +503,7 @@ function ConversationTimeline(props: {
   const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
   useEffect(() => {
     const anchor = window.location.hash.slice(1);
-    if (!/^(?:comment|activity|agent-job)-\d+$/.test(anchor)) return;
+    if (!/^(?:(?:comment|activity|agent-job)-\d+|merge-summary|completion-summary)$/.test(anchor)) return;
     let animationFrame = 0;
     let attempts = 0;
     function reveal(): void {
