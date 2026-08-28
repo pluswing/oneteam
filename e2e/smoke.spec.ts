@@ -137,6 +137,41 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(issueSummary.locator(".work-item-author")).toHaveText("user");
   await expect(issueSummary.locator(".work-item-check")).toContainText("queued");
 
+  const triageResponses = await Promise.all([
+    page.request.post(`/api/projects/${projectId}/triage-items`, {
+      data: {
+        sourceType: "scheduler",
+        title: "Investigate flaky smoke check",
+        body: "## Evidence\n\n- `npm test` failed once\n- Review before implementation",
+        priority: "high",
+        metadata: { discovery: "verification_failure", schedulerKey: "e2e:verification" }
+      }
+    }),
+    page.request.post(`/api/projects/${projectId}/triage-items`, {
+      data: {
+        sourceType: "scheduler",
+        title: "Ignore intentional TODO",
+        body: "This marker is intentionally long-lived.",
+        priority: "normal",
+        metadata: { discovery: "todo_fixme", schedulerKey: "e2e:todo" }
+      }
+    })
+  ]);
+  expect(triageResponses.every((response) => response.ok())).toBe(true);
+  await page.getByRole("button", { name: "Agent runs" }).click();
+  await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
+  await page.getByRole("button", { name: "Issues", exact: true }).click();
+  const triageInbox = page.getByRole("region", { name: "Triage notifications" });
+  await expect(triageInbox).toBeVisible();
+  await expect(triageInbox.locator(".counter-badge")).toHaveText("2");
+  const ignoredTriage = triageInbox.locator(".issue-triage-item").filter({ hasText: "Ignore intentional TODO" });
+  await ignoredTriage.getByRole("button", { name: "Ignore", exact: true }).click();
+  await expect(ignoredTriage).toHaveCount(0);
+  const convertedTriage = triageInbox.locator(".issue-triage-item").filter({ hasText: "Investigate flaky smoke check" });
+  await expect(convertedTriage).toContainText("npm test");
+  await convertedTriage.getByRole("button", { name: "Convert to issue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Investigate flaky smoke check/ })).toBeVisible();
+
   await page.getByRole("button", { name: "Agent runs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
   const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();

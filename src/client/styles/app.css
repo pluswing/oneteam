@@ -648,6 +648,60 @@ textarea {
   background: #d8dee4;
 }
 
+.issue-triage-inbox {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+}
+
+.issue-triage-header,
+.issue-triage-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issue-triage-header h2,
+.issue-triage-header p {
+  margin: 0;
+}
+
+.issue-triage-header p,
+.issue-triage-meta {
+  color: #57606a;
+  font-size: 12px;
+}
+
+.issue-triage-header .counter-badge {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #0969da;
+  text-align: center;
+  font-weight: 600;
+}
+
+.issue-triage-item {
+  background: #ffffff;
+}
+
+.issue-triage-item .job-row-header strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.issue-triage-body {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid #d8dee4;
+  border-bottom: 1px solid #d8dee4;
+}
+
 .definition-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

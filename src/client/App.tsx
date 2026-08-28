@@ -55,7 +55,8 @@ import type {
   PullRequestDto,
   RepositoryCommitDto,
   RepositoryFileChangeDto,
-  RepositoryStatusDto
+  RepositoryStatusDto,
+  TriageItemDto
 } from "../shared/types";
 import {
   issueWorkflowLabelNames as issueWorkflowLabels,
@@ -745,13 +746,19 @@ type IssueScreen =
 
 function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpen: (issueId: number) => void }) {
   const [issues, setIssues] = useState<IssueDto[]>([]);
+  const [triageItems, setTriageItems] = useState<TriageItemDto[]>([]);
+  const [busyTriageItemId, setBusyTriageItemId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
 
   async function load() {
     try {
-      const issueResponse = await api.listIssues(props.project.id);
+      const [issueResponse, triageResponse] = await Promise.all([
+        api.listIssues(props.project.id),
+        api.listTriageItems(props.project.id, "open")
+      ]);
       setIssues(issueResponse.items);
+      setTriageItems(triageResponse);
     } finally {
       setLoading(false);
     }
@@ -760,6 +767,34 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issues."));
   }, [props.project.id]);
+
+  async function convertTriageItem(item: TriageItemDto): Promise<void> {
+    setBusyTriageItemId(item.id);
+    setError(null);
+    try {
+      const issue = await api.convertTriageItemToIssue(props.project.id, item.id);
+      setTriageItems((current) => current.filter((candidate) => candidate.id !== item.id));
+      setIssues((current) => [issue, ...current]);
+      props.onOpen(issue.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.triageActionFailed"));
+    } finally {
+      setBusyTriageItemId(null);
+    }
+  }
+
+  async function ignoreTriageItem(item: TriageItemDto): Promise<void> {
+    setBusyTriageItemId(item.id);
+    setError(null);
+    try {
+      await api.updateTriageItem(props.project.id, item.id, { status: "ignored" });
+      setTriageItems((current) => current.filter((candidate) => candidate.id !== item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.triageActionFailed"));
+    } finally {
+      setBusyTriageItemId(null);
+    }
+  }
 
   return (
     <section className="page-section">
@@ -773,6 +808,53 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
         </div>
       </div>
       {error ? <AsyncState kind="error" message={error} /> : null}
+      {triageItems.length ? (
+        <section aria-label={t("issues.triageInbox")} className="issue-triage-inbox">
+          <div className="issue-triage-header">
+            <div>
+              <h2>{t("issues.triageInbox")}</h2>
+              <p>{t("issues.triageDescription")}</p>
+            </div>
+            <span className="counter-badge">{triageItems.length}</span>
+          </div>
+          <div className="job-list">
+            {triageItems.map((item) => {
+              const discovery = typeof item.metadata?.discovery === "string" ? item.metadata.discovery : item.sourceType;
+              return (
+                <article className="job-row issue-triage-item" key={item.id}>
+                  <div className="job-row-header">
+                    <strong><CircleAlert aria-hidden="true" size={16} /> {item.title}</strong>
+                    <span className={`status-pill triage-priority-${item.priority}`}>{item.priority}</span>
+                  </div>
+                  <div className="issue-triage-meta">
+                    <code>{discovery}</code>
+                    <span>{formatDateTime(item.createdAt)}</span>
+                  </div>
+                  {item.body ? <div className="issue-triage-body"><MarkdownContent content={item.body} /></div> : null}
+                  <div className="action-row">
+                    <button
+                      className="primary-button"
+                      disabled={busyTriageItemId !== null}
+                      onClick={() => void convertTriageItem(item)}
+                      type="button"
+                    >
+                      {busyTriageItemId === item.id ? t("issues.triageConverting") : t("issues.triageConvert")}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={busyTriageItemId !== null}
+                      onClick={() => void ignoreTriageItem(item)}
+                      type="button"
+                    >
+                      {t("issues.triageIgnore")}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
       <div className="work-item-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
         {!isLoading && !error && issues.length === 0 ? <AsyncState kind="empty" message={t("issues.noIssues")} /> : null}
@@ -2784,7 +2866,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               min="0.01"
               onChange={(event) => setAgentTimeBudgetMinutes(event.target.value)}
               placeholder={t("settings.unlimitedBudget")}
-              step="0.5"
+              step="0.01"
               type="number"
               value={agentTimeBudgetMinutes}
             />
@@ -2796,7 +2878,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               min="0.01"
               onChange={(event) => setVerificationCommandTimeoutMinutes(event.target.value)}
               required
-              step="0.5"
+              step="0.01"
               type="number"
               value={verificationCommandTimeoutMinutes}
             />
