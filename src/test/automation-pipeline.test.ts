@@ -436,7 +436,7 @@ describe("automatic delivery pipeline", () => {
     context.client.close();
   });
 
-  it("blocks automatic merge when verifier evidence references an older source commit", async () => {
+  it("automatically requeues verification when verifier evidence references an older source commit", async () => {
     const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-stale-evidence-db-"));
     const repoPath = await createGitRepo("oneteam-stale-evidence-repo-");
     await git(repoPath, ["checkout", "-b", "feature/stale"]);
@@ -503,16 +503,36 @@ describe("automatic delivery pipeline", () => {
       mode: "automatic",
       verifierJob: completedVerifier
     });
-    const [updatedPullRequest, updatedObjective] = await Promise.all([
+    const [updatedPullRequest, updatedObjective, jobs, prComments] = await Promise.all([
       repos.pullRequests.get(project.id, pullRequest.id),
-      repos.objectives.get(project.id, objective.id)
+      repos.objectives.get(project.id, objective.id),
+      repos.agentJobs.list({ projectId: project.id, targetType: "pull_request", targetId: pullRequest.id }),
+      repos.comments.list(project.id, "pull_request", pullRequest.id)
     ]);
+    const requeuedVerifier = jobs.find((candidate) => candidate.id !== completedVerifier.id && candidate.agentType === "verifier");
 
-    expect(result).toMatchObject({ state: "blocked" });
-    expect(result.state === "blocked" ? result.reason : "").toContain("stale");
+    expect(result).toMatchObject({ state: "requeued" });
+    expect(result.state === "requeued" ? result.reason : "").toContain("stale");
     expect(updatedPullRequest?.status).toBe("open");
-    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
-    expect(updatedObjective?.status).toBe("waiting_human");
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.done);
+    expect(updatedObjective).toMatchObject({
+      status: "running",
+      workflowStage: "verification",
+      judgeAgentJobId: null,
+      stopReason: "automatic_merge_reverification",
+      roundCount: 0
+    });
+    expect(requeuedVerifier).toMatchObject({
+      status: "queued",
+      triggerType: "automatic_merge_snapshot_drift",
+      input: {
+        automaticMergeReverification: true,
+        previousVerifierJobId: completedVerifier.id,
+        previousSourceHead: oldSourceHead
+      }
+    });
+    expect(prComments.some((comment) => comment.body.includes("## Automatic merge verification restarted"))).toBe(true);
+    expect(prComments.some((comment) => comment.body.includes(`| Reverification job | \`#${requeuedVerifier?.id}\` |`))).toBe(true);
 
     context.client.close();
   });
@@ -593,11 +613,12 @@ describe("automatic delivery pipeline", () => {
       verifierJob: completedVerifier
     });
 
-    expect(result).toMatchObject({ state: "blocked" });
-    expect(result.state === "blocked" ? result.reason : "").toContain(
+    expect(result).toMatchObject({ state: "requeued" });
+    expect(result.state === "requeued" ? result.reason : "").toContain(
       "Evidence Required became invalid before merge: build (commit mismatch)"
     );
     expect((await repos.pullRequests.get(project.id, pullRequest.id))?.status).toBe("open");
+    expect((await repos.objectives.get(project.id, objective.id))?.status).toBe("running");
     context.client.close();
   });
 
@@ -756,7 +777,7 @@ describe("automatic delivery pipeline", () => {
     context.client.close();
   });
 
-  it("blocks automatic merge when the target branch drifts during gate verification", async () => {
+  it("automatically requeues verification when the target branch drifts during gate verification", async () => {
     const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-target-drift-db-"));
     const repoPath = await createGitRepo("oneteam-target-drift-repo-");
     await git(repoPath, ["checkout", "-b", "feature/target-drift"]);
@@ -829,20 +850,38 @@ describe("automatic delivery pipeline", () => {
       mode: "automatic",
       verifierJob: completedVerifier
     });
-    const [updatedPullRequest, updatedObjective, prComments, issueComments] = await Promise.all([
+    const [updatedPullRequest, updatedObjective, prComments, issueComments, jobs, issueActivities] = await Promise.all([
       repos.pullRequests.get(project.id, pullRequest.id),
       repos.objectives.get(project.id, objective.id),
       repos.comments.list(project.id, "pull_request", pullRequest.id),
-      repos.comments.list(project.id, "issue", issue.id)
+      repos.comments.list(project.id, "issue", issue.id),
+      repos.agentJobs.list({ projectId: project.id, targetType: "pull_request", targetId: pullRequest.id }),
+      repos.activities.list(project.id, "issue", issue.id)
     ]);
+    const requeuedVerifier = jobs.find((candidate) => candidate.id !== completedVerifier.id && candidate.agentType === "verifier");
 
-    expect(result).toMatchObject({ state: "blocked" });
-    expect(result.state === "blocked" ? result.reason : "").toContain("target branch changed");
+    expect(result).toMatchObject({ state: "requeued" });
+    expect(result.state === "requeued" ? result.reason : "").toContain("target branch changed");
     expect(updatedPullRequest).toMatchObject({ status: "open" });
-    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
-    expect(updatedObjective).toMatchObject({ status: "waiting_human", stopReason: "automatic_merge_blocked" });
-    expect(prComments.some((comment) => comment.body.includes("## Automatic merge paused"))).toBe(true);
-    expect(issueComments.some((comment) => comment.body.includes("## Automatic merge paused"))).toBe(true);
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.done);
+    expect(updatedObjective).toMatchObject({
+      status: "running",
+      workflowStage: "verification",
+      judgeAgentJobId: null,
+      stopReason: "automatic_merge_reverification",
+      roundCount: 0
+    });
+    expect(requeuedVerifier).toMatchObject({
+      status: "queued",
+      triggerType: "automatic_merge_snapshot_drift",
+      input: {
+        automaticMergeReverification: true,
+        previousVerifierJobId: completedVerifier.id
+      }
+    });
+    expect(prComments.some((comment) => comment.body.includes("## Automatic merge verification restarted"))).toBe(true);
+    expect(issueComments.some((comment) => comment.body.includes("## Automatic merge verification restarted"))).toBe(true);
+    expect(issueActivities.map((activity) => activity.title)).toContain("Automatic merge re-verification queued");
 
     context.client.close();
   });

@@ -23,11 +23,24 @@ import { readAutomationSettings } from "./automation-settings";
 import { buildSystemComment, markdownCode, type SystemCommentSection } from "./system-comment";
 import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
 import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
+import { ensureSystemLoop, startLoopRun } from "./loop-runner";
 
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
+  | { state: "requeued"; reason: string; verifierJob: AgentJobDto }
   | { state: "blocked"; reason: string }
   | { state: "skipped"; reason: string };
+
+class AutomaticMergeSnapshotDriftError extends Error {
+  constructor(
+    message: string,
+    readonly currentSourceHead: string,
+    readonly currentTargetHead: string
+  ) {
+    super(message);
+    this.name = "AutomaticMergeSnapshotDriftError";
+  }
+}
 
 function commitReference(hash: string): string {
   const path = repositoryCommitPath(hash);
@@ -48,6 +61,16 @@ export async function mergePullRequest(
   if (mode === "automatic") {
     const gate = await checkAutomaticMergeGate(repos, project, pullRequest, automation, input.verifierJob);
     if (gate) {
+      if (gate.reverification && input.verifierJob) {
+        return requestAutomaticMergeReverification(repos, {
+          project,
+          pullRequest,
+          verifierJob: input.verifierJob,
+          reason: gate.reason,
+          currentSourceHead: gate.currentSourceHead,
+          currentTargetHead: gate.currentTargetHead
+        });
+      }
       if (gate.state === "blocked") {
         await recordAutomaticMergeBlock(repos, project, pullRequest, input.verifierJob ?? null, gate.reason, gate.conflicts);
       }
@@ -89,6 +112,20 @@ export async function mergePullRequest(
     );
     automaticGateEvidence = verification.evidence;
     if (verification.blockedReason) {
+      if (verification.reverification) {
+        const [currentSourceHead, currentTargetHead] = await Promise.all([
+          getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+          getRevisionHash(project.repoPath, pullRequest.targetBranch)
+        ]);
+        return requestAutomaticMergeReverification(repos, {
+          project,
+          pullRequest,
+          verifierJob: input.verifierJob,
+          reason: verification.blockedReason,
+          currentSourceHead,
+          currentTargetHead
+        });
+      }
       await recordAutomaticMergeBlock(
         repos,
         project,
@@ -116,36 +153,66 @@ export async function mergePullRequest(
   if (sourceHead !== currentSourceHead || targetHead !== currentTargetHead) {
     const reason = "Source or target branch changed during the automatic merge gate. A fresh verification is required.";
     if (mode === "automatic") {
-      await recordAutomaticMergeBlock(repos, project, pullRequest, input.verifierJob ?? null, reason, false);
+      return requestAutomaticMergeReverification(repos, {
+        project,
+        pullRequest,
+        verifierJob: input.verifierJob!,
+        reason,
+        previousSourceHead: sourceHead,
+        previousTargetHead: targetHead,
+        currentSourceHead,
+        currentTargetHead
+      });
     }
     return { state: "blocked", reason };
   }
 
   const mergeRetries: GitRetryEvent[] = [];
-  const mergeResult = await mergeBranch(
-    project.repoPath,
-    pullRequest.sourceBranch,
-    pullRequest.targetBranch,
-    automation.autoMergeStrategy,
-    mode === "automatic"
-      ? {
-          delaysMs: [500, 2_000, 5_000],
-          onRetry: async (event) => {
-            mergeRetries.push(event);
-            await recordAutomaticMergeRetry(repos, project, pullRequest, input.verifierJob ?? null, event);
-          },
-          beforeRetry: async () => {
-            const [retrySourceHead, retryTargetHead] = await Promise.all([
-              getRevisionHash(project.repoPath, pullRequest.sourceBranch),
-              getRevisionHash(project.repoPath, pullRequest.targetBranch)
-            ]);
-            if (retrySourceHead !== sourceHead || retryTargetHead !== targetHead) {
-              throw new Error("Source or target branch changed during automatic merge retry backoff. Fresh verification is required.");
+  let mergeResult: Awaited<ReturnType<typeof mergeBranch>>;
+  try {
+    mergeResult = await mergeBranch(
+      project.repoPath,
+      pullRequest.sourceBranch,
+      pullRequest.targetBranch,
+      automation.autoMergeStrategy,
+      mode === "automatic"
+        ? {
+            delaysMs: [500, 2_000, 5_000],
+            onRetry: async (event) => {
+              mergeRetries.push(event);
+              await recordAutomaticMergeRetry(repos, project, pullRequest, input.verifierJob ?? null, event);
+            },
+            beforeRetry: async () => {
+              const [retrySourceHead, retryTargetHead] = await Promise.all([
+                getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+                getRevisionHash(project.repoPath, pullRequest.targetBranch)
+              ]);
+              if (retrySourceHead !== sourceHead || retryTargetHead !== targetHead) {
+                throw new AutomaticMergeSnapshotDriftError(
+                  "Source or target branch changed during automatic merge retry backoff. Fresh verification is required.",
+                  retrySourceHead,
+                  retryTargetHead
+                );
+              }
             }
           }
-        }
-      : undefined
-  );
+        : undefined
+    );
+  } catch (error) {
+    if (mode === "automatic" && error instanceof AutomaticMergeSnapshotDriftError) {
+      return requestAutomaticMergeReverification(repos, {
+        project,
+        pullRequest,
+        verifierJob: input.verifierJob!,
+        reason: error.message,
+        previousSourceHead: sourceHead,
+        previousTargetHead: targetHead,
+        currentSourceHead: error.currentSourceHead,
+        currentTargetHead: error.currentTargetHead
+      });
+    }
+    throw error;
+  }
   const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
   const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, {
     status: "merged",
@@ -316,7 +383,7 @@ async function verifyAutomaticMergeCandidate(
   targetHead: string,
   mergeBase: string,
   riskThreshold: ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]
-): Promise<{ blockedReason: string | null; evidence: AutomaticGateEvidence }> {
+): Promise<{ blockedReason: string | null; evidence: AutomaticGateEvidence; reverification: boolean }> {
   const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
   const verifierEvidence = objective ? currentVerifierEvidence(objective, verifierJob, sourceHead) : null;
   const capturedAt = new Date().toISOString();
@@ -340,14 +407,14 @@ async function verifyAutomaticMergeCandidate(
   if (!objective || !verifierEvidence) {
     const reason = "Verifier evidence is stale or does not reference the current source commit.";
     await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
-    return { blockedReason: reason, evidence: emptyEvidence };
+    return { blockedReason: reason, evidence: emptyEvidence, reverification: true };
   }
   if (missingRequiredCommands.length) {
     const reason = `Required commands are unavailable: ${missingRequiredCommands
       .map((command) => command.commandType)
       .join(", ")}.`;
     await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
-    return { blockedReason: reason, evidence: emptyEvidence };
+    return { blockedReason: reason, evidence: emptyEvidence, reverification: false };
   }
 
   const worktree = await preparePullRequestWorktree(project, pullRequest);
@@ -356,7 +423,7 @@ async function verifyAutomaticMergeCandidate(
     if (!beforeStatus.clean) {
       const reason = `Source worktree contains uncommitted changes: ${beforeStatus.changedFiles.join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, emptyEvidence, "failed", reason);
-      return { blockedReason: reason, evidence: emptyEvidence };
+      return { blockedReason: reason, evidence: emptyEvidence, reverification: false };
     }
 
     const commandResults = await runVerificationCommands(worktree.repoPath, commands);
@@ -387,14 +454,14 @@ async function verifyAutomaticMergeCandidate(
     if (failedCommands.length) {
       const reason = `Required commands failed: ${failedCommands.map((result) => result.commandType).join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
-      return { blockedReason: reason, evidence };
+      return { blockedReason: reason, evidence, reverification: false };
     }
     if (blockingRiskSignals.length) {
       const reason = `Risk signals block automatic merge at ${riskThreshold} threshold: ${blockingRiskSignals
         .map((signal) => signal.title)
         .join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
-      return { blockedReason: reason, evidence };
+      return { blockedReason: reason, evidence, reverification: false };
     }
 
     const [currentSourceHead, afterStatus] = await Promise.all([
@@ -406,11 +473,15 @@ async function verifyAutomaticMergeCandidate(
         ? "Source branch changed while merge verification was running."
         : `Required commands modified tracked files: ${afterStatus.changedFiles.join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
-      return { blockedReason: reason, evidence };
+      return {
+        blockedReason: reason,
+        evidence,
+        reverification: currentSourceHead !== sourceHead
+      };
     }
 
     await persistAutomaticGateEvidence(repos, objective, evidence, "passed", "All automatic merge checks passed.");
-    return { blockedReason: null, evidence };
+    return { blockedReason: null, evidence, reverification: false };
   } finally {
     if (!worktree.recovered) {
       await cleanupWorktree(project, worktree.worktreePath);
@@ -423,9 +494,23 @@ function currentVerifierEvidence(
   verifierJob: AgentJobDto,
   sourceHead: string
 ): { capturedAt: string } | null {
-  const items = Array.isArray(objective.evidence?.items) ? objective.evidence.items : [];
+  const snapshot = verifierEvidenceSnapshot(objective, verifierJob);
+  if (!snapshot) return null;
+  const capturedAtMs = Date.parse(snapshot.capturedAt);
   const maximumAgeMs = 24 * 60 * 60 * 1000;
-  for (const item of items) {
+  return Number.isFinite(capturedAtMs) &&
+    Date.now() - capturedAtMs <= maximumAgeMs &&
+    snapshot.sourceHead === sourceHead
+    ? { capturedAt: snapshot.capturedAt }
+    : null;
+}
+
+function verifierEvidenceSnapshot(
+  objective: ObjectiveRunDto,
+  verifierJob: AgentJobDto
+): { capturedAt: string; sourceHead: string | null; targetHead: string | null } | null {
+  const items = Array.isArray(objective.evidence?.items) ? objective.evidence.items : [];
+  for (const item of [...items].reverse()) {
     if (typeof item !== "object" || item === null) {
       continue;
     }
@@ -434,18 +519,15 @@ function currentVerifierEvidence(
       continue;
     }
     const capturedAt = "capturedAt" in payload && typeof payload.capturedAt === "string" ? payload.capturedAt : null;
-    const capturedAtMs = capturedAt ? Date.parse(capturedAt) : Number.NaN;
-    const sourceCommit = "sourceCommit" in payload ? payload.sourceCommit : null;
+    const sourceCommit = "sourceCommit" in payload && typeof payload.sourceCommit === "string" ? payload.sourceCommit : null;
+    const targetCommit = "targetCommit" in payload && typeof payload.targetCommit === "string" ? payload.targetCommit : null;
     const judgeAgentJobId = "judgeAgentJobId" in payload ? payload.judgeAgentJobId : null;
     const agentJobId = "agentJobId" in payload ? payload.agentJobId : null;
     if (
       capturedAt &&
-      Number.isFinite(capturedAtMs) &&
-      Date.now() - capturedAtMs <= maximumAgeMs &&
-      sourceCommit === sourceHead &&
       (judgeAgentJobId === verifierJob.id || agentJobId === verifierJob.id)
     ) {
-      return { capturedAt };
+      return { capturedAt, sourceHead: sourceCommit, targetHead: targetCommit };
     }
   }
   return null;
@@ -480,7 +562,14 @@ async function checkAutomaticMergeGate(
   pullRequest: PullRequestDto,
   automation: ProjectSettingsDto["automation"],
   verifierJob?: AgentJobDto
-): Promise<{ state: "blocked" | "skipped"; reason: string; conflicts: boolean } | null> {
+): Promise<{
+  state: "blocked" | "skipped";
+  reason: string;
+  conflicts: boolean;
+  reverification?: boolean;
+  currentSourceHead?: string;
+  currentTargetHead?: string;
+} | null> {
   if (!automation.autoMergeEnabled) {
     return { state: "skipped", reason: "Automatic merge is disabled in project settings.", conflicts: false };
   }
@@ -538,14 +627,221 @@ async function checkAutomaticMergeGate(
       targetCommit
     });
     if (!evidenceGate.passed) {
+      const reverification = evidenceGate.checks.some(
+        (check) => check.requirement.required && ["commit_mismatch", "stale"].includes(check.status)
+      );
       return {
         state: "blocked",
         reason: `Evidence Required became invalid before merge: ${evidenceGateFailureSummary(evidenceGate)}.`,
-        conflicts: false
+        conflicts: false,
+        reverification,
+        currentSourceHead: sourceCommit,
+        currentTargetHead: targetCommit
       };
     }
   }
   return null;
+}
+
+async function requestAutomaticMergeReverification(
+  repos: Repositories,
+  input: {
+    project: ProjectDto;
+    pullRequest: PullRequestDto;
+    verifierJob: AgentJobDto;
+    reason: string;
+    previousSourceHead?: string;
+    previousTargetHead?: string;
+    currentSourceHead?: string;
+    currentTargetHead?: string;
+  }
+): Promise<PullRequestMergeResult> {
+  const { project, pullRequest, verifierJob, reason } = input;
+  const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
+  if (!objective) {
+    const blockedReason = `${reason} No Objective is available to queue fresh verification.`;
+    await recordAutomaticMergeBlock(repos, project, pullRequest, verifierJob, blockedReason, false);
+    return { state: "blocked", reason: blockedReason };
+  }
+  const priorVerifierSnapshot = verifierEvidenceSnapshot(objective, verifierJob);
+  const previousSourceHead = input.previousSourceHead ?? priorVerifierSnapshot?.sourceHead ?? undefined;
+  const previousTargetHead = input.previousTargetHead ?? priorVerifierSnapshot?.targetHead ?? undefined;
+
+  const existingJobs = await repos.agentJobs.list({
+    projectId: project.id,
+    targetType: "pull_request",
+    targetId: pullRequest.id
+  });
+  const haltedVerifier = existingJobs.find(
+    (job) => job.agentType === "verifier" && ["waiting_human", "paused"].includes(job.status)
+  );
+  if (haltedVerifier) {
+    const blockedReason = `${reason} Verifier job #${haltedVerifier.id} is ${haltedVerifier.status} and must be resolved before automatic re-verification.`;
+    await recordAutomaticMergeBlock(repos, project, pullRequest, verifierJob, blockedReason, false);
+    return { state: "blocked", reason: blockedReason };
+  }
+  const activeVerifier = existingJobs.find(
+    (job) => job.agentType === "verifier" && ["queued", "running", "waiting_provider"].includes(job.status)
+  );
+  let nextVerifier = activeVerifier ?? null;
+  let reverifyLoop: Awaited<ReturnType<typeof ensureSystemLoop>> | null = null;
+  let loopId: number | null = null;
+  let loopRunId: number | null = null;
+  if (!nextVerifier) {
+    reverifyLoop = await ensureSystemLoop(repos, {
+      projectId: project.id,
+      name: "Automatic merge re-verification",
+      purpose: "Refresh verifier evidence when source or target snapshots change during the automatic merge gate.",
+      triggerType: "automatic_merge_snapshot_drift",
+      targetScope: "pull_request:snapshot_drift"
+    });
+    if (reverifyLoop.status === "disabled") {
+      const blockedReason = `${reason} The automatic merge re-verification Loop is disabled.`;
+      await recordAutomaticMergeBlock(repos, project, pullRequest, verifierJob, blockedReason, false);
+      return { state: "blocked", reason: blockedReason };
+    }
+    loopId = reverifyLoop.id;
+  }
+
+  const verifyingLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
+  const updatedPullRequest = verifyingLabel
+    ? (await repos.pullRequests.update(project.id, pullRequest.id, { labelIds: [verifyingLabel.id] })) ?? pullRequest
+    : pullRequest;
+  await repos.objectives.update(project.id, objective.id, {
+    status: "running",
+    workflowStage: "verification",
+    judgeAgentJobId: null,
+    stopReason: "automatic_merge_reverification",
+    summary: reason,
+    finishedAt: null
+  });
+  if (!nextVerifier && reverifyLoop) {
+    const started = await startLoopRun(repos, {
+      projectId: project.id,
+      loopId: reverifyLoop.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      triggerType: "automatic_merge_snapshot_drift",
+      objectiveRunId: objective.id,
+      jobInput: {
+        objectiveRunId: objective.id,
+        automaticMergeReverification: true,
+        previousVerifierJobId: verifierJob.id,
+        reason,
+        previousSourceHead: previousSourceHead ?? null,
+        previousTargetHead: previousTargetHead ?? null,
+        currentSourceHead: input.currentSourceHead ?? null,
+        currentTargetHead: input.currentTargetHead ?? null
+      }
+    });
+    nextVerifier = started.job;
+    loopRunId = started.run.id;
+  }
+  if (!nextVerifier) {
+    throw new Error("Automatic merge re-verification could not resolve or queue a verifier job.");
+  }
+
+  const eventKey = [
+    "automatic-merge-reverification",
+    pullRequest.id,
+    previousSourceHead ?? "unknown",
+    previousTargetHead ?? "unknown",
+    input.currentSourceHead ?? "unknown",
+    input.currentTargetHead ?? "unknown"
+  ].join(":");
+  const body = buildSystemComment({
+    title: "Automatic merge verification restarted",
+    outcome: "waiting",
+    summary: `${reason} The unverified candidate was not merged; OneTeam queued a fresh verifier run instead of opening a Human Gate.`,
+    fields: [
+      { label: "Pull request", value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id})` },
+      { label: "Previous verifier", value: `#${verifierJob.id}`, code: true },
+      { label: "Reverification job", value: `#${nextVerifier.id}`, code: true },
+      previousSourceHead ? { label: "Previous source", value: commitReference(previousSourceHead) } : null,
+      input.currentSourceHead ? { label: "Current source", value: commitReference(input.currentSourceHead) } : null,
+      previousTargetHead ? { label: "Previous target", value: commitReference(previousTargetHead) } : null,
+      input.currentTargetHead ? { label: "Current target", value: commitReference(input.currentTargetHead) } : null
+    ],
+    sections: [
+      {
+        title: "Safety decision",
+        items: [
+          "The prior verifier decision and automatic-merge snapshot are no longer accepted for merge.",
+          "The new verifier must collect Evidence against the current branch snapshots.",
+          "Queueing this recovery does not itself consume an Objective round; the verifier run follows the normal round and budget gates."
+        ]
+      }
+    ],
+    nextStep: "OneTeam will run the queued verifier and automatically re-enter the merge gate only if the refreshed Stop Condition and Evidence pass."
+  });
+  const targets: Array<{ targetType: "pull_request" | "issue"; targetId: number }> = [
+    { targetType: "pull_request", targetId: pullRequest.id },
+    ...(pullRequest.issueId ? [{ targetType: "issue" as const, targetId: pullRequest.issueId }] : [])
+  ];
+  for (const target of targets) {
+    const comments = await repos.comments.list(project.id, target.targetType, target.targetId);
+    if (comments.some((comment) => comment.metadata?.automaticMergeEventKey === eventKey)) continue;
+    await repos.comments.create({
+      projectId: project.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      authorType: "system",
+      body,
+      bodyFormat: "markdown",
+      metadata: {
+        automaticMerge: "reverification_queued",
+        automaticMergeEventKey: eventKey,
+        pullRequestId: pullRequest.id,
+        previousVerifierJobId: verifierJob.id,
+        verifierJobId: nextVerifier.id,
+        loopId,
+        loopRunId,
+        previousSourceHead: previousSourceHead ?? null,
+        previousTargetHead: previousTargetHead ?? null,
+        currentSourceHead: input.currentSourceHead ?? null,
+        currentTargetHead: input.currentTargetHead ?? null
+      }
+    });
+    await repos.activities.create({
+      projectId: project.id,
+      agentJobId: nextVerifier.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      activityType: "system",
+      title: "Automatic merge re-verification queued",
+      body,
+      payload: {
+        automaticMergeEventKey: eventKey,
+        pullRequestId: pullRequest.id,
+        previousVerifierJobId: verifierJob.id,
+        verifierJobId: nextVerifier.id,
+        loopId,
+        loopRunId
+      }
+    });
+  }
+  await appendObjectiveEvidence(repos, objective, [
+    {
+      type: "automatic_merge_reverification",
+      title: "Automatic merge re-verification queued",
+      summary: reason,
+      payload: {
+        capturedAt: new Date().toISOString(),
+        previousVerifierJobId: verifierJob.id,
+        verifierJobId: nextVerifier.id,
+        loopId,
+        loopRunId,
+        previousSourceHead: previousSourceHead ?? null,
+        previousTargetHead: previousTargetHead ?? null,
+        currentSourceHead: input.currentSourceHead ?? null,
+        currentTargetHead: input.currentTargetHead ?? null,
+        pullRequestLabel: updatedPullRequest.labels[0]?.name ?? null
+      }
+    }
+  ]);
+
+  return { state: "requeued", reason, verifierJob: nextVerifier };
 }
 
 async function recordAutomaticMergeRetry(

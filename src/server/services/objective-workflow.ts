@@ -33,7 +33,7 @@ const allowedTransitions: Record<ObjectiveWorkflowStage, ReadonlySet<ObjectiveWo
   fix: new Set(["fix", "review", "qa"]),
   qa: new Set(["qa", "fix", "verification"]),
   verification: new Set(["verification", "fix", "ready_to_merge"]),
-  ready_to_merge: new Set(["ready_to_merge", "fix", "merged"]),
+  ready_to_merge: new Set(["verification", "ready_to_merge", "fix", "merged"]),
   merged: new Set(["merged"])
 };
 

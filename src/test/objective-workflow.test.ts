@@ -44,6 +44,7 @@ describe("objective workflow stages", () => {
     expect(expectedAgentForWorkflowStage("verification")).toBe("verifier");
     expect(expectedAgentForWorkflowStage("merged")).toBeNull();
     expect(canTransitionWorkflowStage("review", "fix")).toBe(true);
+    expect(canTransitionWorkflowStage("ready_to_merge", "verification")).toBe(true);
     expect(canTransitionWorkflowStage("requirements", "qa")).toBe(false);
   });
 
