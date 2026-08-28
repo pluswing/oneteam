@@ -65,7 +65,7 @@ export function classifyProviderWait(
   return {
     reason: providerQuotaWaitReason,
     provider: job.aiProvider,
-    model: providerExecution?.model ?? null,
+    model: providerExecution?.model ?? job.aiModel,
     sessionId: providerExecution?.sessionId ?? null,
     usageSnapshot,
     detectedAt,

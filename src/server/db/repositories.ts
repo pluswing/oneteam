@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { AiProvider } from "../../shared/ai-providers";
-import { normalizeAiSettings } from "../../shared/ai-providers";
+import {
+  configuredModelForProvider,
+  normalizeAiSettings,
+  resolveAgentAiSelection
+} from "../../shared/ai-providers";
 import { normalizeEvidenceRequirements } from "../../shared/evidence-requirements";
 import type {
   ActivityDto,
@@ -176,6 +180,7 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
     id: row.id,
     projectId: row.projectId,
     aiProvider: row.aiProvider,
+    aiModel: row.aiModel,
     agentType: row.agentType,
     targetType: row.targetType,
     targetId: row.targetId,
@@ -511,9 +516,9 @@ async function recordLabelActivity(
 }
 
 export function createRepositories(db: Database) {
-  async function activeAiProvider(): Promise<AiProvider> {
+  async function activeAiSettings() {
     const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ai")).limit(1);
-    return normalizeAiSettings(rows[0] ? parseJsonObject(rows[0].valueJson) : null).provider;
+    return normalizeAiSettings(rows[0] ? parseJsonObject(rows[0].valueJson) : null);
   }
 
   return {
@@ -1311,6 +1316,7 @@ export function createRepositories(db: Database) {
       async create(input: {
         projectId: string;
         aiProvider?: AiProvider;
+        aiModel?: string | null;
         agentType: AgentType;
         targetType: "issue" | "pull_request" | "project";
         targetId: number;
@@ -1320,12 +1326,20 @@ export function createRepositories(db: Database) {
         lockKey?: string | null;
       }): Promise<AgentJobDto> {
         const timestamp = now();
-        const aiProvider = input.aiProvider ?? (await activeAiProvider());
+        const aiSettings = await activeAiSettings();
+        const roleSelection = resolveAgentAiSelection(aiSettings, input.agentType);
+        const aiProvider = input.aiProvider ?? roleSelection.provider;
+        const aiModel = input.aiModel !== undefined
+          ? input.aiModel
+          : input.aiProvider
+            ? configuredModelForProvider(aiSettings, input.aiProvider)
+            : roleSelection.model;
         const rows = await db
           .insert(agentJobs)
           .values({
             projectId: input.projectId,
             aiProvider,
+            aiModel,
             agentType: input.agentType,
             targetType: input.targetType,
             targetId: input.targetId,
@@ -1476,12 +1490,26 @@ export function createRepositories(db: Database) {
         return rows.map(mapAgentJob);
       },
 
-      async resumeProviderWait(projectId: string, jobId: number, aiProvider?: AiProvider): Promise<AgentJobDto | null> {
+      async resumeProviderWait(
+        projectId: string,
+        jobId: number,
+        aiProvider?: AiProvider,
+        aiModel?: string | null
+      ): Promise<AgentJobDto | null> {
+        const currentJob = await this.get(projectId, jobId);
+        if (!currentJob) return null;
+        const providerChanged = aiProvider !== undefined && aiProvider !== currentJob.aiProvider;
+        const resolvedModel = aiModel !== undefined
+          ? aiModel
+          : providerChanged
+            ? configuredModelForProvider(await activeAiSettings(), aiProvider)
+            : undefined;
         const rows = await db
           .update(agentJobs)
           .set({
             status: "queued",
             aiProvider,
+            aiModel: resolvedModel,
             error: null,
             attempt: sql`${agentJobs.attempt} + 1`,
             nextRetryAt: null,
@@ -1505,6 +1533,7 @@ export function createRepositories(db: Database) {
           .values({
             projectId,
             aiProvider: job.aiProvider,
+            aiModel: job.aiModel,
             agentType: job.agentType,
             targetType: job.targetType,
             targetId: job.targetId,

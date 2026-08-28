@@ -80,6 +80,7 @@ function job(id: number, agentType: AgentJobDto["agentType"], metadata: Record<s
     id,
     projectId: "project-1",
     aiProvider: "codex",
+    aiModel: null,
     agentType,
     targetType: "pull_request",
     targetId: 1,

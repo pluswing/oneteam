@@ -224,6 +224,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByLabel("Automatic merge target branches").fill("main, release");
   await page.getByLabel("Merge strategy").selectOption("squash");
   await page.getByLabel("Diff risk threshold").selectOption("high");
+  await page.getByLabel("Implementation AI provider").selectOption("claude_code");
+  await page.getByLabel("Implementation Model").fill("claude-implementation");
+  await page.getByLabel("Verification AI provider").selectOption("codex");
+  await page.getByLabel("Verification Model").fill("gpt-verifier");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Settings saved")).toBeVisible();
   await page.getByRole("button", { name: "Repository", exact: true }).click();
@@ -232,6 +236,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByLabel("Automatic merge target branches")).toHaveValue("main, release");
   await expect(page.getByLabel("Merge strategy")).toHaveValue("squash");
   await expect(page.getByLabel("Diff risk threshold")).toHaveValue("high");
+  await expect(page.getByLabel("Implementation AI provider")).toHaveValue("claude_code");
+  await expect(page.getByLabel("Implementation Model")).toHaveValue("claude-implementation");
+  await expect(page.getByLabel("Verification AI provider")).toHaveValue("codex");
+  await expect(page.getByLabel("Verification Model")).toHaveValue("gpt-verifier");
 
   execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
   const longDiffPath = [

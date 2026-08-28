@@ -17,35 +17,37 @@ export class ProviderRoutingAdapter implements AgentAdapter {
   async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentRunResult> {
     const settings = normalizeAiSettings(await this.options.loadSettings(), this.options.defaults);
     const provider = input.job.aiProvider ?? settings.provider;
+    const model = input.job.aiModel;
     await input.onActivity?.({
       type: "system",
       title: "AI provider selected",
-      body: aiProviderLabel(provider),
+      body: model ? `${aiProviderLabel(provider)} · ${model}` : aiProviderLabel(provider),
       payload: {
-        provider
+        provider,
+        model
       }
     });
     await this.options.ensureReady?.(provider, settings);
-    return this.createAdapter(provider, settings).run(input);
+    return this.createAdapter(provider, settings, model).run(input);
   }
 
-  private createAdapter(provider: AiProvider, settings: AiSettingsDto): AgentAdapter {
+  private createAdapter(provider: AiProvider, settings: AiSettingsDto, model: string | null): AgentAdapter {
     if (provider === "claude_code") {
       return new ClaudeCodeAdapter({
         command: settings.claudeCode.command,
-        model: settings.claudeCode.model,
+        model,
         permissionMode: settings.claudeCode.permissionMode,
         maxTurns: settings.claudeCode.maxTurns
       });
     }
 
     if (provider === "lm_studio") {
-      return new LmStudioAdapter(settings.lmStudio);
+      return new LmStudioAdapter({ ...settings.lmStudio, model });
     }
 
     return new CodexAdapter({
       command: settings.codex.command,
-      model: settings.codex.model ?? undefined
+      model: model ?? undefined
     });
   }
 }

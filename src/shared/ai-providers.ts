@@ -4,6 +4,16 @@ export const aiProviders = ["codex", "claude_code", "lm_studio"] as const;
 
 export type AiProvider = (typeof aiProviders)[number];
 
+export const roleAiAgentTypes = ["implementation", "review", "qa", "verifier"] as const;
+export type RoleAiAgentType = (typeof roleAiAgentTypes)[number];
+
+export type RoleAiOverride = {
+  provider: AiProvider | null;
+  model: string | null;
+};
+
+export type RoleAiOverrides = Record<RoleAiAgentType, RoleAiOverride>;
+
 export type ClaudeCodePermissionMode = "default" | "auto" | "dontAsk" | "bypassPermissions";
 
 export type CodexProviderSettings = {
@@ -29,6 +39,7 @@ export type LmStudioProviderSettings = {
 
 export type AiSettingsDto = {
   provider: AiProvider;
+  roleOverrides: RoleAiOverrides;
   codex: CodexProviderSettings;
   claudeCode: ClaudeCodeProviderSettings;
   lmStudio: LmStudioProviderSettings;
@@ -48,6 +59,33 @@ export function aiProviderLabel(provider: AiProvider): string {
   }
 }
 
+export function defaultRoleAiOverrides(): RoleAiOverrides {
+  return {
+    implementation: { provider: null, model: null },
+    review: { provider: null, model: null },
+    qa: { provider: null, model: null },
+    verifier: { provider: null, model: null }
+  };
+}
+
+export function configuredModelForProvider(settings: AiSettingsDto, provider: AiProvider): string | null {
+  if (provider === "claude_code") return settings.claudeCode.model;
+  if (provider === "lm_studio") return settings.lmStudio.model;
+  return settings.codex.model;
+}
+
+export function resolveAgentAiSelection(
+  settings: AiSettingsDto,
+  agentType: string
+): { provider: AiProvider; model: string | null } {
+  const override = isRoleAiAgentType(agentType) ? settings.roleOverrides[agentType] : null;
+  const provider = override?.provider ?? settings.provider;
+  return {
+    provider,
+    model: override?.model ?? configuredModelForProvider(settings, provider)
+  };
+}
+
 export function defaultAiSettings(overrides: Partial<AiSettingsDto> = {}): AiSettingsDto {
   return normalizeAiSettings(overrides);
 }
@@ -55,6 +93,7 @@ export function defaultAiSettings(overrides: Partial<AiSettingsDto> = {}): AiSet
 export function normalizeAiSettings(value: unknown, defaults?: AiSettingsDto): AiSettingsDto {
   const fallback = defaults ?? {
     provider: "codex" as const,
+    roleOverrides: defaultRoleAiOverrides(),
     codex: {
       command: defaultCodexCommand,
       model: null,
@@ -83,9 +122,24 @@ export function normalizeAiSettings(value: unknown, defaults?: AiSettingsDto): A
   const codexRecord = isRecord(record.codex) ? record.codex : {};
   const claudeRecord = isRecord(record.claudeCode) ? record.claudeCode : {};
   const lmStudioRecord = isRecord(record.lmStudio) ? record.lmStudio : {};
+  const roleOverridesRecord = isRecord(record.roleOverrides) ? record.roleOverrides : {};
 
   return {
     provider,
+    roleOverrides: Object.fromEntries(roleAiAgentTypes.map((agentType) => {
+      const roleRecord = isRecord(roleOverridesRecord[agentType]) ? roleOverridesRecord[agentType] : {};
+      const fallbackRole = fallback.roleOverrides?.[agentType] ?? defaultRoleAiOverrides()[agentType];
+      const roleProvider = roleRecord.provider === null
+        ? null
+        : isAiProvider(roleRecord.provider)
+          ? roleRecord.provider
+          : fallbackRole.provider;
+      const normalizedModel = nullableString(roleRecord.model);
+      return [agentType, {
+        provider: roleProvider,
+        model: normalizedModel === undefined ? fallbackRole.model : normalizedModel
+      }];
+    })) as RoleAiOverrides,
     codex: {
       command: stringValue(codexRecord.command) ?? legacyCodexCommand ?? fallback.codex.command,
       model: nullableString(codexRecord.model) ?? legacyModel ?? fallback.codex.model,
@@ -111,6 +165,10 @@ export function normalizeAiSettings(value: unknown, defaults?: AiSettingsDto): A
 
 export function isAiProvider(value: unknown): value is AiProvider {
   return typeof value === "string" && (aiProviders as readonly string[]).includes(value);
+}
+
+export function isRoleAiAgentType(value: unknown): value is RoleAiAgentType {
+  return typeof value === "string" && (roleAiAgentTypes as readonly string[]).includes(value);
 }
 
 function isClaudePermissionMode(value: unknown): value is ClaudeCodePermissionMode {

@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { AiSettingsDto } from "../shared/ai-providers";
-import { aiProviders, normalizeAiSettings } from "../shared/ai-providers";
+import { aiProviders, normalizeAiSettings, roleAiAgentTypes } from "../shared/ai-providers";
 import type {
   AgentJobDto,
   AgentJobStatus,
@@ -143,12 +143,26 @@ const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
 });
 
+const roleAiOverrideSchema = z.object({
+  provider: z.enum(aiProviders).nullable().optional(),
+  model: z.string().nullable().optional()
+}).strict();
+
 const updateProjectSettingsSchema = z
   .object({
     locale: z.enum(supportedLocales),
     ai: z
       .object({
         provider: z.enum(aiProviders).optional(),
+        roleOverrides: z
+          .object({
+            implementation: roleAiOverrideSchema.optional(),
+            review: roleAiOverrideSchema.optional(),
+            qa: roleAiOverrideSchema.optional(),
+            verifier: roleAiOverrideSchema.optional()
+          })
+          .strict()
+          .optional(),
         claudeCode: z
           .object({
             command: z.string().min(1).optional(),
@@ -346,6 +360,13 @@ function patchAiSettings(current: AiSettingsDto, patch: z.infer<typeof updatePro
   return normalizeAiSettings(
     {
       provider: patch.provider ?? current.provider,
+      roleOverrides: Object.fromEntries(roleAiAgentTypes.map((agentType) => [
+        agentType,
+        {
+          ...current.roleOverrides[agentType],
+          ...(patch.roleOverrides?.[agentType] ?? {})
+        }
+      ])),
       codex: current.codex,
       claudeCode: {
         ...current.claudeCode,

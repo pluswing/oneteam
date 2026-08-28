@@ -210,6 +210,7 @@ export type AgentJobDto = {
   id: number;
   projectId: string;
   aiProvider: AiProvider;
+  aiModel: string | null;
   agentType: AgentType;
   targetType: "issue" | "pull_request" | "project";
   targetId: number;

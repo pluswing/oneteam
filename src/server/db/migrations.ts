@@ -441,6 +441,19 @@ const migrations: Migration[] = [
     statements: [
       "alter table objective_runs add column evidence_requirements_json text not null default '[]'"
     ]
+  },
+  {
+    id: "0014_agent_job_ai_model",
+    statements: [
+      "alter table agent_jobs add column ai_model text",
+      `update agent_jobs
+        set ai_model = case ai_provider
+          when 'claude_code' then json_extract((select value_json from app_settings where key = 'ai'), '$.claudeCode.model')
+          when 'lm_studio' then json_extract((select value_json from app_settings where key = 'ai'), '$.lmStudio.model')
+          else json_extract((select value_json from app_settings where key = 'ai'), '$.codex.model')
+        end
+        where exists (select 1 from app_settings where key = 'ai' and json_valid(value_json))`
+    ]
   }
 ];
 

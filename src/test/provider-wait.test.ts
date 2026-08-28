@@ -131,6 +131,7 @@ function fakeJob(waitMetadata: Record<string, unknown> | null = null): AgentJobD
     id: 1,
     projectId: "project-1",
     aiProvider: "codex",
+    aiModel: "gpt-test",
     agentType: "implementation",
     targetType: "issue",
     targetId: 1,

@@ -26,8 +26,13 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { AiProvider } from "../shared/ai-providers";
-import { aiProviderLabel, aiProviders } from "../shared/ai-providers";
+import type { AiProvider, RoleAiAgentType, RoleAiOverrides } from "../shared/ai-providers";
+import {
+  aiProviderLabel,
+  aiProviders,
+  defaultRoleAiOverrides,
+  roleAiAgentTypes
+} from "../shared/ai-providers";
 import type { SupportedLocale } from "../shared/locales";
 import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
 import { repositoryCommitAnchor } from "../shared/repository-anchors";
@@ -2483,10 +2488,18 @@ function PullRequestsView(props: {
   );
 }
 
+function roleAiAgentLabel(agentType: RoleAiAgentType): string {
+  if (agentType === "implementation") return t("objectives.stageImplementation");
+  if (agentType === "review") return t("objectives.stageReview");
+  if (agentType === "qa") return t("objectives.stageQa");
+  return t("objectives.stageVerification");
+}
+
 function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (locale: SupportedLocale) => void }) {
   const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
   const [locale, setLocale] = useState<SupportedLocale>(normalizeLocale(props.project.locale));
   const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
+  const [roleAiOverrides, setRoleAiOverrides] = useState<RoleAiOverrides>(defaultRoleAiOverrides());
   const [claudeCommand, setClaudeCommand] = useState("claude");
   const [claudeModel, setClaudeModel] = useState("");
   const [claudePermissionMode, setClaudePermissionMode] =
@@ -2511,6 +2524,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setSettings(response);
     setLocale(normalizeLocale(response.project.locale));
     setAiProvider(response.ai.provider);
+    setRoleAiOverrides(response.ai.roleOverrides);
     setClaudeCommand(response.ai.claudeCode.command);
     setClaudeModel(response.ai.claudeCode.model ?? "");
     setClaudePermissionMode(response.ai.claudeCode.permissionMode);
@@ -2543,6 +2557,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
         locale,
         ai: {
           provider: aiProvider,
+          roleOverrides: roleAiOverrides,
           claudeCode: {
             command: claudeCommand,
             model: claudeModel.trim() || null,
@@ -2565,6 +2580,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
       });
       setSettings(response);
       setAiProvider(response.ai.provider);
+      setRoleAiOverrides(response.ai.roleOverrides);
       const savedLocale = setUiLocale(response.project.locale);
       setLocale(savedLocale);
       props.onProjectLocaleChange(savedLocale);
@@ -2607,6 +2623,55 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
             ))}
           </select>
         </label>
+        <fieldset>
+          <legend>{t("settings.roleRouting")}</legend>
+          <p className="muted-text">{t("settings.roleRoutingDescription")}</p>
+          <div className="role-routing-grid">
+            {roleAiAgentTypes.map((agentType) => {
+              const roleLabel = roleAiAgentLabel(agentType);
+              const override = roleAiOverrides[agentType];
+              return (
+                <div className="role-routing-row" key={agentType}>
+                  <strong>{roleLabel}</strong>
+                  <label>
+                    <span>{t("settings.provider")}</span>
+                    <select
+                      aria-label={`${roleLabel} ${t("settings.provider")}`}
+                      onChange={(event) => setRoleAiOverrides((current) => ({
+                        ...current,
+                        [agentType]: {
+                          ...current[agentType],
+                          provider: event.target.value ? event.target.value as AiProvider : null
+                        }
+                      }))}
+                      value={override.provider ?? ""}
+                    >
+                      <option value="">{t("settings.inheritProvider")}</option>
+                      {aiProviders.map((provider) => (
+                        <option key={provider} value={provider}>{aiProviderLabel(provider)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t("settings.model")}</span>
+                    <input
+                      aria-label={`${roleLabel} ${t("settings.model")}`}
+                      onChange={(event) => setRoleAiOverrides((current) => ({
+                        ...current,
+                        [agentType]: {
+                          ...current[agentType],
+                          model: event.target.value || null
+                        }
+                      }))}
+                      placeholder={t("settings.inheritModel")}
+                      value={override.model ?? ""}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </fieldset>
         <fieldset>
           <legend>{t("settings.automation")}</legend>
           <label className="checkbox-row">

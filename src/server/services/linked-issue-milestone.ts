@@ -303,6 +303,7 @@ export async function recordIssueImplementationStarted(
       { label: "Objective", value: `#${objective.id}`, code: true },
       { label: "Agent job", value: `#${job.id}`, code: true },
       { label: "Provider", value: job.aiProvider, code: true },
+      job.aiModel ? { label: "Model", value: job.aiModel, code: true } : null,
       { label: "Workflow stage", value: objective.workflowStage, code: true },
       { label: "Objective round", value: objective.roundCount, code: true },
       { label: "Branch", value: worktree.branchName, code: true },

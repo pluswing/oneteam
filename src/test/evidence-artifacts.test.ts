@@ -92,6 +92,7 @@ describe("evidence artifacts", () => {
       id: 17,
       projectId: project.id,
       aiProvider: "codex" as const,
+      aiModel: null,
       agentType: "qa" as const,
       targetType: "project" as const,
       targetId: 0,

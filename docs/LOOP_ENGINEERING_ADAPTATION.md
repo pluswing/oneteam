@@ -25,6 +25,8 @@ Issue
 
 通常経路では、工程間のラベル変更、Agent Job の開始、PR 作成、レビュー、修正、再検証、merge、Issue 更新をユーザー操作なしで接続する。Human Gate は通常の承認ステップではなく、要件が安全に推定できない場合、危険な変更、保護対象への変更、回復不能な失敗などの例外経路として残す。
 
+implementation、review、QA、verifierはproject標準とは別のprovider / modelを選択できる。設定値は実行時に読み直すのではなくAgent Jobのqueue時にsnapshotとして固定し、retryとusage回復後の自動再開でも同じ実行条件を再現する。ユーザーがProvider Gateから明示的にproviderを切り替えた場合だけ、切替先providerの標準modelを解決し直す。
+
 ### 自動 merge の条件
 
 `ready-to-merge` はユーザー操作待ちの終点ではなく、「自動 merge の直前条件を満たした検証済み状態」とする。OneTeam は次をすべて再確認してから source branch を target branch へ merge する。

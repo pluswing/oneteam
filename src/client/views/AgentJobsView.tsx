@@ -525,6 +525,10 @@ function AgentJobDetailScreen(props: {
                   <dd>{aiProviderLabel(job.aiProvider)}</dd>
                 </div>
                 <div>
+                  <dt>{t("agents.model")}</dt>
+                  <dd>{job.aiModel ?? "-"}</dd>
+                </div>
+                <div>
                   <dt>{t("agents.attempt")}</dt>
                   <dd>{job.attempt}</dd>
                 </div>

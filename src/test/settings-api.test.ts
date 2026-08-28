@@ -65,6 +65,12 @@ describe("settings API", () => {
     const app = createApp({
       ai: {
         provider: "codex",
+        roleOverrides: {
+          implementation: { provider: null, model: null },
+          review: { provider: null, model: null },
+          qa: { provider: null, model: null },
+          verifier: { provider: null, model: null }
+        },
         codex: {
           command: "managed-codex",
           model: "gpt-managed",
@@ -165,6 +171,10 @@ describe("settings API", () => {
         locale: "en",
         ai: {
           provider: "lm_studio",
+          roleOverrides: {
+            implementation: { provider: "claude_code", model: "claude-implementation" },
+            review: { provider: null, model: "review-specialist" }
+          },
           lmStudio: {
             baseUrl: "http://127.0.0.1:1234/v1",
             model: "qwen-coder",
@@ -195,12 +205,29 @@ describe("settings API", () => {
         targetId: issue.id
       })
     });
-    const jobPayload = (await jobResponse.json()) as { job: { aiProvider: string } };
+    const jobPayload = (await jobResponse.json()) as { job: { aiProvider: string; aiModel: string | null } };
+    const implementationJobResponse = await app.request(`/api/projects/${created.project.id}/agent-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentType: "implementation",
+        targetType: "issue",
+        targetId: issue.id
+      })
+    });
+    const implementationJobPayload = (await implementationJobResponse.json()) as {
+      job: { aiProvider: string; aiModel: string | null };
+    };
 
     expect(createResponse.status).toBe(201);
     expect(initialSettings.ai.provider).toBe("claude_code");
     expect(updateResponse.status).toBe(200);
     expect(settings.ai.provider).toBe("lm_studio");
+    expect(settings.ai.roleOverrides.implementation).toEqual({
+      provider: "claude_code",
+      model: "claude-implementation"
+    });
+    expect(settings.ai.roleOverrides.review).toEqual({ provider: null, model: "review-specialist" });
     expect(settings.ai.lmStudio.model).toBe("qwen-coder");
     expect(settings.ai.lmStudio.maxToolRounds).toBe(12);
     expect(settings.automation.autoMergeEnabled).toBe(false);
@@ -208,6 +235,12 @@ describe("settings API", () => {
     expect(settings.automation.autoMergeStrategy).toBe("squash");
     expect(settings.automation.autoMergeRiskThreshold).toBe("high");
     expect(jobPayload.job.aiProvider).toBe("lm_studio");
+    expect(jobPayload.job.aiModel).toBe("qwen-coder");
+    expect(implementationJobResponse.status).toBe(201);
+    expect(implementationJobPayload.job).toMatchObject({
+      aiProvider: "claude_code",
+      aiModel: "claude-implementation"
+    });
 
     context.client.close();
   });

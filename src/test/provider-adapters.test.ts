@@ -172,6 +172,7 @@ const fakeJob: AgentJobDto = {
   id: 1,
   projectId: "project-1",
   aiProvider: "codex",
+  aiModel: null,
   agentType: "implementation",
   targetType: "issue",
   targetId: 1,

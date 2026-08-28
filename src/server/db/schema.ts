@@ -153,6 +153,7 @@ export const agentJobs = sqliteTable("agent_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   aiProvider: text("ai_provider").notNull().default("codex").$type<AiProvider>(),
+  aiModel: text("ai_model"),
   agentType: text("agent_type").notNull().$type<AgentType>(),
   targetType: text("target_type").notNull().$type<"issue" | "pull_request" | "project">(),
   targetId: integer("target_id").notNull(),

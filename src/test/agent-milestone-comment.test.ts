@@ -76,6 +76,7 @@ function fakeJob(agentType: AgentJobDto["agentType"]): AgentJobDto {
     id: 9,
     projectId: "project-1",
     aiProvider: "codex",
+    aiModel: "gpt-test",
     agentType,
     targetType: "pull_request",
     targetId: 7,

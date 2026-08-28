@@ -246,6 +246,7 @@ export const api = {
       locale: string;
       ai?: {
         provider?: ProjectSettingsDto["ai"]["provider"];
+        roleOverrides?: Partial<ProjectSettingsDto["ai"]["roleOverrides"]>;
         claudeCode?: Partial<ProjectSettingsDto["ai"]["claudeCode"]>;
         lmStudio?: Partial<ProjectSettingsDto["ai"]["lmStudio"]>;
       };

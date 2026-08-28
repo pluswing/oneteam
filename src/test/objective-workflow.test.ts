@@ -12,6 +12,7 @@ function job(agentType: AgentJobDto["agentType"]): AgentJobDto {
     id: 1,
     projectId: "project",
     aiProvider: "codex",
+    aiModel: null,
     agentType,
     targetType: "pull_request",
     targetId: 1,

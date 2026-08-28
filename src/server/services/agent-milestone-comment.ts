@@ -179,7 +179,9 @@ export function buildAgentMilestoneComment(job: AgentJobDto, result: AgentRunRes
       { label: "Agent job", value: `#${job.id}`, code: true },
       { label: "Agent role", value: job.agentType, code: true },
       { label: "Provider", value: job.aiProvider, code: true },
-      stringValue(providerExecution?.model) ? { label: "Model", value: stringValue(providerExecution?.model)!, code: true } : null,
+      stringValue(providerExecution?.model) || job.aiModel
+        ? { label: "Model", value: stringValue(providerExecution?.model) ?? job.aiModel!, code: true }
+        : null,
       stringValue(providerExecution?.sessionId)
         ? { label: "Session", value: stringValue(providerExecution?.sessionId)!, code: true }
         : null,

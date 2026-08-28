@@ -58,7 +58,7 @@
 - [x] **Done**: Codex usage limit / rate limitを`waiting_provider`として永続化し、再開時刻とretry countを保持する
 - [x] **Done**: Workerのpersistent pollingで期限到来したProvider Waitを復元・自動queueし、再起動後も継続する
 - [ ] **Designed**: GitHub / CI / Linear / Slack / Discord Connectorは設計のみ
-- [ ] **Todo**: implementer / reviewer / verifierごとのrole-based provider / model設定
+- [x] **Done**: implementation / review / QA / verifierごとのrole-based provider / model設定。queue時の解決値をAgent Jobへ固定し、retry時に再現する
 
 ## P0: Issueからmergeまでを自動完遂する
 
@@ -172,7 +172,7 @@
 ## P2: Loop Engineering制御の強化
 
 - [x] Goal Contractの`Evidence Required`を型付きにし、種類、必須性、対象commit、freshnessをGateが機械判定する。missing / stale / commit mismatch / unavailableを監査可能な判定結果として残す
-- [ ] implementation / review / QA / verifierでrole-based provider / modelを設定できるようにする
+- [x] implementation / review / QA / verifierでrole-based provider / modelを設定し、Job detail / Activity / milestoneに実行条件を残す。provider切替再開時だけ切替先modelを再解決する
 - [ ] provider usage / token / costをObjectiveに集計し、budgetでqueue前に停止できるようにする
 - [ ] Agent全体deadlineとcommand別timeoutを分離する
 - [ ] PostToolUse / Stop Hook相当の軽量検証をprovider adapterごとに追加する
