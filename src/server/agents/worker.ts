@@ -27,6 +27,7 @@ import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
 import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
 import {
+  recordIssueImplementationStarted,
   recordLinkedIssueAgentMilestone,
   recordLinkedIssuePullRequestCreated
 } from "../services/linked-issue-milestone";
@@ -115,6 +116,9 @@ export class AgentWorker {
 
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
       const worktree = await this.prepareWorktreeForJob(runningJob, project);
+      if (worktree) {
+        await recordIssueImplementationStarted(this.repos, runningJob, worktree);
+      }
       const result = await this.adapter.run({
         job: runningJob,
         repoPath: worktree?.repoPath ?? project.repoPath,
@@ -532,7 +536,7 @@ export class AgentWorker {
   private async prepareWorktreeForJob(
     job: AgentJobDto,
     project: ProjectDto
-  ): Promise<{ repoPath: string; branchName: string; worktreePath: string } | null> {
+  ): Promise<PreparedWorktree | null> {
     if (job.agentType === "implementation" && job.targetType === "issue") {
       const issue = await this.repos.issues.get(project.id, job.targetId);
       if (!issue) {

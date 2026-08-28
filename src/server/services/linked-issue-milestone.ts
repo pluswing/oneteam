@@ -7,6 +7,7 @@ import {
   type SystemCommentOutcome
 } from "./system-comment";
 import { workflowStageForLabel } from "./objective-workflow";
+import type { PreparedWorktree } from "./worktree-service";
 
 type LinkedIssueMilestone = {
   event: string;
@@ -263,6 +264,91 @@ export async function recordLinkedIssuePullRequestCreated(
       ],
       nextStep: "OneTeam queued independent review of the linked Pull Request."
     }
+  });
+}
+
+export async function recordIssueImplementationStarted(
+  repos: Repositories,
+  job: AgentJobDto,
+  worktree: PreparedWorktree
+): Promise<void> {
+  if (job.agentType !== "implementation" || job.targetType !== "issue") return;
+  const issue = await repos.issues.get(job.projectId, job.targetId);
+  if (!issue) return;
+  let objective =
+    (await repos.objectives.findByIssue(job.projectId, issue.id)) ??
+    (await repos.objectives.ensureForIssue({
+      projectId: job.projectId,
+      issueId: issue.id,
+      title: issue.title,
+      goal: issue.body
+    }));
+  objective =
+    (await repos.objectives.update(job.projectId, objective.id, {
+      status: "running",
+      workflowStage: "implementation",
+      lastAgentJobId: job.id,
+      stopReason: null,
+      summary: `Implementation job #${job.id} started in ${worktree.branchName}.`
+    })) ?? objective;
+  const key = `objective:${objective.id}:implementation-started:agent-job:${job.id}`;
+  const comments = await repos.comments.list(job.projectId, "issue", issue.id);
+  if (comments.some((comment) => comment.metadata?.workflowMilestoneKey === key)) return;
+
+  const body = buildSystemComment({
+    title: "Implementation started",
+    outcome: "info",
+    summary: "OneTeam passed the Objective preflight and prepared an isolated worktree for implementation.",
+    fields: [
+      { label: "Objective", value: `#${objective.id}`, code: true },
+      { label: "Agent job", value: `#${job.id}`, code: true },
+      { label: "Provider", value: job.aiProvider, code: true },
+      { label: "Workflow stage", value: objective.workflowStage, code: true },
+      { label: "Objective round", value: objective.roundCount, code: true },
+      { label: "Branch", value: worktree.branchName, code: true },
+      { label: "Worktree", value: worktree.worktreePath, code: true }
+    ],
+    sections: [
+      {
+        title: "Execution state",
+        items: [
+          worktree.recovered
+            ? "An existing OneTeam worktree was recovered for the same branch."
+            : "A dedicated worktree was prepared from the project default branch.",
+          "The original Issue description remains unchanged.",
+          "The Objective round will be recorded when the Agent result is applied."
+        ]
+      }
+    ],
+    nextStep: "The implementation Agent will make and verify changes, commit the branch, and create a linked Pull Request when the evidence gates pass.",
+    recordedBy: "OneTeam workflow"
+  });
+  await repos.comments.create({
+    projectId: job.projectId,
+    targetType: "issue",
+    targetId: issue.id,
+    authorType: "system",
+    body,
+    metadata: {
+      workflowMilestoneKey: key,
+      workflowMilestoneEvent: "implementation-started",
+      objectiveRunId: objective.id,
+      agentJobId: job.id,
+      workflowStage: objective.workflowStage,
+      branchName: worktree.branchName,
+      worktreePath: worktree.worktreePath,
+      recovered: worktree.recovered === true
+    }
+  });
+  await repos.activities.create({
+    projectId: job.projectId,
+    agentJobId: job.id,
+    targetType: "issue",
+    targetId: issue.id,
+    activityType: "system",
+    title: "Implementation started",
+    body,
+    payload: { workflowMilestoneKey: key, objectiveRunId: objective.id, branchName: worktree.branchName }
   });
 }
 

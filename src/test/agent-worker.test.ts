@@ -446,6 +446,10 @@ describe("agent worker", () => {
     );
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
+    expect(issueComments.some((comment) => comment.body.includes("## Implementation started"))).toBe(true);
+    expect(issueComments.some((comment) => comment.metadata?.workflowMilestoneEvent === "implementation-started")).toBe(
+      true
+    );
     expect(issueComments.some((comment) => comment.body.includes("## Pull request created"))).toBe(true);
     expect(issueComments.some((comment) => comment.metadata?.workflowMilestoneEvent === "pull-request-created")).toBe(true);
     expect(worktreeStatus).toBe("");
