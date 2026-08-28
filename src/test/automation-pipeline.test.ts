@@ -265,7 +265,9 @@ describe("automatic delivery pipeline", () => {
       autoMergeEnabled: true,
       autoMergeTargetBranches: ["main"],
       autoMergeStrategy: "squash",
-      autoMergeRiskThreshold: "high"
+      autoMergeRiskThreshold: "high",
+      objectiveTokenBudget: null,
+      objectiveCostBudgetUsd: null
     });
     await repos.commands.upsertMany(project.id, [
       {
@@ -568,7 +570,9 @@ describe("automatic delivery pipeline", () => {
       autoMergeEnabled: true,
       autoMergeTargetBranches: ["release"],
       autoMergeStrategy: "merge",
-      autoMergeRiskThreshold: "medium"
+      autoMergeRiskThreshold: "medium",
+      objectiveTokenBudget: null,
+      objectiveCostBudgetUsd: null
     });
     const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
     const pullRequest = await repos.pullRequests.create({

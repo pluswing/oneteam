@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { AiProvider } from "../../shared/ai-providers";
 import type {
   ActivityType,
@@ -281,6 +281,9 @@ export const objectiveRuns = sqliteTable("objective_runs", {
   lastFailureSignature: text("last_failure_signature"),
   repeatedFailureCount: integer("repeated_failure_count").notNull().default(0),
   stopReason: text("stop_reason"),
+  tokenBudget: integer("token_budget"),
+  costBudgetUsd: real("cost_budget_usd"),
+  providerUsageJson: text("provider_usage_json").notNull().default("{}"),
   evidenceRequirementsJson: text("evidence_requirements_json").notNull().default("[]"),
   evidenceJson: text("evidence_json"),
   summary: text("summary").notNull().default(""),

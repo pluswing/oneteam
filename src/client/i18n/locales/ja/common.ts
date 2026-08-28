@@ -243,6 +243,11 @@ export const ja = {
     riskThresholdMedium: "Medium以上",
     riskThresholdHigh: "Highのみ",
     riskThresholdNone: "停止しない",
+    objectiveTokenBudget: "Objective ごとの token budget",
+    objectiveTokenBudgetDescription: "provider が報告した累積 token 使用量がこの値に達すると、新しい agent 作業を停止します。",
+    objectiveCostBudget: "Objective ごとの cost budget (USD)",
+    objectiveCostBudgetDescription: "provider が報告した USD cost のみを使用します。cost がない場合に単価を推定しません。",
+    unlimitedBudget: "無制限",
     saved: "設定を保存しました"
   },
   agents: {

@@ -5,7 +5,9 @@ export const defaultAutomationSettings: ProjectSettingsDto["automation"] = {
   autoMergeEnabled: true,
   autoMergeTargetBranches: [],
   autoMergeStrategy: "merge",
-  autoMergeRiskThreshold: "medium"
+  autoMergeRiskThreshold: "medium",
+  objectiveTokenBudget: null,
+  objectiveCostBudgetUsd: null
 };
 
 export async function readAutomationSettings(repos: Repositories): Promise<ProjectSettingsDto["automation"]> {
@@ -28,7 +30,9 @@ export async function readAutomationSettings(repos: Repositories): Promise<Proje
     autoMergeStrategy: stored?.autoMergeStrategy === "squash" ? "squash" : "merge",
     autoMergeRiskThreshold: ["medium", "high", "none"].includes(String(stored?.autoMergeRiskThreshold))
       ? (stored?.autoMergeRiskThreshold as ProjectSettingsDto["automation"]["autoMergeRiskThreshold"])
-      : defaultAutomationSettings.autoMergeRiskThreshold
+      : defaultAutomationSettings.autoMergeRiskThreshold,
+    objectiveTokenBudget: positiveIntegerOrNull(stored?.objectiveTokenBudget),
+    objectiveCostBudgetUsd: positiveNumberOrNull(stored?.objectiveCostBudgetUsd)
   };
 }
 
@@ -37,4 +41,12 @@ export async function saveAutomationSettings(
   settings: ProjectSettingsDto["automation"]
 ): Promise<void> {
   await repos.settings.set("automation", settings as unknown as Record<string, unknown>);
+}
+
+function positiveIntegerOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function positiveNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }

@@ -241,6 +241,11 @@ export const en = {
     riskThresholdMedium: "Medium and high",
     riskThresholdHigh: "High only",
     riskThresholdNone: "Do not block",
+    objectiveTokenBudget: "Token budget per Objective",
+    objectiveTokenBudgetDescription: "Stops new agent work after provider-reported token usage reaches this total.",
+    objectiveCostBudget: "Cost budget per Objective (USD)",
+    objectiveCostBudgetDescription: "Uses provider-reported USD cost only. No price is estimated when a provider omits cost.",
+    unlimitedBudget: "Unlimited",
     saved: "Settings saved"
   },
   agents: {

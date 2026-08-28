@@ -2514,6 +2514,8 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [autoMergeStrategy, setAutoMergeStrategy] = useState<ProjectSettingsDto["automation"]["autoMergeStrategy"]>("merge");
   const [autoMergeRiskThreshold, setAutoMergeRiskThreshold] =
     useState<ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]>("medium");
+  const [objectiveTokenBudget, setObjectiveTokenBudget] = useState("");
+  const [objectiveCostBudgetUsd, setObjectiveCostBudgetUsd] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -2537,6 +2539,12 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setAutoMergeTargetBranches(response.automation.autoMergeTargetBranches.join(", "));
     setAutoMergeStrategy(response.automation.autoMergeStrategy);
     setAutoMergeRiskThreshold(response.automation.autoMergeRiskThreshold);
+    setObjectiveTokenBudget(response.automation.objectiveTokenBudget === null
+      ? ""
+      : String(response.automation.objectiveTokenBudget));
+    setObjectiveCostBudgetUsd(response.automation.objectiveCostBudgetUsd === null
+      ? ""
+      : String(response.automation.objectiveCostBudgetUsd));
   }
 
   useEffect(() => {
@@ -2575,7 +2583,9 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           autoMergeEnabled,
           autoMergeTargetBranches: autoMergeTargetBranches.split(",").map((branch) => branch.trim()).filter(Boolean),
           autoMergeStrategy,
-          autoMergeRiskThreshold
+          autoMergeRiskThreshold,
+          objectiveTokenBudget: objectiveTokenBudget.trim() ? Number(objectiveTokenBudget) : null,
+          objectiveCostBudgetUsd: objectiveCostBudgetUsd.trim() ? Number(objectiveCostBudgetUsd) : null
         }
       });
       setSettings(response);
@@ -2721,6 +2731,30 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               <option value="none">{t("settings.riskThresholdNone")}</option>
             </select>
             <small>{t("settings.autoMergeRiskThresholdDescription")}</small>
+          </label>
+          <label>
+            {t("settings.objectiveTokenBudget")}
+            <input
+              min="1"
+              onChange={(event) => setObjectiveTokenBudget(event.target.value)}
+              placeholder={t("settings.unlimitedBudget")}
+              step="1"
+              type="number"
+              value={objectiveTokenBudget}
+            />
+            <small>{t("settings.objectiveTokenBudgetDescription")}</small>
+          </label>
+          <label>
+            {t("settings.objectiveCostBudget")}
+            <input
+              min="0.000001"
+              onChange={(event) => setObjectiveCostBudgetUsd(event.target.value)}
+              placeholder={t("settings.unlimitedBudget")}
+              step="0.01"
+              type="number"
+              value={objectiveCostBudgetUsd}
+            />
+            <small>{t("settings.objectiveCostBudgetDescription")}</small>
           </label>
         </fieldset>
         <fieldset>

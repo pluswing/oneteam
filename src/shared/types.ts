@@ -1,5 +1,6 @@
 import type { AiProvider, AiSettingsDto } from "./ai-providers";
 import type { ObjectiveEvidenceRequirement } from "./evidence-requirements";
+import type { ProviderUsageTotals } from "./provider-usage";
 
 export type IssueStatus = "open" | "closed";
 export type PullRequestStatus = "open" | "closed" | "merged";
@@ -98,6 +99,8 @@ export type ProjectSettingsDto = {
     autoMergeTargetBranches: string[];
     autoMergeStrategy: "merge" | "squash";
     autoMergeRiskThreshold: "medium" | "high" | "none";
+    objectiveTokenBudget: number | null;
+    objectiveCostBudgetUsd: number | null;
   };
   runtime: {
     server: {
@@ -313,6 +316,9 @@ export type ObjectiveRunDto = {
   lastFailureSignature: string | null;
   repeatedFailureCount: number;
   stopReason: string | null;
+  tokenBudget: number | null;
+  costBudgetUsd: number | null;
+  providerUsage: ProviderUsageTotals;
   evidenceRequirements: ObjectiveEvidenceRequirement[];
   evidence: Record<string, unknown> | null;
   summary: string;

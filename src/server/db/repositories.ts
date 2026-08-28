@@ -8,6 +8,7 @@ import {
   resolveAgentAiSelection
 } from "../../shared/ai-providers";
 import { normalizeEvidenceRequirements } from "../../shared/evidence-requirements";
+import { normalizeProviderUsageTotals } from "../../shared/provider-usage";
 import type {
   ActivityDto,
   AgentJobDto,
@@ -309,6 +310,9 @@ function mapObjectiveRun(row: ObjectiveRunRow): ObjectiveRunDto {
     lastFailureSignature: row.lastFailureSignature,
     repeatedFailureCount: row.repeatedFailureCount,
     stopReason: row.stopReason,
+    tokenBudget: row.tokenBudget,
+    costBudgetUsd: row.costBudgetUsd,
+    providerUsage: normalizeProviderUsageTotals(parseJsonObject(row.providerUsageJson)),
     evidenceRequirements: parseEvidenceRequirements(row.evidenceRequirementsJson),
     evidence: parseJsonObject(row.evidenceJson),
     summary: row.summary,
@@ -2019,6 +2023,9 @@ export function createRepositories(db: Database) {
             | "lastFailureSignature"
             | "repeatedFailureCount"
             | "stopReason"
+            | "tokenBudget"
+            | "costBudgetUsd"
+            | "providerUsage"
             | "evidenceRequirements"
             | "summary"
             | "finishedAt"
@@ -2045,6 +2052,9 @@ export function createRepositories(db: Database) {
             lastFailureSignature: input.lastFailureSignature,
             repeatedFailureCount: input.repeatedFailureCount,
             stopReason: input.stopReason,
+            tokenBudget: input.tokenBudget,
+            costBudgetUsd: input.costBudgetUsd,
+            providerUsageJson: input.providerUsage === undefined ? undefined : JSON.stringify(input.providerUsage),
             evidenceRequirementsJson: input.evidenceRequirements === undefined
               ? undefined
               : JSON.stringify(input.evidenceRequirements),

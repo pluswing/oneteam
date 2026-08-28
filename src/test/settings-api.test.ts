@@ -130,6 +130,8 @@ describe("settings API", () => {
     expect(settings.automation.autoMergeTargetBranches).toEqual([]);
     expect(settings.automation.autoMergeStrategy).toBe("merge");
     expect(settings.automation.autoMergeRiskThreshold).toBe("medium");
+    expect(settings.automation.objectiveTokenBudget).toBeNull();
+    expect(settings.automation.objectiveCostBudgetUsd).toBeNull();
     expect(settings.runtime.database.url).toContain("test.db");
     expect(codexUpdateResponse.status).toBe(400);
 
@@ -186,7 +188,9 @@ describe("settings API", () => {
           autoMergeEnabled: false,
           autoMergeTargetBranches: ["main", "release", "main"],
           autoMergeStrategy: "squash",
-          autoMergeRiskThreshold: "high"
+          autoMergeRiskThreshold: "high",
+          objectiveTokenBudget: 750_000,
+          objectiveCostBudgetUsd: 12.5
         }
       })
     });
@@ -234,6 +238,8 @@ describe("settings API", () => {
     expect(settings.automation.autoMergeTargetBranches).toEqual(["main", "release"]);
     expect(settings.automation.autoMergeStrategy).toBe("squash");
     expect(settings.automation.autoMergeRiskThreshold).toBe("high");
+    expect(settings.automation.objectiveTokenBudget).toBe(750_000);
+    expect(settings.automation.objectiveCostBudgetUsd).toBe(12.5);
     expect(jobPayload.job.aiProvider).toBe("lm_studio");
     expect(jobPayload.job.aiModel).toBe("qwen-coder");
     expect(implementationJobResponse.status).toBe(201);

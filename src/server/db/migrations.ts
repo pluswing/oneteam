@@ -454,6 +454,14 @@ const migrations: Migration[] = [
         end
         where exists (select 1 from app_settings where key = 'ai' and json_valid(value_json))`
     ]
+  },
+  {
+    id: "0015_objective_provider_usage",
+    statements: [
+      "alter table objective_runs add column token_budget integer",
+      "alter table objective_runs add column cost_budget_usd real",
+      "alter table objective_runs add column provider_usage_json text not null default '{}'"
+    ]
   }
 ];
 
