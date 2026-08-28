@@ -1943,7 +1943,9 @@ textarea {
 }
 
 .diff-finding-count,
-.diff-header-finding-count {
+.diff-header-finding-count,
+.diff-comment-count,
+.diff-header-comment-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1962,6 +1964,16 @@ textarea {
   flex: 0 0 auto;
   height: 20px;
   background: #9a6700;
+}
+
+.diff-comment-count,
+.diff-header-comment-count {
+  background: #0969da;
+}
+
+.diff-header-comment-count {
+  flex: 0 0 auto;
+  height: 20px;
 }
 
 .diff-file-empty {
@@ -2088,13 +2100,40 @@ textarea {
 }
 
 .diff-table .diff-line-number {
-  width: 48px;
-  padding: 0 8px;
+  width: 58px;
+  padding: 0 4px;
   border-right: 1px solid rgba(31, 35, 40, 0.08);
   color: #656d76;
   background: #f6f8fa;
   text-align: right;
   user-select: none;
+}
+
+.diff-line-number-content {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  min-height: 20px;
+  gap: 2px;
+}
+
+.diff-add-comment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #0969da;
+  border-radius: 4px;
+  color: #ffffff;
+  background: #0969da;
+  opacity: 0;
+}
+
+.diff-line-number:hover .diff-add-comment,
+.diff-add-comment:focus-visible {
+  opacity: 1;
 }
 
 .diff-line-number a {
@@ -2192,11 +2231,11 @@ textarea {
 }
 
 .diff-split .diff-line-number {
-  width: 48px;
+  width: 58px;
 }
 
 .diff-split .diff-code {
-  width: calc(50% - 48px);
+  width: calc(50% - 58px);
   border-right: 1px solid #d8dee4;
 }
 
@@ -2310,6 +2349,115 @@ button.diff-finding-card:hover {
 
 .diff-finding-row .diff-finding-card + .diff-finding-card {
   margin-top: 6px;
+}
+
+.diff-discussion-row > td {
+  padding: 10px 14px 10px 62px !important;
+  border-top: 1px solid #54aeff !important;
+  border-bottom: 1px solid #54aeff !important;
+  background: #ddf4ff;
+}
+
+.diff-discussion-stack {
+  display: grid;
+  gap: 8px;
+  width: min(820px, 100%);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  white-space: normal;
+}
+
+.diff-line-comment,
+.diff-line-comment-form {
+  overflow: hidden;
+  border: 1px solid #8c959f;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.diff-line-comment:target {
+  border-color: #0969da;
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+}
+
+.diff-line-comment > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #d8dee4;
+  color: #57606a;
+  background: #f6f8fa;
+  font-size: 11px;
+}
+
+.diff-line-comment > header strong {
+  color: #24292f;
+  font-size: 12px;
+}
+
+.diff-line-comment > header a {
+  margin-left: auto;
+  color: #0969da;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-decoration: none;
+}
+
+.diff-line-comment > .markdown-body {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diff-line-comment > .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.diff-line-comment > .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.diff-line-comment-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.diff-line-comment-form textarea {
+  min-height: 82px;
+  resize: vertical;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diff-line-comment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.diff-line-comment-actions > span {
+  margin-right: auto;
+  color: #656d76;
+  font-size: 11px;
+}
+
+.diff-line-comment-actions .primary-button,
+.diff-line-comment-actions .secondary-button {
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.diff-line-comment-error {
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: #82071e;
+  background: #ffebe9;
+  font-size: 12px;
 }
 
 .diff-line-addition .diff-word-changed {

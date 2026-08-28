@@ -17,6 +17,7 @@ import type {
   ProjectSettingsDto,
   PullRequestDto,
   PullRequestFindingDto,
+  PullRequestLineCommentDto,
   RepositoryCommitDto,
   RepositoryDiffSummaryDto,
   RepositoryFileChangeDto,
@@ -339,6 +340,32 @@ export const api = {
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/findings`
     );
     return response.items;
+  },
+
+  async listPullRequestLineComments(projectId: string, pullRequestId: number): Promise<PullRequestLineCommentDto[]> {
+    const response = await request<ListResponse<PullRequestLineCommentDto>>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/line-comments`
+    );
+    return response.items;
+  },
+
+  async createPullRequestLineComment(
+    projectId: string,
+    pullRequestId: number,
+    input: {
+      body: string;
+      path: string;
+      line: number;
+      side: "L" | "R";
+      sourceCommit: string;
+      targetCommit: string;
+    }
+  ): Promise<PullRequestLineCommentDto> {
+    const response = await request<{ comment: PullRequestLineCommentDto }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/line-comments`,
+      { method: "POST", body: JSON.stringify(input) }
+    );
+    return response.comment;
   },
 
   async getPullRequestFileDiff(

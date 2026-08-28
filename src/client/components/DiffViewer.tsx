@@ -1,7 +1,12 @@
-import { Check, ChevronDown, ChevronUp, FileCode2, Search } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { PullRequestFindingDto, RepositoryFileChangeDto } from "../../shared/types";
+import { Check, ChevronDown, ChevronUp, FileCode2, Plus, Search } from "lucide-react";
+import { Fragment, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  PullRequestFindingDto,
+  PullRequestLineCommentDto,
+  RepositoryFileChangeDto
+} from "../../shared/types";
 import { api } from "../api";
+import { MarkdownContent } from "./MarkdownContent";
 import {
   buildSplitDiffRows,
   diffAnchorMatchesPath,
@@ -16,8 +21,10 @@ import {
 } from "../diff-parser";
 import { t } from "../i18n";
 import { highlightDiffSyntax } from "../diff-syntax";
+import { formatDateTime } from "../formatters";
 
 type DiffView = "unified" | "split";
+type LineCommentPosition = { path: string; line: number; side: "L" | "R" };
 const initialDiffRenderLines = 1_000;
 const diffRenderIncrement = 1_000;
 const maximumDiffRenderLines = 5_000;
@@ -58,15 +65,30 @@ function fileStatusClass(status: string): string {
   return "modified";
 }
 
-function LineNumber(props: { path: string; side: "L" | "R"; value: number | null }) {
+function LineNumber(props: {
+  onComment: (position: LineCommentPosition) => void;
+  path: string;
+  side: "L" | "R";
+  value: number | null;
+}) {
   if (props.value === null) {
     return <span aria-hidden="true" />;
   }
   const anchor = diffLineAnchor(props.path, props.side, props.value);
+  const lineLabel = `${props.side === "L" ? t("pullRequests.oldLine") : t("pullRequests.newLine")} ${props.value}`;
   return (
-    <a aria-label={`${props.side === "L" ? t("pullRequests.oldLine") : t("pullRequests.newLine")} ${props.value}`} href={`#${anchor}`} id={anchor}>
-      {props.value}
-    </a>
+    <span className="diff-line-number-content">
+      <button
+        aria-label={`${t("pullRequests.commentOnLine")} ${lineLabel}`}
+        className="diff-add-comment"
+        onClick={() => props.onComment({ path: props.path, side: props.side, line: props.value! })}
+        title={t("pullRequests.commentOnLine")}
+        type="button"
+      >
+        <Plus aria-hidden="true" size={13} />
+      </button>
+      <a aria-label={lineLabel} href={`#${anchor}`} id={anchor}>{props.value}</a>
+    </span>
   );
 }
 
@@ -121,12 +143,84 @@ function FindingCard(props: { finding: PullRequestFindingDto; onOpen?: () => voi
   );
 }
 
-function InlineFindingRows(props: { colSpan: number; findings: PullRequestFindingDto[] }) {
-  if (!props.findings.length) return null;
+function LineCommentCard(props: { comment: PullRequestLineCommentDto }) {
   return (
-    <tr className="diff-finding-row">
+    <article className="diff-line-comment" id={`diff-comment-${props.comment.id}`}>
+      <header>
+        <strong>{t("pullRequests.you")}</strong>
+        <span>{formatDateTime(props.comment.createdAt)}</span>
+        <a href={`#${diffLineAnchor(props.comment.path, props.comment.side, props.comment.line)}`}>
+          {props.comment.side}{props.comment.line}
+        </a>
+      </header>
+      <MarkdownContent content={props.comment.body} format={props.comment.bodyFormat} />
+    </article>
+  );
+}
+
+function LineCommentComposer(props: { onCancel: () => void; onSubmit: (body: string) => Promise<void> }) {
+  const [body, setBody] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const value = body.trim();
+    if (!value || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await props.onSubmit(value);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("pullRequests.lineCommentFailed"));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="diff-line-comment-form" onSubmit={(event) => void submit(event)}>
+      <textarea
+        autoFocus
+        disabled={saving}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") event.currentTarget.form?.requestSubmit();
+        }}
+        placeholder={t("pullRequests.lineCommentPlaceholder")}
+        rows={3}
+        value={body}
+      />
+      {error ? <div className="diff-line-comment-error" role="alert">{error}</div> : null}
+      <div className="diff-line-comment-actions">
+        <span>{t("pullRequests.markdownSupported")}</span>
+        <button className="secondary-button" disabled={saving} onClick={props.onCancel} type="button">
+          {t("actions.cancel")}
+        </button>
+        <button className="primary-button" disabled={saving || !body.trim()} type="submit">
+          {saving ? t("pullRequests.savingComment") : t("pullRequests.addLineComment")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function InlineDiscussionRows(props: {
+  colSpan: number;
+  comments: PullRequestLineCommentDto[];
+  draft: boolean;
+  findings: PullRequestFindingDto[];
+  onCancelComment: () => void;
+  onSubmitComment: (body: string) => Promise<void>;
+}) {
+  if (!props.findings.length && !props.comments.length && !props.draft) return null;
+  return (
+    <tr className="diff-discussion-row">
       <td colSpan={props.colSpan}>
-        {props.findings.map((finding) => <FindingCard finding={finding} key={finding.id} />)}
+        <div className="diff-discussion-stack">
+          {props.findings.map((finding) => <FindingCard finding={finding} key={finding.id} />)}
+          {props.comments.map((comment) => <LineCommentCard comment={comment} key={comment.id} />)}
+          {props.draft ? <LineCommentComposer onCancel={props.onCancelComment} onSubmit={props.onSubmitComment} /> : null}
+        </div>
       </td>
     </tr>
   );
@@ -138,6 +232,29 @@ function findingsForLine(findings: PullRequestFindingDto[], line: DiffLine): Pul
     (finding.side === "L" ? line.oldLineNumber === finding.line : line.newLineNumber === finding.line)
   );
 }
+
+function lineCommentsForLine(comments: PullRequestLineCommentDto[], line: DiffLine): PullRequestLineCommentDto[] {
+  return comments.filter((comment) =>
+    comment.side === "L" ? line.oldLineNumber === comment.line : line.newLineNumber === comment.line
+  );
+}
+
+function positionMatchesLine(position: LineCommentPosition | null, line: DiffLine): boolean {
+  if (!position) return false;
+  return position.side === "L" ? line.oldLineNumber === position.line : line.newLineNumber === position.line;
+}
+
+type DiffDiscussionProps = {
+  comments: PullRequestLineCommentDto[];
+  draft: LineCommentPosition | null;
+  findings: PullRequestFindingDto[];
+  focus: DiffLineFocus | null;
+  onCancelComment: () => void;
+  onStartComment: (position: LineCommentPosition) => void;
+  onSubmitComment: (body: string) => Promise<void>;
+  path: string;
+  patch: string;
+};
 
 function useRenderedDiff(patch: string, focus: DiffLineFocus | null) {
   const parsed = useMemo(() => parseDiffPatch(patch), [patch]);
@@ -211,7 +328,7 @@ function useCollapsedHunks(patch: string) {
   return { collapsedHunks, toggleHunk };
 }
 
-function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
+function UnifiedDiff(props: DiffDiscussionProps) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
   if (parsed.binary) {
@@ -232,16 +349,24 @@ function UnifiedDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLine
               <DiffHunkHeader collapsed={collapsed} colSpan={3} header={hunk.header} onToggle={() => toggleHunk(hunkKey)} />
               {!collapsed ? hunk.lines.map((line, lineIndex) => {
                 const lineFindings = findingsForLine(props.findings, line);
+                const lineComments = lineCommentsForLine(props.comments, line);
                 return (
                   <Fragment key={`${hunkIndex}-${lineIndex}`}>
                     <tr className={`diff-line diff-line-${line.kind}`}>
-                      <td className="diff-line-number"><LineNumber path={props.path} side="L" value={line.oldLineNumber} /></td>
-                      <td className="diff-line-number"><LineNumber path={props.path} side="R" value={line.newLineNumber} /></td>
+                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="L" value={line.oldLineNumber} /></td>
+                      <td className="diff-line-number"><LineNumber onComment={props.onStartComment} path={props.path} side="R" value={line.newLineNumber} /></td>
                       <td className="diff-code">
                         <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={line.content} path={props.path} /></code>
                       </td>
                     </tr>
-                    <InlineFindingRows colSpan={3} findings={lineFindings} />
+                    <InlineDiscussionRows
+                      colSpan={3}
+                      comments={lineComments}
+                      draft={props.draft?.path === props.path && positionMatchesLine(props.draft, line)}
+                      findings={lineFindings}
+                      onCancelComment={props.onCancelComment}
+                      onSubmitComment={props.onSubmitComment}
+                    />
                   </Fragment>
                 );
               }) : null}
@@ -271,7 +396,7 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
   return <SyntaxLine content={line.content} path={path} />;
 }
 
-function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFocus | null; path: string; patch: string }) {
+function SplitDiff(props: DiffDiscussionProps) {
   const { parsed, limited, lineLimit, setLineLimit } = useRenderedDiff(props.patch, props.focus);
   const { collapsedHunks, toggleHunk } = useCollapsedHunks(props.patch);
   if (parsed.binary) {
@@ -297,23 +422,38 @@ function SplitDiff(props: { findings: PullRequestFindingDto[]; focus: DiffLineFo
                     ? row.left?.oldLineNumber === finding.line
                     : row.right?.newLineNumber === finding.line;
                 });
+                const lineComments = props.comments.filter((comment) => comment.side === "L"
+                  ? row.left?.oldLineNumber === comment.line
+                  : row.right?.newLineNumber === comment.line
+                );
+                const hasDraft = props.draft?.path === props.path && (props.draft.side === "L"
+                  ? row.left?.oldLineNumber === props.draft.line
+                  : row.right?.newLineNumber === props.draft.line
+                );
                 return (
                 <Fragment key={`${hunkIndex}-${rowIndex}`}>
                 <tr className="diff-split-row">
                   <td className={`diff-line-number diff-line-${row.left?.kind ?? "empty"}`}>
-                    <LineNumber path={props.path} side="L" value={row.left?.oldLineNumber ?? null} />
+                    <LineNumber onComment={props.onStartComment} path={props.path} side="L" value={row.left?.oldLineNumber ?? null} />
                   </td>
                   <td className={`diff-code diff-line-${row.left?.kind ?? "empty"}`}>
                     <code>{row.left ? <><span className="diff-prefix" aria-hidden="true">{row.left.kind === "deletion" ? "-" : " "}</span>{splitContent(row.left, row.right, "before", props.path)}</> : null}</code>
                   </td>
                   <td className={`diff-line-number diff-line-${row.right?.kind ?? "empty"}`}>
-                    <LineNumber path={props.path} side="R" value={row.right?.newLineNumber ?? null} />
+                    <LineNumber onComment={props.onStartComment} path={props.path} side="R" value={row.right?.newLineNumber ?? null} />
                   </td>
                   <td className={`diff-code diff-line-${row.right?.kind ?? "empty"}`}>
                     <code>{row.right ? <><span className="diff-prefix" aria-hidden="true">{row.right.kind === "addition" ? "+" : " "}</span>{splitContent(row.right, row.left, "after", props.path)}</> : null}</code>
                   </td>
                 </tr>
-                <InlineFindingRows colSpan={4} findings={lineFindings} />
+                <InlineDiscussionRows
+                  colSpan={4}
+                  comments={lineComments}
+                  draft={hasDraft}
+                  findings={lineFindings}
+                  onCancelComment={props.onCancelComment}
+                  onSubmitComment={props.onSubmitComment}
+                />
                 </Fragment>
               );}) : null}
             </Fragment>
@@ -336,6 +476,7 @@ export function DiffViewer(props: {
   pullRequestId: number;
   files: RepositoryFileChangeDto[];
   findings: PullRequestFindingDto[];
+  lineComments: PullRequestLineCommentDto[];
   sourceCommit: string | null;
   targetCommit: string | null;
 }) {
@@ -347,6 +488,8 @@ export function DiffViewer(props: {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [showResolvedFindings, setShowResolvedFindings] = useState(false);
   const [focusedFinding, setFocusedFinding] = useState<PullRequestFindingDto | null>(null);
+  const [draftComment, setDraftComment] = useState<LineCommentPosition | null>(null);
+  const [lineComments, setLineComments] = useState(props.lineComments);
   const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readViewedPaths(viewedStorageKey));
   const [selectedFile, setSelectedFile] = useState<RepositoryFileChangeDto | null>(null);
   const [loading, setLoading] = useState(false);
@@ -356,6 +499,14 @@ export function DiffViewer(props: {
   useEffect(() => {
     setViewedPaths(readViewedPaths(viewedStorageKey));
   }, [viewedStorageKey]);
+
+  useEffect(() => {
+    setLineComments(props.lineComments);
+  }, [props.lineComments]);
+
+  useEffect(() => {
+    setDraftComment(null);
+  }, [props.sourceCommit, props.targetCommit, selectedPath]);
 
   useEffect(() => {
     if (!selectedPath || !props.files.some((file) => file.path === selectedPath)) {
@@ -449,6 +600,12 @@ export function DiffViewer(props: {
     currentSummary &&
     (finding.path === currentSummary.path || finding.path === currentSummary.previousPath)
   );
+  const revisionLineComments = lineComments.filter((comment) =>
+    comment.sourceCommit === props.sourceCommit && comment.targetCommit === props.targetCommit
+  );
+  const displayedLineComments = revisionLineComments.filter((comment) =>
+    currentSummary && (comment.path === currentSummary.path || comment.path === currentSummary.previousPath)
+  );
   const openFindingCount = props.findings.filter((finding) => finding.status === "open").length;
   const resolvedFindingCount = props.findings.length - openFindingCount;
 
@@ -474,6 +631,7 @@ export function DiffViewer(props: {
 
   function selectFile(path: string): void {
     setFocusedFinding(null);
+    setDraftComment(null);
     setSelectedPath(path);
     const anchor = diffFileAnchor(path);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
@@ -504,6 +662,26 @@ export function DiffViewer(props: {
     setContext("full");
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
     window.requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "center" }));
+  }
+
+  function startLineComment(position: LineCommentPosition): void {
+    setDraftComment(position);
+    const anchor = diffLineAnchor(position.path, position.side, position.line);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
+  }
+
+  async function submitLineComment(body: string): Promise<void> {
+    if (!draftComment || !props.sourceCommit || !props.targetCommit) {
+      throw new Error(t("pullRequests.diffRefreshRequired"));
+    }
+    const comment = await api.createPullRequestLineComment(props.projectId, props.pullRequestId, {
+      body,
+      ...draftComment,
+      sourceCommit: props.sourceCommit,
+      targetCommit: props.targetCommit
+    });
+    setLineComments((current) => [...current.filter((candidate) => candidate.id !== comment.id), comment]);
+    setDraftComment(null);
   }
 
   return (
@@ -550,6 +728,11 @@ export function DiffViewer(props: {
                       {props.findings.filter((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)).length}
                     </span>
                   ) : null}
+                  {revisionLineComments.some((comment) => comment.path === file.path || comment.path === file.previousPath) ? (
+                    <span className="diff-comment-count" title={t("pullRequests.lineComments")}>
+                      {revisionLineComments.filter((comment) => comment.path === file.path || comment.path === file.previousPath).length}
+                    </span>
+                  ) : null}
                   {viewedPaths.has(file.path) ? <Check aria-label={t("pullRequests.viewed")} className="diff-viewed-icon" size={15} /> : null}
                 </span>
               </button>
@@ -566,6 +749,7 @@ export function DiffViewer(props: {
                 <span className={`diff-status-label status-${fileStatusClass(currentSummary.status)}`}>{fileStatusLabel(currentSummary.status)}</span>
                 {currentSummary.binary ? <span className="diff-binary-label">{t("pullRequests.binary")}</span> : null}
                 {displayedFindings.length ? <span className="diff-header-finding-count">{displayedFindings.length} {t("pullRequests.findings")}</span> : null}
+                {displayedLineComments.length ? <span className="diff-header-comment-count">{displayedLineComments.length} {t("pullRequests.lineComments")}</span> : null}
               </div>
               <div className="diff-file-actions">
                 <span className="diff-file-stats"><span className="addition">+{currentSummary.additions}</span><span className="deletion">−{currentSummary.deletions}</span></span>
@@ -586,8 +770,8 @@ export function DiffViewer(props: {
           ) : null}
           {!loading && !error && selectedFile?.patch !== undefined ? (
             view === "unified"
-              ? <UnifiedDiff findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} patch={selectedFile.patch} path={selectedFile.path} />
-              : <SplitDiff findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} patch={selectedFile.patch} path={selectedFile.path} />
+              ? <UnifiedDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
+              : <SplitDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
           ) : null}
           {!currentSummary && !props.files.length ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
         </div>

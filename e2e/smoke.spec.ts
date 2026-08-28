@@ -82,6 +82,14 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".diff-line")).toHaveCount(0);
   await page.getByRole("button", { name: /Expand hunk/ }).click();
   await expect(page.locator(".diff-line")).toHaveCount(1_000);
+  await page.getByRole("button", { exact: true, name: "Comment on line New line 1" }).click();
+  await page.getByPlaceholder("Leave a review comment…").fill("**Review note:** keep this generated value stable.");
+  await page.getByRole("button", { name: "Add comment" }).click();
+  await expect(page.locator(".diff-line-comment")).toContainText("Review note: keep this generated value stable.");
   await page.getByRole("button", { name: "Render 1,000 more lines" }).click();
   await expect(page.locator(".diff-line")).toHaveCount(2_000);
+  await page.getByRole("button", { name: "Pull Requests" }).click();
+  await page.getByRole("button", { name: /Review a large generated diff/ }).click();
+  await page.getByRole("button", { name: "Files changed" }).click();
+  await expect(page.locator(".diff-line-comment")).toContainText("Review note: keep this generated value stable.");
 });
