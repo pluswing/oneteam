@@ -427,6 +427,7 @@ describe("agent worker", () => {
     const updatedJob = await repos.agentJobs.get(project.id, job.id);
     const activities = await repos.activities.list(project.id, "issue", issue.id);
     const pullRequests = await repos.pullRequests.list({ projectId: project.id, limit: 10, offset: 0 });
+    const issueComments = await repos.comments.list(project.id, "issue", issue.id);
     const output = updatedJob?.output as AgentRunResult | null | undefined;
     const worktreeStatus = await git(repoPath, ["status", "--porcelain"]);
     const sourceDiffFiles = await git(repoPath, ["diff", "--name-only", `main...${pullRequests.items[0].sourceBranch}`]);
@@ -445,6 +446,8 @@ describe("agent worker", () => {
     );
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
+    expect(issueComments.some((comment) => comment.body.includes("## Pull request created"))).toBe(true);
+    expect(issueComments.some((comment) => comment.metadata?.workflowMilestoneEvent === "pull-request-created")).toBe(true);
     expect(worktreeStatus).toBe("");
     expect(sourceDiffFiles).toContain("feature.txt");
 
@@ -604,8 +607,14 @@ describe("agent worker", () => {
       defaultBranch: "main",
       locale: "en"
     });
+    const linkedIssue = await repos.issues.create({
+      projectId: project.id,
+      title: "Ship reviewed behavior",
+      body: "Track the review and fix lifecycle."
+    });
     const changesRequestedPr = await repos.pullRequests.create({
       projectId: project.id,
+      issueId: linkedIssue.id,
       title: "Needs fix",
       sourceBranch: "feature/fix",
       targetBranch: "main"
@@ -683,6 +692,7 @@ describe("agent worker", () => {
       `/api/projects/${project.id}/pull-requests/${changesRequestedPr.id}/findings`
     );
     const findings = (await findingsResponse.json()) as { items: Array<{ path: string; line: number; status: string }> };
+    const linkedIssueComments = await repos.comments.list(project.id, "issue", linkedIssue.id);
 
     expect(changesRequestedAfter?.labels.map((label) => label.name)).toContain("fixing");
     expect(approvedAfter?.labels.map((label) => label.name)).toContain("testing");
@@ -692,6 +702,9 @@ describe("agent worker", () => {
     expect(jobs.some((job) => job.agentType === "qa" && job.targetId === approvedPr.id)).toBe(true);
     expect(changesRequestedObjective?.workflowStage).toBe("fix");
     expect(approvedObjective?.workflowStage).toBe("qa");
+    expect(linkedIssueComments.some((comment) => comment.body.includes("## Review requested changes"))).toBe(true);
+    expect(linkedIssueComments.some((comment) => comment.body.includes("[/pulls/"))).toBe(false);
+    expect(linkedIssueComments.some((comment) => comment.body.includes(`](/pulls/${changesRequestedPr.id})`))).toBe(true);
     expect(findings.items).toContainEqual(expect.objectContaining({ path: "src/app.ts", line: 10, status: "open" }));
 
     context.client.close();
@@ -823,9 +836,15 @@ describe("agent worker", () => {
       defaultBranch: "main",
       locale: "en"
     });
+    const linkedIssue = await repos.issues.create({
+      projectId: project.id,
+      title: "Verify the complete Objective",
+      body: "Keep final verification visible from the Issue."
+    });
     const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
     const pullRequest = await repos.pullRequests.create({
       projectId: project.id,
+      issueId: linkedIssue.id,
       title: "Verified change",
       sourceBranch: "feature/verified",
       targetBranch: "main",
@@ -862,11 +881,16 @@ describe("agent worker", () => {
     const updatedPullRequest = await repos.pullRequests.get(project.id, pullRequest.id);
     const comments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
     const activities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
+    const linkedIssueComments = await repos.comments.list(project.id, "issue", linkedIssue.id);
 
     expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
     expect(comments.some((comment) => comment.body.includes("## Pull request ready to merge"))).toBe(true);
     expect(comments.some((comment) => comment.body.includes("> **Outcome · READY**"))).toBe(true);
     expect(activities.map((activity) => activity.title)).toContain("Pull request ready to merge");
+    expect(linkedIssueComments.some((comment) => comment.body.includes("## Final verification passed"))).toBe(true);
+    expect(linkedIssueComments.some((comment) => comment.metadata?.workflowMilestoneEvent === "verification-passed")).toBe(
+      true
+    );
 
     context.client.close();
   });

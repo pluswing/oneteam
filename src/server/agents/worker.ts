@@ -26,6 +26,10 @@ import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
 import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
+import {
+  recordLinkedIssueAgentMilestone,
+  recordLinkedIssuePullRequestCreated
+} from "../services/linked-issue-milestone";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -887,8 +891,11 @@ export class AgentWorker {
           labels: pullRequest.labels,
           triggerType: "pull_request_created"
         });
+        await recordLinkedIssuePullRequestCreated(this.repos, job, pullRequest);
       }
     }
+
+    await recordLinkedIssueAgentMilestone(this.repos, job, result);
   }
 
   private async notifyPullRequestReadyToMerge(job: AgentJobDto): Promise<void> {
