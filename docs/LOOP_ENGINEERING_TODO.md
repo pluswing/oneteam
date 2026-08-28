@@ -46,7 +46,7 @@
 - [x] **Done**: open IssueのObjective補完とrequired command不足のTriage作成を行う内部Scheduler
 - [x] **Done**: stale Objective、failed verification / CI Evidence、以前成功したQA / Verifierからのregression、tracked sourceのTODO / FIXMEをSchedulerがTriage化し、scheduler key / fingerprintで重複を防止する
 - [x] **Done**: `.oneteam/skills` / `.oneteam/memory`、prompt contextへの投入、Loop / Objective節目のMemory更新
-- [ ] **Internal / Hidden**: Loops、Loop Run detail、Triage Inbox、Skills管理UIは実装されているがroute / navigationから非表示
+- [ ] **Internal / Hidden**: Loops、Loop Run detail、Skills管理UIは実装されているがroute / navigationから非表示。TriageはIssues一覧の通知セクションへ統合済み
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
 - [ ] **Partial**: internal system commentと通常Markdown Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成済み。明示的なsanitized HTML reportは原文を保持
@@ -177,7 +177,7 @@
 - [x] Agent全体deadlineとcommand別timeoutを分離し、deadline到達時のpartial telemetry、経過時間、適用上限を`timeout` Evidenceへ保存する
 - [x] Codex / Claude Code / LM Studio共通のStop validatorで未構造化応答、status / stop reason矛盾、command evidence矛盾、repository外pathをHuman Gateへ止める。tool loopを制御できるLM StudioではPostToolUse判定もActivity / tool responseへ保存する
 - [x] stale Objective、failed verification / CI Evidence、regression、tracked TODO / FIXME discoveryをSchedulerへ追加し、直接testで再走査時のdedupeまで検証する
-- [ ] TriageをIssues / notificationsへ統合し、Loops tabなしで処理できるようにする
+- [x] TriageをIssuesの通知セクションへ統合し、rich Markdownの発見内容、priority、discovery種別を確認してその場でIssue化 / 無視できるようにする
 - [ ] Worktree cleanup / retention policyを成功、失敗、Human Gate、Provider Gate別に定義する
 - [ ] objective hard gate、max rounds、repeated failure、score manipulation、schedulerの直接testを追加する
 

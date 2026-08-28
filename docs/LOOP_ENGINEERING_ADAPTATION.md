@@ -216,6 +216,8 @@ Issueを起点に、要件定義、実装、検証、Pull Request、レビュー
 
 UI には `Loops` または `Automations` ページを追加する。
 
+外部向けprimary UXはIssue-firstとし、Schedulerが作成したTriageはIssues一覧の通知セクションに表示する。ユーザーはLoops tabへ移動せず、発見理由とMarkdown Evidenceを確認してIssue化または無視できる。Loop Definition / Run / Memoryの詳細UIはinternal control planeとして残す。
+
 必要な表示:
 
 - 有効 / 無効
