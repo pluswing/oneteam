@@ -1,4 +1,4 @@
-import type { AgentJobDto } from "../../shared/types";
+import type { AgentJobDto, ObjectiveRunDto } from "../../shared/types";
 import type { AgentRunResult } from "../agents/types";
 import type { Repositories } from "../db/repositories";
 import { objectiveForJob } from "./objective-runs";
@@ -19,6 +19,11 @@ export type ProviderWaitDecision = {
   retryDelayMs: number;
   jitterMs: number;
   providerMessage: string;
+};
+
+type ProviderEventTarget = {
+  targetType: "issue" | "pull_request";
+  targetId: number;
 };
 
 const providerQuotaPatterns = [
@@ -75,7 +80,6 @@ export async function enterProviderWait(
   job: AgentJobDto,
   decision: ProviderWaitDecision
 ): Promise<AgentJobDto | null> {
-  const target = job.targetType === "project" ? null : { targetType: job.targetType, targetId: job.targetId };
   const message = buildProviderWaitComment(job, decision);
   const output = {
     status: "waiting_provider",
@@ -127,7 +131,8 @@ export async function enterProviderWait(
     });
   }
 
-  if (target) {
+  const targets = await providerEventTargets(repos, job, objective);
+  for (const target of targets) {
     await repos.activities.create({
       projectId: job.projectId,
       agentJobId: job.id,
@@ -136,19 +141,18 @@ export async function enterProviderWait(
       activityType: "system",
       title: "Waiting for AI provider usage",
       body: message,
-      payload: decision
+      payload: { ...decision, providerWaitEvent: "wait_started" }
     });
     if (decision.retryCount === 1 || decision.retryCount % 3 === 0) {
-      await repos.comments.create({
+      await createProviderEventComment(repos, {
         projectId: job.projectId,
-        targetType: target.targetType,
-        targetId: target.targetId,
-        authorType: "system",
+        target,
         body: message,
-        bodyFormat: "markdown",
+        key: `provider-wait:${job.id}:attempt:${decision.retryCount}`,
         metadata: {
           agentJobId: job.id,
-          providerWait: decision
+          providerWait: decision,
+          providerWaitEvent: "wait_started"
         }
       });
     }
@@ -229,17 +233,35 @@ export async function resumeProviderWait(
     });
   }
 
-  if (job.targetType !== "project") {
+  const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
+  const message = buildProviderRetryComment(job, trigger);
+  const targets = await providerEventTargets(repos, job, objective);
+  for (const target of targets) {
     await repos.activities.create({
       projectId: job.projectId,
       agentJobId: job.id,
-      targetType: job.targetType,
-      targetId: job.targetId,
+      targetType: target.targetType,
+      targetId: target.targetId,
       activityType: "system",
       title: "AI provider retry queued",
-      body: `${trigger === "manual" ? "A user" : "The scheduler"} resumed job #${job.id}.`,
-      payload: { trigger, previousNextRetryAt: job.nextRetryAt }
+      body: message,
+      payload: { trigger, previousNextRetryAt: job.nextRetryAt, providerWaitEvent: "retry_queued", retryCount }
     });
+    if (trigger === "manual" || retryCount === 1 || retryCount % 3 === 0) {
+      await createProviderEventComment(repos, {
+        projectId: job.projectId,
+        target,
+        body: message,
+        key: `provider-wait:${job.id}:retry:${retryCount}:${trigger}`,
+        metadata: {
+          agentJobId: job.id,
+          providerWaitEvent: "retry_queued",
+          trigger,
+          retryCount,
+          previousNextRetryAt: job.nextRetryAt
+        }
+      });
+    }
   }
   return resumed;
 }
@@ -263,6 +285,117 @@ export async function recordProviderWaitCanceled(repos: Repositories, job: Agent
       stopReason: "canceled"
     });
   }
+
+  const message = buildProviderWaitCanceledComment(job);
+  const targets = await providerEventTargets(repos, job, objective);
+  for (const target of targets) {
+    await repos.activities.create({
+      projectId: job.projectId,
+      agentJobId: job.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      activityType: "system",
+      title: "AI provider wait canceled",
+      body: message,
+      payload: { providerWaitEvent: "wait_canceled", previousNextRetryAt: job.nextRetryAt }
+    });
+    await createProviderEventComment(repos, {
+      projectId: job.projectId,
+      target,
+      body: message,
+      key: `provider-wait:${job.id}:canceled`,
+      metadata: {
+        agentJobId: job.id,
+        providerWaitEvent: "wait_canceled",
+        previousNextRetryAt: job.nextRetryAt
+      }
+    });
+  }
+}
+
+export function buildProviderRetryComment(job: AgentJobDto, trigger: "automatic" | "manual"): string {
+  const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
+  return buildSystemComment({
+    title: "AI provider retry queued",
+    outcome: "info",
+    summary: `${trigger === "manual" ? "A user" : "The scheduler"} resumed the preserved Agent Job for another provider attempt.`,
+    fields: [
+      { label: "Job", value: `#${job.id}`, code: true },
+      { label: "Agent", value: job.agentType, code: true },
+      { label: "Provider", value: job.aiProvider, code: true },
+      { label: "Resume trigger", value: trigger, code: true },
+      { label: "Retry attempt", value: retryCount },
+      job.nextRetryAt ? { label: "Previous retry time", value: job.nextRetryAt, code: true } : null
+    ],
+    sections: [
+      {
+        title: "Preserved state",
+        items: [
+          "The same job input, Objective, worktree association, and available provider session metadata remain attached.",
+          "The provider wait did not consume an Objective round."
+        ]
+      }
+    ],
+    nextStep: "OneTeam will run the queued Agent Job. If capacity is still unavailable, it will calculate the next bounded retry without treating the attempt as an implementation failure."
+  });
+}
+
+export function buildProviderWaitCanceledComment(job: AgentJobDto): string {
+  return buildSystemComment({
+    title: "AI provider wait canceled",
+    outcome: "info",
+    summary: "A user canceled the preserved Agent Job while it was waiting for provider capacity.",
+    fields: [
+      { label: "Job", value: `#${job.id}`, code: true },
+      { label: "Agent", value: job.agentType, code: true },
+      { label: "Provider", value: job.aiProvider, code: true },
+      job.nextRetryAt ? { label: "Canceled retry time", value: job.nextRetryAt, code: true } : null
+    ],
+    sections: [
+      {
+        title: "State change",
+        items: ["The Agent Job and its Loop step were canceled.", "The connected Objective was canceled when it owned this provider wait."]
+      }
+    ],
+    nextStep: "Start a new Objective or explicitly retry the work if this delivery should continue."
+  });
+}
+
+async function providerEventTargets(
+  repos: Repositories,
+  job: AgentJobDto,
+  objective: ObjectiveRunDto | null
+): Promise<ProviderEventTarget[]> {
+  if (job.targetType === "project") return [];
+  const targets: ProviderEventTarget[] = [{ targetType: job.targetType, targetId: job.targetId }];
+  if (job.targetType !== "pull_request") return targets;
+  const pullRequest = await repos.pullRequests.get(job.projectId, job.targetId);
+  const issueId = objective?.issueId ?? pullRequest?.issueId ?? null;
+  if (issueId !== null) targets.push({ targetType: "issue", targetId: issueId });
+  return targets;
+}
+
+async function createProviderEventComment(
+  repos: Repositories,
+  input: {
+    projectId: string;
+    target: ProviderEventTarget;
+    body: string;
+    key: string;
+    metadata: Record<string, unknown>;
+  }
+): Promise<void> {
+  const comments = await repos.comments.list(input.projectId, input.target.targetType, input.target.targetId);
+  if (comments.some((comment) => comment.metadata?.providerWaitEventKey === input.key)) return;
+  await repos.comments.create({
+    projectId: input.projectId,
+    targetType: input.target.targetType,
+    targetId: input.target.targetId,
+    authorType: "system",
+    body: input.body,
+    bodyFormat: "markdown",
+    metadata: { ...input.metadata, providerWaitEventKey: input.key }
+  });
 }
 
 function numericMetadata(value: Record<string, unknown> | null, key: string): number | null {

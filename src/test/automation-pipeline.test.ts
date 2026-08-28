@@ -13,6 +13,7 @@ import { createRepositories } from "../server/db/repositories";
 import { getRevisionHash } from "../server/services/git-service";
 import { ensureObjectiveForTarget } from "../server/services/objective-runs";
 import { mergePullRequest } from "../server/services/pull-request-merge";
+import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../server/services/provider-wait";
 import { workflowLabelNames } from "../shared/workflow-labels";
 import { diffFileAnchor } from "../shared/diff-anchors";
 
@@ -77,6 +78,8 @@ describe("automatic delivery pipeline", () => {
       usageSnapshot: { remaining: 0 }
     });
     expect(waitingObjective).toMatchObject({ status: "waiting_provider", roundCount: 0 });
+    const waitComments = await repos.comments.list(project.id, "issue", issue.id);
+    expect(waitComments.some((comment) => comment.metadata?.providerWaitEvent === "wait_started")).toBe(true);
 
     await context.client.execute({
       sql: "update agent_jobs set next_retry_at = ? where id = ?",
@@ -96,6 +99,12 @@ describe("automatic delivery pipeline", () => {
     });
     expect(completedObjective?.roundCount).toBe(1);
     expect(calls).toBe(2);
+    const resumedComments = await repos.comments.list(project.id, "issue", issue.id);
+    expect(
+      resumedComments.some(
+        (comment) => comment.metadata?.providerWaitEvent === "retry_queued" && comment.metadata?.trigger === "automatic"
+      )
+    ).toBe(true);
 
     context.client.close();
   });
@@ -134,6 +143,12 @@ describe("automatic delivery pipeline", () => {
     });
     expect(resumeResponse.status).toBe(200);
     expect((await resumeResponse.json()) as { job: { status: string } }).toMatchObject({ job: { status: "queued" } });
+    const manuallyResumedComments = await repos.comments.list(project.id, "issue", issue.id);
+    expect(
+      manuallyResumedComments.some(
+        (comment) => comment.metadata?.providerWaitEvent === "retry_queued" && comment.metadata?.trigger === "manual"
+      )
+    ).toBe(true);
 
     await worker.tick();
     const waitingAgain = await repos.agentJobs.get(project.id, job.id);
@@ -150,6 +165,64 @@ describe("automatic delivery pipeline", () => {
     expect(cancelResponse.status).toBe(200);
     expect(canceledJob?.status).toBe("canceled");
     expect(canceledObjective).toMatchObject({ status: "canceled", roundCount: 0, stopReason: "canceled" });
+    const canceledComments = await repos.comments.list(project.id, "issue", issue.id);
+    expect(canceledComments.some((comment) => comment.metadata?.providerWaitEvent === "wait_canceled")).toBe(true);
+
+    context.client.close();
+  });
+
+  it("mirrors provider wait and resume history from a PR to its linked Issue", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-provider-linked-issue-db-"));
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Linked wait", repoPath: databaseDir, defaultBranch: "main" });
+    const issue = await repos.issues.create({ projectId: project.id, title: "Keep provider history" });
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      issueId: issue.id,
+      title: "Wait during review",
+      sourceBranch: "feature/wait",
+      targetBranch: "main"
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const queuedJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "review",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const job = await repos.agentJobs.updateStatus(project.id, queuedJob.id, "running");
+    expect(job).not.toBeNull();
+    const decision = classifyProviderWait(
+      job!,
+      { status: "failed", message: "You've hit your usage limit. Try again later." },
+      new Date("2026-08-28T00:00:00.000Z"),
+      () => 0.5
+    );
+    expect(decision).not.toBeNull();
+
+    const waitingJob = await enterProviderWait(repos, job!, decision!);
+    expect(waitingJob?.status).toBe("waiting_provider");
+    const [waitPrComments, waitIssueComments] = await Promise.all([
+      repos.comments.list(project.id, "pull_request", pullRequest.id),
+      repos.comments.list(project.id, "issue", issue.id)
+    ]);
+    expect(waitPrComments.some((comment) => comment.metadata?.providerWaitEvent === "wait_started")).toBe(true);
+    expect(waitIssueComments.some((comment) => comment.metadata?.providerWaitEvent === "wait_started")).toBe(true);
+
+    await resumeProviderWait(repos, waitingJob!, "manual");
+    const [resumePrComments, resumeIssueComments] = await Promise.all([
+      repos.comments.list(project.id, "pull_request", pullRequest.id),
+      repos.comments.list(project.id, "issue", issue.id)
+    ]);
+    expect(resumePrComments.some((comment) => comment.metadata?.providerWaitEvent === "retry_queued")).toBe(true);
+    expect(resumeIssueComments.some((comment) => comment.metadata?.providerWaitEvent === "retry_queued")).toBe(true);
 
     context.client.close();
   });

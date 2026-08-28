@@ -108,7 +108,7 @@
 - [x] quota回復時に同じJob / Objective stepを自動queueし、通常の完了処理でEvidenceを再取得する
 - [x] アプリ再起動時に`waiting_provider`と`nextRetryAt`をDBから復元する
 - [x] 状態条件付きupdateにより、同一Jobの二重再開を防止する
-- [ ] **Partial**: wait開始 / 自動・手動再開 / cancelをActivityへ記録し、Cancel時はObjective / Loopも整合させる。軽量probeによる延長 / 回復eventは未実装
+- [ ] **Partial**: wait開始 / 自動・手動再開 / cancelをActivityと重複排除された構造化Markdownへ記録し、PRの履歴をlinked Issueにも同期する。Cancel時はObjective / Loopも整合させる。軽量probeによる延長 / 回復eventは未実装
 - [x] usage limit、resetあり / なし、別WorkerによるDB復元、手動Resume、Cancelのunit / integration testを追加する
 
 ### UI
