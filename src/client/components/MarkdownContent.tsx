@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import type { CommentBodyFormat } from "../../shared/types";
+import { isSafeImageDimension, isSafeRichTextUrl, sanitizeRichTextStyle } from "../html-sanitizer-policy";
 
 export function MarkdownContent(props: { content: string; className?: string; format?: CommentBodyFormat }) {
   if (props.format === "html") {
@@ -69,30 +70,7 @@ const allowedTags = new Set([
   "ul"
 ]);
 
-const globalAttributes = new Set(["aria-label", "class", "title"]);
-const allowedStyleProperties = new Set([
-  "background",
-  "background-color",
-  "border",
-  "border-color",
-  "border-left",
-  "border-radius",
-  "color",
-  "display",
-  "font-size",
-  "font-style",
-  "font-weight",
-  "gap",
-  "grid-template-columns",
-  "line-height",
-  "margin",
-  "margin-bottom",
-  "margin-top",
-  "max-width",
-  "padding",
-  "text-align",
-  "width"
-]);
+const globalAttributes = new Set(["aria-label", "title"]);
 
 function sanitizeHtml(input: string): string {
   const template = document.createElement("template");
@@ -138,7 +116,7 @@ function sanitizeAttributes(element: HTMLElement, tagName: string): void {
       continue;
     }
     if (name === "style") {
-      const style = sanitizeStyle(value);
+      const style = sanitizeRichTextStyle(value);
       if (style) {
         element.setAttribute("style", style);
       } else {
@@ -147,63 +125,35 @@ function sanitizeAttributes(element: HTMLElement, tagName: string): void {
       continue;
     }
     if (name === "href" && tagName === "a") {
-      if (isSafeUrl(value)) {
-        element.setAttribute("rel", "noreferrer noopener");
-      } else {
+      if (!isSafeRichTextUrl(value, "link", window.location.origin)) {
         element.removeAttribute(attribute.name);
       }
       continue;
     }
     if (name === "src" && tagName === "img") {
-      if (!isSafeUrl(value)) {
+      if (!isSafeRichTextUrl(value, "image", window.location.origin)) {
         element.removeAttribute(attribute.name);
       }
       continue;
     }
-    if (tagName === "img" && ["alt", "height", "width"].includes(name)) {
+    if (tagName === "img" && name === "alt") {
       continue;
     }
-    if (globalAttributes.has(name) || name.startsWith("data-")) {
+    if (tagName === "img" && ["height", "width"].includes(name)) {
+      if (!isSafeImageDimension(value)) element.removeAttribute(attribute.name);
+      continue;
+    }
+    if (globalAttributes.has(name)) {
       continue;
     }
     element.removeAttribute(attribute.name);
   }
-}
-
-function sanitizeStyle(value: string): string {
-  return value
-    .split(";")
-    .map((declaration) => declaration.trim())
-    .filter(Boolean)
-    .filter((declaration) => {
-      const separator = declaration.indexOf(":");
-      if (separator === -1) {
-        return false;
-      }
-      const property = declaration.slice(0, separator).trim().toLowerCase();
-      const cssValue = declaration.slice(separator + 1).trim().toLowerCase();
-      return (
-        allowedStyleProperties.has(property) &&
-        !cssValue.includes("url(") &&
-        !cssValue.includes("expression") &&
-        !cssValue.includes("javascript:") &&
-        !cssValue.includes("@import") &&
-        !cssValue.includes("<") &&
-        !cssValue.includes(">")
-      );
-    })
-    .join("; ");
-}
-
-function isSafeUrl(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    return true;
+  if (tagName === "a" && element.hasAttribute("href")) {
+    element.setAttribute("rel", "noreferrer noopener");
   }
-  try {
-    const url = new URL(trimmed, window.location.origin);
-    return ["http:", "https:", "mailto:"].includes(url.protocol);
-  } catch {
-    return false;
+  if (tagName === "img" && element.hasAttribute("src")) {
+    element.setAttribute("loading", "lazy");
+    element.setAttribute("decoding", "async");
+    element.setAttribute("referrerpolicy", "no-referrer");
   }
 }

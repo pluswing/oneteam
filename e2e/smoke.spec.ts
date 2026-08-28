@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { createClient } from "@libsql/client";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -45,6 +46,53 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".automation-checks")).toContainText("queued");
   await expect(page.locator(".automation-check-links")).toContainText("Activities");
   await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
+
+  const projectsResponse = await page.request.get("/api/projects");
+  const projects = (await projectsResponse.json()) as { items: Array<{ id: string }> };
+  const projectId = projects.items[0].id;
+  const database = createClient({ url: `file:${resolve(".tmp/e2e/oneteam.db")}` });
+  const timestamp = new Date().toISOString();
+  await database.execute({
+    sql: `INSERT INTO comments (
+      project_id, target_type, target_id, author_type, agent_type, body, body_format, metadata_json, created_at, updated_at
+    ) VALUES (?, 'issue', 1, 'system', NULL, ?, 'html', NULL, ?, ?)`,
+    args: [
+      projectId,
+      `<section class="app-shell" data-private="secret" style="color: #0969da; display: grid; position: fixed; background-image: url(https://example.com/a)">
+        <h2>Sanitizer security report</h2>
+        <a href="javascript:alert(1)" onclick="alert(1)">Unsafe link</a>
+        <a href="/issues/1">Safe local link</a>
+        <img alt="Remote tracker" src="https://example.com/tracker.png" onerror="alert(1)" />
+        <img alt="Local artifact" src="/api/health" width="640" height="9999" />
+        <script>window.__unsafeHtmlExecuted = true</script>
+        <iframe src="https://example.com"></iframe>
+      </section>`,
+      timestamp,
+      timestamp
+    ]
+  });
+  database.close();
+  await page.getByRole("button", { name: "Issues", exact: true }).click();
+  await page.getByRole("button", { name: /Add smoke workflow/ }).click();
+  const sanitizedReport = page.locator(".html-body section").filter({ hasText: "Sanitizer security report" });
+  await expect(sanitizedReport).toBeVisible();
+  await expect(sanitizedReport).not.toHaveAttribute("class");
+  await expect(sanitizedReport).not.toHaveAttribute("data-private");
+  await expect(sanitizedReport).toHaveAttribute("style", /color: #0969da; display: grid/);
+  await expect(sanitizedReport).not.toHaveAttribute("style", /position|background-image|url/i);
+  await expect(sanitizedReport.getByText("Unsafe link")).not.toHaveAttribute("href");
+  await expect(sanitizedReport.getByText("Unsafe link")).not.toHaveAttribute("onclick");
+  await expect(sanitizedReport.getByRole("link", { name: "Safe local link" })).toHaveAttribute("href", "/issues/1");
+  await expect(sanitizedReport.getByRole("link", { name: "Safe local link" })).toHaveAttribute("rel", "noreferrer noopener");
+  await expect(sanitizedReport.getByAltText("Remote tracker")).not.toHaveAttribute("src");
+  await expect(sanitizedReport.getByAltText("Local artifact")).toHaveAttribute("src", "/api/health");
+  await expect(sanitizedReport.getByAltText("Local artifact")).toHaveAttribute("loading", "lazy");
+  await expect(sanitizedReport.getByAltText("Local artifact")).toHaveAttribute("referrerpolicy", "no-referrer");
+  await expect(sanitizedReport.getByAltText("Local artifact")).toHaveAttribute("width", "640");
+  await expect(sanitizedReport.getByAltText("Local artifact")).not.toHaveAttribute("height");
+  await expect(sanitizedReport.locator("script, iframe")).toHaveCount(0);
+  expect(await page.evaluate(() => "__unsafeHtmlExecuted" in window)).toBe(false);
+
   await page.getByRole("button", { name: "Pause automation" }).click();
   await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
   await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
@@ -112,9 +160,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   execFileSync("git", ["add", "large.ts"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "add large diff fixture"], { cwd: repoPath });
 
-  const projectsResponse = await page.request.get("/api/projects");
-  const projects = (await projectsResponse.json()) as { items: Array<{ id: string }> };
-  const pullRequestResponse = await page.request.post(`/api/projects/${projects.items[0].id}/pull-requests`, {
+  const pullRequestResponse = await page.request.post(`/api/projects/${projectId}/pull-requests`, {
     data: {
       title: "Review a large generated diff",
       body: "Exercises bounded progressive diff rendering.",
