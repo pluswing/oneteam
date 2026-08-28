@@ -96,7 +96,7 @@
 
 - [x] `waiting_provider` Agent Job / Objective statusを型、DB、migration、API、UIに追加する
 - [x] `provider_quota_exhausted` Wait Reasonを追加する
-- [ ] **Partial**: Codex CLIのstructured error / stderr messageからusage limit / rate limit / HTTP 429を分類し、thread / usage eventを収集する。usage eventだけからquota exhaustionを判定する制御は未実装
+- [x] Codex CLIのstructured error / stderr messageとnested usage telemetryからusage limit / rate limit / HTTP 429 / remaining=0を分類し、thread / usage eventを収集する
 - [x] provider、model、message、usage snapshot、detectedAt、resetAt、nextRetryAt、retryCount、thread / session idをProvider Wait metadataへ保存する
 - [x] provider quota待機をfailed、waiting_human、repeated failure、objective roundとして数えない
 

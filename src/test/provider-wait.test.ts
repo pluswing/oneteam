@@ -31,8 +31,43 @@ describe("provider wait classification", () => {
       nextRetryAt: "2026-08-28T02:00:05.000Z",
       retryCount: 1,
       jitterMs: 0,
+      detectionSource: "message",
       usageSnapshot: { remaining: 0 }
     });
+  });
+
+  it("detects quota exhaustion from nested usage telemetry without matching message text", () => {
+    const decision = classifyProviderWait(
+      fakeJob(),
+      {
+        status: "failed",
+        message: "Codex turn could not start.",
+        metadata: {
+          providerExecution: {
+            usage: {
+              rate_limits: {
+                primary: { weighted_tokens_left: 0, resets_at: 1_777_600_000 }
+              }
+            }
+          }
+        }
+      },
+      new Date("2026-04-30T00:00:00.000Z"),
+      () => 0.5
+    );
+
+    expect(decision).toMatchObject({
+      detectionSource: "usage",
+      resetAt: "2026-05-01T01:46:40.000Z",
+      nextRetryAt: "2026-05-01T01:46:45.000Z"
+    });
+    expect(
+      classifyProviderWait(fakeJob(), {
+        status: "failed",
+        message: "Compilation failed.",
+        metadata: { providerExecution: { usage: { output_tokens: 0 } } }
+      })
+    ).toBeNull();
   });
 
   it("applies bounded jitter to exponential backoff when no reset is reported", () => {
@@ -84,6 +119,7 @@ describe("provider wait classification", () => {
     expect(comment).toContain("## AI provider usage wait");
     expect(comment).toContain("> **Outcome · WAITING**");
     expect(comment).toContain("| Session | `session-1` |");
+    expect(comment).toContain("| Detection source | `message` |");
     expect(comment).toContain("### Usage snapshot");
     expect(comment).toContain('"remaining": 0');
     expect(comment).toContain("### Next step");

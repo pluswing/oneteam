@@ -19,6 +19,7 @@ export type ProviderWaitDecision = {
   retryDelayMs: number;
   jitterMs: number;
   providerMessage: string;
+  detectionSource: "message" | "usage";
 };
 
 type ProviderEventTarget = {
@@ -41,7 +42,10 @@ export function classifyProviderWait(
   currentTime = new Date(),
   random = Math.random
 ): ProviderWaitDecision | null {
-  if (result.status !== "failed" || !providerQuotaPatterns.some((pattern) => pattern.test(result.message))) {
+  const usageSnapshot = result.metadata?.providerExecution?.usage ?? null;
+  const detectedFromMessage = providerQuotaPatterns.some((pattern) => pattern.test(result.message));
+  const detectedFromUsage = usageIndicatesQuotaExhaustion(usageSnapshot);
+  if (result.status !== "failed" || (!detectedFromMessage && !detectedFromUsage)) {
     return null;
   }
 
@@ -49,7 +53,6 @@ export function classifyProviderWait(
   const previousRetryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
   const retryCount = previousRetryCount + 1;
   const providerExecution = result.metadata?.providerExecution;
-  const usageSnapshot = providerExecution?.usage ?? null;
   const resetAt = resetAtFromUsage(usageSnapshot) ?? parseResetAt(result.message, currentTime);
   const backoffMs = Math.min(5 * 60_000 * 2 ** (retryCount - 1), 60 * 60_000);
   const jitterFactor = 0.9 + Math.min(Math.max(random(), 0), 1) * 0.2;
@@ -71,7 +74,8 @@ export function classifyProviderWait(
     retryCount,
     retryDelayMs: nextRetryMs - currentTime.getTime(),
     jitterMs: hasFutureReset ? 0 : jitterMs,
-    providerMessage: result.message.slice(0, 4000)
+    providerMessage: result.message.slice(0, 4000),
+    detectionSource: detectedFromMessage ? "message" : "usage"
   };
 }
 
@@ -173,6 +177,7 @@ export function buildProviderWaitComment(job: AgentJobDto, decision: ProviderWai
       decision.model ? { label: "Model", value: decision.model, code: true } : null,
       decision.sessionId ? { label: "Session", value: decision.sessionId, code: true } : null,
       { label: "Stop reason", value: decision.reason, code: true },
+      { label: "Detection source", value: decision.detectionSource, code: true },
       { label: "Retry attempt", value: decision.retryCount },
       { label: "Detected at", value: decision.detectedAt, code: true },
       {
@@ -444,10 +449,7 @@ function parseResetAt(message: string, currentTime: Date): string | null {
 }
 
 function resetAtFromUsage(usage: Record<string, unknown> | null): string | null {
-  if (!usage) {
-    return null;
-  }
-  const value = usage.resetAt ?? usage.reset_at ?? usage.resetsAt ?? usage.resets_at;
+  const value = findUsageValue(usage, new Set(["resetat", "resetsat", "resettime", "resets"]));
   if (typeof value === "string") {
     const timestamp = Date.parse(value);
     return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
@@ -457,4 +459,51 @@ function resetAtFromUsage(usage: Record<string, unknown> | null): string | null 
     return new Date(timestamp).toISOString();
   }
   return null;
+}
+
+function usageIndicatesQuotaExhaustion(usage: Record<string, unknown> | null): boolean {
+  if (!usage) return false;
+  const remainingKeys = new Set([
+    "remaining",
+    "remainingtokens",
+    "tokensremaining",
+    "weightedtokensremaining",
+    "weightedtokensleft",
+    "requestsremaining",
+    "usageremaining"
+  ]);
+  const exhaustedKeys = new Set(["exhausted", "quotaexhausted", "limitreached", "usagelimitreached"]);
+  return walkUsage(usage, (key, value) => {
+    const normalizedKey = normalizeUsageKey(key);
+    if (remainingKeys.has(normalizedKey) && typeof value === "number" && Number.isFinite(value)) return value <= 0;
+    if (exhaustedKeys.has(normalizedKey) && value === true) return true;
+    return false;
+  });
+}
+
+function findUsageValue(usage: Record<string, unknown> | null, keys: Set<string>): unknown {
+  let found: unknown;
+  walkUsage(usage, (key, value) => {
+    if (!keys.has(normalizeUsageKey(key))) return false;
+    found = value;
+    return true;
+  });
+  return found;
+}
+
+function walkUsage(
+  value: unknown,
+  visitor: (key: string, value: unknown) => boolean,
+  depth = 0
+): boolean {
+  if (depth > 6 || typeof value !== "object" || value === null) return false;
+  if (Array.isArray(value)) return value.some((item) => walkUsage(item, visitor, depth + 1));
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (visitor(key, item) || walkUsage(item, visitor, depth + 1)) return true;
+  }
+  return false;
+}
+
+function normalizeUsageKey(key: string): string {
+  return key.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
 }
