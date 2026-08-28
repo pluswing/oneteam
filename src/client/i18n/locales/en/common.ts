@@ -245,6 +245,10 @@ export const en = {
     objectiveTokenBudgetDescription: "Stops new agent work after provider-reported token usage reaches this total.",
     objectiveCostBudget: "Cost budget per Objective (USD)",
     objectiveCostBudgetDescription: "Uses provider-reported USD cost only. No price is estimated when a provider omits cost.",
+    agentTimeBudget: "Agent time budget (minutes)",
+    agentTimeBudgetDescription: "Overall deadline for one agent job. A Loop-specific time budget takes precedence.",
+    verificationCommandTimeout: "Verification command timeout (minutes)",
+    verificationCommandTimeoutDescription: "Independent timeout applied to each lint, test, and build command.",
     unlimitedBudget: "Unlimited",
     saved: "Settings saved"
   },

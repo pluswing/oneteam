@@ -7,7 +7,9 @@ export const defaultAutomationSettings: ProjectSettingsDto["automation"] = {
   autoMergeStrategy: "merge",
   autoMergeRiskThreshold: "medium",
   objectiveTokenBudget: null,
-  objectiveCostBudgetUsd: null
+  objectiveCostBudgetUsd: null,
+  agentTimeBudgetMinutes: null,
+  verificationCommandTimeoutMinutes: 5
 };
 
 export async function readAutomationSettings(repos: Repositories): Promise<ProjectSettingsDto["automation"]> {
@@ -32,7 +34,11 @@ export async function readAutomationSettings(repos: Repositories): Promise<Proje
       ? (stored?.autoMergeRiskThreshold as ProjectSettingsDto["automation"]["autoMergeRiskThreshold"])
       : defaultAutomationSettings.autoMergeRiskThreshold,
     objectiveTokenBudget: positiveIntegerOrNull(stored?.objectiveTokenBudget),
-    objectiveCostBudgetUsd: positiveNumberOrNull(stored?.objectiveCostBudgetUsd)
+    objectiveCostBudgetUsd: positiveNumberOrNull(stored?.objectiveCostBudgetUsd),
+    agentTimeBudgetMinutes: positiveNumberOrNull(stored?.agentTimeBudgetMinutes),
+    verificationCommandTimeoutMinutes:
+      positiveNumberOrNull(stored?.verificationCommandTimeoutMinutes) ??
+      defaultAutomationSettings.verificationCommandTimeoutMinutes
   };
 }
 

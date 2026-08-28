@@ -247,6 +247,10 @@ export const ja = {
     objectiveTokenBudgetDescription: "provider が報告した累積 token 使用量がこの値に達すると、新しい agent 作業を停止します。",
     objectiveCostBudget: "Objective ごとの cost budget (USD)",
     objectiveCostBudgetDescription: "provider が報告した USD cost のみを使用します。cost がない場合に単価を推定しません。",
+    agentTimeBudget: "Agent time budget（分）",
+    agentTimeBudgetDescription: "1件のAgent Job全体に適用するdeadlineです。Loop固有のtime budgetが優先されます。",
+    verificationCommandTimeout: "検証command timeout（分）",
+    verificationCommandTimeoutDescription: "lint / test / buildの各commandへ独立して適用します。",
     unlimitedBudget: "無制限",
     saved: "設定を保存しました"
   },

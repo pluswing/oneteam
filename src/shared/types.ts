@@ -101,6 +101,8 @@ export type ProjectSettingsDto = {
     autoMergeRiskThreshold: "medium" | "high" | "none";
     objectiveTokenBudget: number | null;
     objectiveCostBudgetUsd: number | null;
+    agentTimeBudgetMinutes: number | null;
+    verificationCommandTimeoutMinutes: number;
   };
   runtime: {
     server: {

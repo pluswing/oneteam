@@ -27,7 +27,9 @@ describe("Objective provider usage budgets", () => {
       autoMergeStrategy: "merge",
       autoMergeRiskThreshold: "medium",
       objectiveTokenBudget: 100,
-      objectiveCostBudgetUsd: 5
+      objectiveCostBudgetUsd: 5,
+      agentTimeBudgetMinutes: null,
+      verificationCommandTimeoutMinutes: 5
     });
     const issue = await repos.issues.create({ projectId: project.id, title: "Bounded objective" });
     const objective = await ensureObjectiveForTarget(repos, {
@@ -151,7 +153,9 @@ describe("Objective provider usage budgets", () => {
       autoMergeStrategy: "merge",
       autoMergeRiskThreshold: "medium",
       objectiveTokenBudget: 50,
-      objectiveCostBudgetUsd: null
+      objectiveCostBudgetUsd: null,
+      agentTimeBudgetMinutes: null,
+      verificationCommandTimeoutMinutes: 5
     });
     const issue = await repos.issues.create({ projectId: project.id, title: "Do not start provider" });
     const objective = await ensureObjectiveForTarget(repos, {

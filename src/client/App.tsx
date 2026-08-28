@@ -2530,6 +2530,8 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     useState<ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]>("medium");
   const [objectiveTokenBudget, setObjectiveTokenBudget] = useState("");
   const [objectiveCostBudgetUsd, setObjectiveCostBudgetUsd] = useState("");
+  const [agentTimeBudgetMinutes, setAgentTimeBudgetMinutes] = useState("");
+  const [verificationCommandTimeoutMinutes, setVerificationCommandTimeoutMinutes] = useState("5");
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -2559,6 +2561,10 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setObjectiveCostBudgetUsd(response.automation.objectiveCostBudgetUsd === null
       ? ""
       : String(response.automation.objectiveCostBudgetUsd));
+    setAgentTimeBudgetMinutes(response.automation.agentTimeBudgetMinutes === null
+      ? ""
+      : String(response.automation.agentTimeBudgetMinutes));
+    setVerificationCommandTimeoutMinutes(String(response.automation.verificationCommandTimeoutMinutes));
   }
 
   useEffect(() => {
@@ -2599,7 +2605,9 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           autoMergeStrategy,
           autoMergeRiskThreshold,
           objectiveTokenBudget: objectiveTokenBudget.trim() ? Number(objectiveTokenBudget) : null,
-          objectiveCostBudgetUsd: objectiveCostBudgetUsd.trim() ? Number(objectiveCostBudgetUsd) : null
+          objectiveCostBudgetUsd: objectiveCostBudgetUsd.trim() ? Number(objectiveCostBudgetUsd) : null,
+          agentTimeBudgetMinutes: agentTimeBudgetMinutes.trim() ? Number(agentTimeBudgetMinutes) : null,
+          verificationCommandTimeoutMinutes: Number(verificationCommandTimeoutMinutes || "5")
         }
       });
       setSettings(response);
@@ -2769,6 +2777,30 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               value={objectiveCostBudgetUsd}
             />
             <small>{t("settings.objectiveCostBudgetDescription")}</small>
+          </label>
+          <label>
+            {t("settings.agentTimeBudget")}
+            <input
+              min="0.01"
+              onChange={(event) => setAgentTimeBudgetMinutes(event.target.value)}
+              placeholder={t("settings.unlimitedBudget")}
+              step="0.5"
+              type="number"
+              value={agentTimeBudgetMinutes}
+            />
+            <small>{t("settings.agentTimeBudgetDescription")}</small>
+          </label>
+          <label>
+            {t("settings.verificationCommandTimeout")}
+            <input
+              min="0.01"
+              onChange={(event) => setVerificationCommandTimeoutMinutes(event.target.value)}
+              required
+              step="0.5"
+              type="number"
+              value={verificationCommandTimeoutMinutes}
+            />
+            <small>{t("settings.verificationCommandTimeoutDescription")}</small>
           </label>
         </fieldset>
         <fieldset>

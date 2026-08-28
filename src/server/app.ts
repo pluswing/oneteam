@@ -191,7 +191,9 @@ const updateProjectSettingsSchema = z
         autoMergeStrategy: z.enum(["merge", "squash"]).optional(),
         autoMergeRiskThreshold: z.enum(["medium", "high", "none"]).optional(),
         objectiveTokenBudget: z.number().int().positive().nullable().optional(),
-        objectiveCostBudgetUsd: z.number().positive().nullable().optional()
+        objectiveCostBudgetUsd: z.number().positive().nullable().optional(),
+        agentTimeBudgetMinutes: z.number().positive().nullable().optional(),
+        verificationCommandTimeoutMinutes: z.number().positive().optional()
       })
       .strict()
       .optional()
