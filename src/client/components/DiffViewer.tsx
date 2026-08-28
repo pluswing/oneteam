@@ -1,6 +1,6 @@
 import { Check, ChevronDown, ChevronUp, FileCode2, Search } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { RepositoryFileChangeDto } from "../../shared/types";
+import type { PullRequestFindingDto, RepositoryFileChangeDto } from "../../shared/types";
 import { api } from "../api";
 import {
   buildSplitDiffRows,
@@ -90,7 +90,51 @@ function SyntaxLine(props: { content: string; path: string }) {
   );
 }
 
-function UnifiedDiff(props: { path: string; patch: string }) {
+function findingLineLabel(finding: PullRequestFindingDto): string {
+  return finding.line ? `${finding.side}${finding.line}` : t("pullRequests.fileFinding");
+}
+
+function FindingCard(props: { finding: PullRequestFindingDto; onOpen?: () => void }) {
+  const content = (
+    <>
+      <span className={`diff-finding-severity severity-${props.finding.severity}`}>{props.finding.severity}</span>
+      <span className="diff-finding-source">{props.finding.source} #{props.finding.agentJobId}</span>
+      <strong>{props.finding.title}</strong>
+      {props.finding.body ? <span className="diff-finding-body">{props.finding.body}</span> : null}
+      <span className={`diff-finding-status status-${props.finding.status}`}>
+        {props.finding.status === "resolved" ? t("pullRequests.findingResolved") : t("pullRequests.findingOpen")}
+      </span>
+      <span className="diff-finding-line">{findingLineLabel(props.finding)}</span>
+    </>
+  );
+  return props.onOpen ? (
+    <button className={`diff-finding-card status-${props.finding.status}`} onClick={props.onOpen} type="button">
+      {content}
+    </button>
+  ) : (
+    <div className={`diff-finding-card status-${props.finding.status}`}>{content}</div>
+  );
+}
+
+function InlineFindingRows(props: { colSpan: number; findings: PullRequestFindingDto[] }) {
+  if (!props.findings.length) return null;
+  return (
+    <tr className="diff-finding-row">
+      <td colSpan={props.colSpan}>
+        {props.findings.map((finding) => <FindingCard finding={finding} key={finding.id} />)}
+      </td>
+    </tr>
+  );
+}
+
+function findingsForLine(findings: PullRequestFindingDto[], line: DiffLine): PullRequestFindingDto[] {
+  return findings.filter((finding) =>
+    finding.line !== null &&
+    (finding.side === "L" ? line.oldLineNumber === finding.line : line.newLineNumber === finding.line)
+  );
+}
+
+function UnifiedDiff(props: { findings: PullRequestFindingDto[]; path: string; patch: string }) {
   const parsed = useMemo(() => parseDiffPatch(props.patch), [props.patch]);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
@@ -107,15 +151,21 @@ function UnifiedDiff(props: { path: string; patch: string }) {
               <tr className="diff-hunk-row">
                 <td colSpan={3}>{hunk.header}</td>
               </tr>
-              {hunk.lines.map((line, lineIndex) => (
-                <tr className={`diff-line diff-line-${line.kind}`} key={`${hunkIndex}-${lineIndex}`}>
-                  <td className="diff-line-number"><LineNumber path={props.path} side="L" value={line.oldLineNumber} /></td>
-                  <td className="diff-line-number"><LineNumber path={props.path} side="R" value={line.newLineNumber} /></td>
-                  <td className="diff-code">
-                    <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={line.content} path={props.path} /></code>
-                  </td>
-                </tr>
-              ))}
+              {hunk.lines.map((line, lineIndex) => {
+                const lineFindings = findingsForLine(props.findings, line);
+                return (
+                  <Fragment key={`${hunkIndex}-${lineIndex}`}>
+                    <tr className={`diff-line diff-line-${line.kind}`}>
+                      <td className="diff-line-number"><LineNumber path={props.path} side="L" value={line.oldLineNumber} /></td>
+                      <td className="diff-line-number"><LineNumber path={props.path} side="R" value={line.newLineNumber} /></td>
+                      <td className="diff-code">
+                        <code><span className="diff-prefix" aria-hidden="true">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}</span><SyntaxLine content={line.content} path={props.path} /></code>
+                      </td>
+                    </tr>
+                    <InlineFindingRows colSpan={3} findings={lineFindings} />
+                  </Fragment>
+                );
+              })}
             </Fragment>
           ))}
         </tbody>
@@ -135,7 +185,7 @@ function splitContent(line: DiffLine | null, other: DiffLine | null, side: "befo
   return <SyntaxLine content={line.content} path={path} />;
 }
 
-function SplitDiff(props: { path: string; patch: string }) {
+function SplitDiff(props: { findings: PullRequestFindingDto[]; path: string; patch: string }) {
   const parsed = useMemo(() => parseDiffPatch(props.patch), [props.patch]);
   if (parsed.binary) {
     return <div className="diff-notice">{t("pullRequests.binaryDiff")}</div>;
@@ -150,8 +200,16 @@ function SplitDiff(props: { path: string; patch: string }) {
           {parsed.hunks.map((hunk, hunkIndex) => (
             <Fragment key={`${hunk.header}-${hunkIndex}`}>
               <tr className="diff-hunk-row"><td colSpan={4}>{hunk.header}</td></tr>
-              {buildSplitDiffRows(hunk.lines).map((row, rowIndex) => (
-                <tr className="diff-split-row" key={`${hunkIndex}-${rowIndex}`}>
+              {buildSplitDiffRows(hunk.lines).map((row, rowIndex) => {
+                const lineFindings = props.findings.filter((finding) => {
+                  if (finding.line === null) return false;
+                  return finding.side === "L"
+                    ? row.left?.oldLineNumber === finding.line
+                    : row.right?.newLineNumber === finding.line;
+                });
+                return (
+                <Fragment key={`${hunkIndex}-${rowIndex}`}>
+                <tr className="diff-split-row">
                   <td className={`diff-line-number diff-line-${row.left?.kind ?? "empty"}`}>
                     <LineNumber path={props.path} side="L" value={row.left?.oldLineNumber ?? null} />
                   </td>
@@ -165,7 +223,9 @@ function SplitDiff(props: { path: string; patch: string }) {
                     <code>{row.right ? <><span className="diff-prefix" aria-hidden="true">{row.right.kind === "addition" ? "+" : " "}</span>{splitContent(row.right, row.left, "after", props.path)}</> : null}</code>
                   </td>
                 </tr>
-              ))}
+                <InlineFindingRows colSpan={4} findings={lineFindings} />
+                </Fragment>
+              );})}
             </Fragment>
           ))}
         </tbody>
@@ -178,6 +238,7 @@ export function DiffViewer(props: {
   projectId: string;
   pullRequestId: number;
   files: RepositoryFileChangeDto[];
+  findings: PullRequestFindingDto[];
   sourceCommit: string | null;
   targetCommit: string | null;
 }) {
@@ -187,6 +248,7 @@ export function DiffViewer(props: {
   const [view, setView] = useState<DiffView>("unified");
   const [context, setContext] = useState<"default" | "wide" | "full">("default");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [showResolvedFindings, setShowResolvedFindings] = useState(false);
   const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readViewedPaths(viewedStorageKey));
   const [selectedFile, setSelectedFile] = useState<RepositoryFileChangeDto | null>(null);
   const [loading, setLoading] = useState(false);
@@ -284,6 +346,13 @@ export function DiffViewer(props: {
   const selectedIndex = props.files.findIndex((file) => file.path === selectedPath);
   const currentSummary = selectedIndex >= 0 ? props.files[selectedIndex] : null;
   const viewedCount = props.files.filter((file) => viewedPaths.has(file.path)).length;
+  const displayedFindings = props.findings.filter((finding) =>
+    (showResolvedFindings || finding.status === "open") &&
+    currentSummary &&
+    (finding.path === currentSummary.path || finding.path === currentSummary.previousPath)
+  );
+  const openFindingCount = props.findings.filter((finding) => finding.status === "open").length;
+  const resolvedFindingCount = props.findings.length - openFindingCount;
 
   useEffect(() => {
     function handleKeyboardNavigation(event: KeyboardEvent): void {
@@ -329,6 +398,14 @@ export function DiffViewer(props: {
     });
   }
 
+  function openFinding(finding: PullRequestFindingDto): void {
+    if (!currentSummary || finding.line === null) return;
+    const anchor = diffLineAnchor(currentSummary.path, finding.side, finding.line);
+    setContext("full");
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
+    window.requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "center" }));
+  }
+
   return (
     <section className="diff-viewer" aria-label={t("pullRequests.filesChanged")}>
       <div className="diff-toolbar">
@@ -351,6 +428,7 @@ export function DiffViewer(props: {
             </select>
           </label>
           <label className="diff-checkbox"><input checked={ignoreWhitespace} onChange={(event) => setIgnoreWhitespace(event.target.checked)} type="checkbox" />{t("pullRequests.ignoreWhitespace")}</label>
+          {resolvedFindingCount ? <label className="diff-checkbox"><input checked={showResolvedFindings} onChange={(event) => setShowResolvedFindings(event.target.checked)} type="checkbox" />{t("pullRequests.showResolvedFindings")}</label> : null}
         </div>
       </div>
       <div className="diff-workspace">
@@ -366,7 +444,14 @@ export function DiffViewer(props: {
                 <span className={`diff-file-status status-${fileStatusClass(file.status)}`} title={fileStatusLabel(file.status)}>{file.status.charAt(0)}</span>
                 <span className="diff-file-name"><span>{file.path}</span>{file.previousPath ? <small>{file.previousPath}</small> : null}</span>
                 <span className="diff-file-stats"><span className="addition">+{file.additions}</span><span className="deletion">−{file.deletions}</span></span>
-                {viewedPaths.has(file.path) ? <Check aria-label={t("pullRequests.viewed")} className="diff-viewed-icon" size={15} /> : null}
+                <span className="diff-file-indicators">
+                  {props.findings.some((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)) ? (
+                    <span className="diff-finding-count" title={t("pullRequests.openFindings")}>
+                      {props.findings.filter((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)).length}
+                    </span>
+                  ) : null}
+                  {viewedPaths.has(file.path) ? <Check aria-label={t("pullRequests.viewed")} className="diff-viewed-icon" size={15} /> : null}
+                </span>
               </button>
             ))}
             {!filteredFiles.length ? <div className="diff-file-empty">{t("pullRequests.noMatchingFiles")}</div> : null}
@@ -380,6 +465,7 @@ export function DiffViewer(props: {
                 <div><strong>{currentSummary.path}</strong>{currentSummary.previousPath ? <small>{currentSummary.previousPath} → {currentSummary.path}</small> : null}</div>
                 <span className={`diff-status-label status-${fileStatusClass(currentSummary.status)}`}>{fileStatusLabel(currentSummary.status)}</span>
                 {currentSummary.binary ? <span className="diff-binary-label">{t("pullRequests.binary")}</span> : null}
+                {displayedFindings.length ? <span className="diff-header-finding-count">{displayedFindings.length} {t("pullRequests.findings")}</span> : null}
               </div>
               <div className="diff-file-actions">
                 <span className="diff-file-stats"><span className="addition">+{currentSummary.additions}</span><span className="deletion">−{currentSummary.deletions}</span></span>
@@ -391,8 +477,17 @@ export function DiffViewer(props: {
           ) : null}
           {loading ? <div className="diff-notice">{t("pullRequests.loadingDiff")}</div> : null}
           {error ? <div className="error-banner">{error}</div> : null}
+          {displayedFindings.length ? (
+            <div className="diff-finding-overview" aria-label={t("pullRequests.findings")}>
+              {displayedFindings.map((finding) => (
+                <FindingCard finding={finding} key={finding.id} onOpen={finding.line ? () => openFinding(finding) : undefined} />
+              ))}
+            </div>
+          ) : null}
           {!loading && !error && selectedFile?.patch !== undefined ? (
-            view === "unified" ? <UnifiedDiff patch={selectedFile.patch} path={selectedFile.path} /> : <SplitDiff patch={selectedFile.patch} path={selectedFile.path} />
+            view === "unified"
+              ? <UnifiedDiff findings={displayedFindings} patch={selectedFile.patch} path={selectedFile.path} />
+              : <SplitDiff findings={displayedFindings} patch={selectedFile.patch} path={selectedFile.path} />
           ) : null}
           {!currentSummary && !props.files.length ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
         </div>

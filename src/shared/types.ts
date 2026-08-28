@@ -346,6 +346,21 @@ export type RepositoryDiffSummaryDto = {
   targetCommit: string;
 };
 
+export type PullRequestFindingDto = {
+  id: string;
+  agentJobId: number;
+  source: "review" | "qa";
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  path: string;
+  line: number | null;
+  side: "L" | "R";
+  title: string;
+  body: string;
+  status: "open" | "resolved";
+  resolvedByJobId: number | null;
+  createdAt: string;
+};
+
 export type MergeConflictDto = {
   hasConflicts: boolean;
   files: Array<{

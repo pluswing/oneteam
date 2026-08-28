@@ -43,6 +43,7 @@ import { startLoopRun } from "./services/loop-runner";
 import { ensureObjectiveForTarget } from "./services/objective-runs";
 import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
 import { mergePullRequest } from "./services/pull-request-merge";
+import { collectPullRequestFindings } from "./services/pull-request-findings";
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
 
 const execFileAsync = promisify(execFile);
@@ -924,6 +925,21 @@ export function createApp({
     ]);
     const files = await getDiffFiles(project.repoPath, sourceCommit, targetCommit);
     return c.json({ files, sourceCommit, targetCommit });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/findings", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequestId = Number(c.req.param("pullRequestId"));
+    const pullRequest = await repos.pullRequests.get(project.id, pullRequestId);
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const jobs = await repos.agentJobs.list({
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequestId
+    });
+    return c.json({ items: collectPullRequestFindings(jobs) });
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId/diff", async (c) => {

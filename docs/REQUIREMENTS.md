@@ -771,6 +771,7 @@ API は UI と同一 Node.js アプリケーションで提供する。
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/comments`
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/commits`
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/files`
+- `GET /api/projects/:projectId/pull-requests/:pullRequestId/findings`
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/diff`
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/diff-file?path=:path&whitespace=ignore&context=wide|full&sourceCommit=:sha&targetCommit=:sha`
 - `GET /api/projects/:projectId/pull-requests/:pullRequestId/activities`

@@ -1837,7 +1837,7 @@ textarea {
 
 .diff-file-list > button {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 7px;
   width: 100%;
@@ -1932,6 +1932,36 @@ textarea {
 
 .diff-viewed-icon {
   color: #1a7f37;
+}
+
+.diff-file-indicators {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 18px;
+}
+
+.diff-finding-count,
+.diff-header-finding-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #cf222e;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.diff-header-finding-count {
+  flex: 0 0 auto;
+  height: 20px;
+  background: #9a6700;
 }
 
 .diff-file-empty {
@@ -2121,6 +2151,108 @@ textarea {
   border-radius: 2px;
   background: rgba(255, 129, 130, 0.48);
   font-weight: 600;
+}
+
+.diff-finding-overview {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid #d0d7de;
+  background: #fff8c5;
+}
+
+.diff-finding-card {
+  display: grid;
+  grid-template-columns: auto auto minmax(140px, auto) minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #d4a72c;
+  border-radius: 6px;
+  color: #24292f;
+  background: #ffffff;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  text-align: left;
+}
+
+button.diff-finding-card:hover {
+  border-color: #0969da;
+  box-shadow: 0 0 0 1px #0969da;
+}
+
+.diff-finding-card.status-resolved {
+  border-color: #d0d7de;
+  background: #f6f8fa;
+  color: #656d76;
+}
+
+.diff-finding-card.status-resolved strong,
+.diff-finding-card.status-resolved .diff-finding-body {
+  text-decoration: line-through;
+}
+
+.diff-finding-severity,
+.diff-finding-status,
+.diff-finding-line {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.diff-finding-severity.severity-critical,
+.diff-finding-severity.severity-high {
+  color: #82071e;
+  background: #ffebe9;
+}
+
+.diff-finding-severity.severity-medium {
+  color: #633c01;
+  background: #fff8c5;
+}
+
+.diff-finding-severity.severity-low,
+.diff-finding-severity.severity-info {
+  color: #0550ae;
+  background: #ddf4ff;
+}
+
+.diff-finding-source,
+.diff-finding-line {
+  color: #656d76;
+  white-space: nowrap;
+}
+
+.diff-finding-status.status-open {
+  color: #82071e;
+  background: #ffebe9;
+}
+
+.diff-finding-status.status-resolved {
+  color: #116329;
+  background: #dafbe1;
+}
+
+.diff-finding-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #57606a;
+}
+
+.diff-finding-row > td {
+  padding: 8px 10px !important;
+  border-top: 1px solid #d4a72c !important;
+  border-bottom: 1px solid #d4a72c !important;
+  background: #fff8c5;
+}
+
+.diff-finding-row .diff-finding-card + .diff-finding-card {
+  margin-top: 6px;
 }
 
 .diff-line-addition .diff-word-changed {
@@ -2400,5 +2532,13 @@ textarea {
 
   .diff-file-header {
     position: static;
+  }
+
+  .diff-finding-card {
+    grid-template-columns: auto auto 1fr auto;
+  }
+
+  .diff-finding-body {
+    grid-column: 1 / -1;
   }
 }

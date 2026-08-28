@@ -16,6 +16,7 @@ import type {
   ProjectDto,
   ProjectSettingsDto,
   PullRequestDto,
+  PullRequestFindingDto,
   RepositoryCommitDto,
   RepositoryDiffSummaryDto,
   RepositoryFileChangeDto,
@@ -331,6 +332,13 @@ export const api = {
     return request<RepositoryDiffSummaryDto>(
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/files`
     );
+  },
+
+  async listPullRequestFindings(projectId: string, pullRequestId: number): Promise<PullRequestFindingDto[]> {
+    const response = await request<ListResponse<PullRequestFindingDto>>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/findings`
+    );
+    return response.items;
   },
 
   async getPullRequestFileDiff(

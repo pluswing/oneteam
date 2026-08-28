@@ -442,7 +442,34 @@ Response:
 }
 ```
 
-### 7.4 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
+### 7.4 GET /api/projects/:projectId/pull-requests/:pullRequestId/findings
+
+Review / QA Agentのstructured outputから、ファイル・行へ配置できるfindingを返す。Fixの`resolvedFindings`、後続Review承認、QA成功後も履歴は削除せず`resolved`として残す。
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "72:review:0",
+      "agentJobId": 72,
+      "source": "review",
+      "severity": "high",
+      "path": "src/app.ts",
+      "line": 42,
+      "side": "R",
+      "title": "Missing validation",
+      "body": "Reject empty input before saving.",
+      "status": "open",
+      "resolvedByJobId": null,
+      "createdAt": "2026-08-28T01:00:00.000Z"
+    }
+  ]
+}
+```
+
+### 7.5 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
 
 全ファイルのpatchを必要とする互換API。画面の通常経路では`/files`でメタデータを取得し、次の`/diff-file`で選択ファイルのみ遅延取得する。
 
@@ -462,7 +489,7 @@ Response:
 }
 ```
 
-### 7.5 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff-file
+### 7.6 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff-file
 
 Query:
 
@@ -489,7 +516,7 @@ Response:
 }
 ```
 
-### 7.6 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
+### 7.7 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
 
 Request:
 

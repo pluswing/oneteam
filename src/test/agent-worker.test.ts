@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { AgentWorker } from "../server/agents/worker";
 import type { AgentAdapter, AgentRunResult } from "../server/agents/types";
+import { createApp } from "../server/app";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
@@ -674,6 +675,10 @@ describe("agent worker", () => {
     const changesRequestedActivities = await repos.activities.list(project.id, "pull_request", changesRequestedPr.id);
     const approvedActivities = await repos.activities.list(project.id, "pull_request", approvedPr.id);
     const jobs = await repos.agentJobs.list({ projectId: project.id });
+    const findingsResponse = await createApp({ repos }).request(
+      `/api/projects/${project.id}/pull-requests/${changesRequestedPr.id}/findings`
+    );
+    const findings = (await findingsResponse.json()) as { items: Array<{ path: string; line: number; status: string }> };
 
     expect(changesRequestedAfter?.labels.map((label) => label.name)).toContain("fixing");
     expect(approvedAfter?.labels.map((label) => label.name)).toContain("testing");
@@ -681,6 +686,7 @@ describe("agent worker", () => {
     expect(approvedActivities.map((activity) => activity.title)).toContain("Review approval captured");
     expect(jobs.some((job) => job.agentType === "fix" && job.targetId === changesRequestedPr.id)).toBe(true);
     expect(jobs.some((job) => job.agentType === "qa" && job.targetId === approvedPr.id)).toBe(true);
+    expect(findings.items).toContainEqual(expect.objectContaining({ path: "src/app.ts", line: 10, status: "open" }));
 
     context.client.close();
   });

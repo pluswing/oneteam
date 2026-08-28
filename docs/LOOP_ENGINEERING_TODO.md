@@ -138,7 +138,7 @@
 - [ ] **Partial**: whitespace無視、標準 / 20行context / 全文表示は実装済み。hunk単位の折りたたみは未実装
 - [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
 - [ ] **Partial**: file / line hash anchor、hash指定時のFiles changed自動表示、merge summaryからのfile link生成は実装済み。line linkのsystem生成と専用route parameterは未実装
-- [ ] line comment、review finding、Agent findingを該当行へ表示する
+- [ ] **Partial**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザーのline comment作成は未実装
 - [ ] **Partial**: merge system commentのchanged file linkからdiffへ直接移動できる。check summaryとreview findingからの重要行linkは未実装
 - [ ] **Partial**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cacheは実装済み。virtualizationは未実装
 - [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装

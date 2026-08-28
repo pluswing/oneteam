@@ -28,6 +28,7 @@ import type {
   ProjectCommandDto,
   ProjectDto,
   ProjectSettingsDto,
+  PullRequestFindingDto,
   PullRequestDto,
   RepositoryCommitDto,
   RepositoryFileChangeDto,
@@ -1138,6 +1139,7 @@ function PullRequestDetailScreen(props: {
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
+  const [findings, setFindings] = useState<PullRequestFindingDto[]>([]);
   const [diffRevision, setDiffRevision] = useState<{ sourceCommit: string; targetCommit: string } | null>(null);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
@@ -1159,8 +1161,9 @@ function PullRequestDetailScreen(props: {
     const linkedIssuePromise = pullRequestResponse.issueId
       ? api.getIssue(props.project.id, pullRequestResponse.issueId).catch(() => null)
       : Promise.resolve(null);
-    const [filesResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
+    const [filesResponse, findingsResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
       api.listPullRequestFiles(props.project.id, props.pullRequestId),
+      api.listPullRequestFindings(props.project.id, props.pullRequestId),
       api.listPullRequestCommits(props.project.id, props.pullRequestId),
       api.getPullRequestMergeConflicts(props.project.id, props.pullRequestId),
       linkedIssuePromise
@@ -1171,6 +1174,7 @@ function PullRequestDetailScreen(props: {
     setComments(commentsResponse);
     setObjective(objectiveResponse);
     setFiles(filesResponse.files);
+    setFindings(findingsResponse);
     setDiffRevision({ sourceCommit: filesResponse.sourceCommit, targetCommit: filesResponse.targetCommit });
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
@@ -1340,6 +1344,7 @@ function PullRequestDetailScreen(props: {
           {tab === "files" ? (
             <DiffViewer
               files={files}
+              findings={findings}
               projectId={props.project.id}
               pullRequestId={props.pullRequestId}
               sourceCommit={diffRevision?.sourceCommit ?? null}
