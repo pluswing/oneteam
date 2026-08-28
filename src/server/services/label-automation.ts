@@ -61,6 +61,9 @@ export async function runLabelAutomation(
       targetType: input.targetType,
       targetId: input.targetId
     });
+    if (!objective || ["paused", "canceled", "succeeded"].includes(objective.status)) {
+      continue;
+    }
 
     const started = await startLoopRun(repos, {
       projectId: input.projectId,

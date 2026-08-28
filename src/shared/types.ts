@@ -14,6 +14,7 @@ export type AgentType =
 export type AgentJobStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting_provider"
   | "waiting_human"
   | "succeeded"
@@ -32,6 +33,7 @@ export type LoopStatus = "enabled" | "disabled";
 export type LoopRunStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting_provider"
   | "waiting_human"
   | "succeeded"
@@ -40,6 +42,7 @@ export type LoopRunStatus =
 export type LoopStepStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting_provider"
   | "waiting_human"
   | "succeeded"
@@ -48,6 +51,7 @@ export type LoopStepStatus =
 export type ObjectiveRunStatus =
   | "open"
   | "running"
+  | "paused"
   | "waiting_provider"
   | "waiting_human"
   | "ready_to_merge"

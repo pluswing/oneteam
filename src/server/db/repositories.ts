@@ -1072,6 +1072,10 @@ export function createRepositories(db: Database) {
         patch?: { output?: Record<string, unknown> | null; error?: string | null }
       ): Promise<AgentJobDto | null> {
         const timestamp = now();
+        const filters = [eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId)];
+        if (status === "running") {
+          filters.push(eq(agentJobs.status, "queued"));
+        }
         const rows = await db
           .update(agentJobs)
           .set({
@@ -1084,7 +1088,40 @@ export function createRepositories(db: Database) {
             waitMetadataJson: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined,
             nextRetryAt: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined
           })
-          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId)))
+          .where(and(...filters))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async pause(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({ status: "paused", error: null, finishedAt: null })
+          .where(
+            and(
+              eq(agentJobs.projectId, projectId),
+              eq(agentJobs.id, jobId),
+              inArray(agentJobs.status, ["queued", "running", "waiting_provider", "waiting_human"])
+            )
+          )
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async resumePaused(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            waitReason: null,
+            waitMetadataJson: null,
+            nextRetryAt: null,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "paused")))
           .returning();
         return rows[0] ? mapAgentJob(rows[0]) : null;
       },

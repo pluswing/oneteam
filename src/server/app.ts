@@ -41,6 +41,7 @@ import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./
 import { runLabelAutomation } from "./services/label-automation";
 import { startLoopRun } from "./services/loop-runner";
 import { ensureObjectiveForTarget } from "./services/objective-runs";
+import { cancelObjective, pauseObjective, resumeObjective } from "./services/objective-control";
 import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
 import { mergePullRequest } from "./services/pull-request-merge";
 import { collectPullRequestFindings } from "./services/pull-request-findings";
@@ -835,6 +836,68 @@ export function createApp({
     return c.json({ objective });
   });
 
+  app.post("/api/projects/:projectId/objectives/:objectiveId/pause", async (c) => {
+    const projectId = c.req.param("projectId");
+    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
+    if (!objective) {
+      notFound("Objective was not found.");
+    }
+    if (["paused", "ready_to_merge", "succeeded", "canceled"].includes(objective.status)) {
+      conflict(`Objective cannot be paused while it is ${objective.status}.`);
+    }
+    return c.json(await pauseObjective(repos, objective));
+  });
+
+  app.post("/api/projects/:projectId/objectives/:objectiveId/resume", async (c) => {
+    const projectId = c.req.param("projectId");
+    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
+    if (!objective) {
+      notFound("Objective was not found.");
+    }
+    if (objective.status !== "paused") {
+      conflict("Only a paused Objective can be resumed.");
+    }
+    const result = await resumeObjective(repos, objective);
+    if (!result.jobs.length) {
+      if (result.objective.pullRequestId) {
+        const pullRequest = await repos.pullRequests.get(projectId, result.objective.pullRequestId);
+        if (pullRequest) {
+          result.jobs.push(...await runLabelAutomation(repos, {
+            projectId,
+            targetType: "pull_request",
+            targetId: pullRequest.id,
+            labels: pullRequest.labels,
+            triggerType: "objective_resumed"
+          }));
+        }
+      } else if (result.objective.issueId) {
+        const issue = await repos.issues.get(projectId, result.objective.issueId);
+        if (issue) {
+          result.jobs.push(...await runLabelAutomation(repos, {
+            projectId,
+            targetType: "issue",
+            targetId: issue.id,
+            labels: issue.labels,
+            triggerType: "objective_resumed"
+          }));
+        }
+      }
+    }
+    return c.json(result);
+  });
+
+  app.post("/api/projects/:projectId/objectives/:objectiveId/cancel", async (c) => {
+    const projectId = c.req.param("projectId");
+    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
+    if (!objective) {
+      notFound("Objective was not found.");
+    }
+    if (["succeeded", "canceled"].includes(objective.status)) {
+      conflict(`Objective cannot be canceled while it is ${objective.status}.`);
+    }
+    return c.json(await cancelObjective(repos, objective));
+  });
+
   app.patch(
     "/api/projects/:projectId/pull-requests/:pullRequestId",
     zValidator("json", updatePullRequestSchema),
@@ -1321,6 +1384,9 @@ export function createApp({
       targetType: input.targetType,
       targetId: input.targetId
     });
+    if (objective && ["paused", "canceled", "succeeded"].includes(objective.status)) {
+      conflict(`Agent work cannot be queued while Objective #${objective.id} is ${objective.status}.`);
+    }
     const job = await repos.agentJobs.create({
       projectId,
       agentType,

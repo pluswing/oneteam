@@ -116,7 +116,7 @@ export class AgentWorker {
         prompt,
         isCanceled: async () => {
           const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
-          return current?.status === "canceled";
+          return current?.status === "canceled" || current?.status === "paused";
         },
         onActivity: async (activity) => {
           const target = normalizeActivityTarget(runningJob);
@@ -137,6 +137,9 @@ export class AgentWorker {
       });
 
       const currentJob = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
+      if (currentJob?.status === "paused") {
+        return;
+      }
       if (currentJob?.status === "canceled" && result.status !== "canceled") {
         const target = normalizeActivityTarget(runningJob);
         if (target) {
