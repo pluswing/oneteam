@@ -1,5 +1,5 @@
 import type { AgentJobDto, ObjectiveRunDto } from "../../shared/types";
-import type { AgentRunResult } from "../agents/types";
+import type { AgentRunResult, ProviderCapacityProbeResult } from "../agents/types";
 import type { Repositories } from "../db/repositories";
 import { objectiveForJob } from "./objective-runs";
 import { buildSystemComment } from "./system-comment";
@@ -223,11 +223,171 @@ export function buildProviderWaitComment(job: AgentJobDto, decision: ProviderWai
   });
 }
 
+export async function extendProviderWaitAfterProbe(
+  repos: Repositories,
+  job: AgentJobDto,
+  probe: ProviderCapacityProbeResult,
+  currentTime = new Date(),
+  random = Math.random
+): Promise<AgentJobDto | null> {
+  if (probe.status === "available") return null;
+  const probeCount = (numericMetadata(job.waitMetadata, "probeCount") ?? 0) + 1;
+  const previousProbeFailureCount = numericMetadata(job.waitMetadata, "probeFailureCount") ?? 0;
+  const probeFailureCount = probe.status === "unknown" ? previousProbeFailureCount + 1 : 0;
+  const nextRetryAt = nextProviderProbeAt(probe, probeCount, currentTime, random);
+  const metadata = {
+    ...(job.waitMetadata ?? {}),
+    nextRetryAt,
+    probeCount,
+    probeFailureCount,
+    lastCheckedAt: probe.checkedAt,
+    lastProbe: probe
+  };
+  const title = probe.status === "exhausted"
+    ? "AI provider capacity still unavailable"
+    : "AI provider capacity probe inconclusive";
+  const message = buildProviderProbeExtendedComment(job, probe, probeCount, nextRetryAt);
+  const evidence = {
+    type: "provider_probe",
+    title,
+    summary: `${probe.message} Next lightweight probe: ${nextRetryAt}.`,
+    payload: { ...probe, probeCount, probeFailureCount, nextRetryAt }
+  };
+  const output = {
+    ...(job.output ?? {}),
+    status: "waiting_provider",
+    message,
+    stopReason: providerQuotaWaitReason,
+    evidence: appendOutputEvidence(job.output, evidence),
+    metadata: {
+      ...(isRecord(job.output?.metadata) ? job.output.metadata : {}),
+      providerWait: metadata
+    }
+  };
+  const extended = await repos.agentJobs.extendProviderWait(job.projectId, job.id, {
+    metadata,
+    nextRetryAt,
+    output
+  });
+  if (!extended) return null;
+
+  const objective = await objectiveForJob(repos, job);
+  if (objective?.status === "waiting_provider") {
+    await repos.objectives.update(job.projectId, objective.id, {
+      stopReason: providerQuotaWaitReason,
+      summary: `${probe.message} Next lightweight probe: ${nextRetryAt}.`
+    });
+  }
+  const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
+  if (step) {
+    const run = await repos.loopRuns.get(job.projectId, step.loopRunId);
+    await repos.loopSteps.updateForAgentJob(job.projectId, job.id, {
+      status: "waiting_provider",
+      output,
+      evidence: mergeEvidenceItems(step.evidence, [evidence])
+    });
+    await repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "waiting_provider", {
+      summary: `${probe.message} Next lightweight probe: ${nextRetryAt}.`,
+      stopReason: providerQuotaWaitReason,
+      evidence: mergeEvidenceItems(run?.evidence ?? null, [evidence])
+    });
+  }
+
+  const targets = await providerEventTargets(repos, job, objective);
+  for (const target of targets) {
+    await repos.activities.create({
+      projectId: job.projectId,
+      agentJobId: job.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      activityType: probe.status === "exhausted" ? "system" : "error",
+      title,
+      body: message,
+      payload: {
+        providerWaitEvent: "probe_extended",
+        providerProbe: probe,
+        probeCount,
+        probeFailureCount,
+        nextRetryAt
+      }
+    });
+    if (probeCount === 1 || probeCount % 3 === 0) {
+      await createProviderEventComment(repos, {
+        projectId: job.projectId,
+        target,
+        body: message,
+        key: `provider-wait:${job.id}:probe:${probeCount}:${probe.status}`,
+        metadata: {
+          agentJobId: job.id,
+          providerWaitEvent: "probe_extended",
+          providerProbe: probe,
+          probeCount,
+          probeFailureCount,
+          nextRetryAt
+        }
+      });
+    }
+  }
+  return extended;
+}
+
+export function nextProviderProbeAt(
+  probe: ProviderCapacityProbeResult,
+  probeCount: number,
+  currentTime = new Date(),
+  random = Math.random
+): string {
+  const resetMs = probe.resetAt ? Date.parse(probe.resetAt) : Number.NaN;
+  if (Number.isFinite(resetMs) && resetMs > currentTime.getTime()) {
+    return new Date(resetMs + 5_000).toISOString();
+  }
+  const backoffMs = Math.min(5 * 60_000 * 2 ** Math.max(0, probeCount - 1), 60 * 60_000);
+  const jitterFactor = 0.9 + Math.min(Math.max(random(), 0), 1) * 0.2;
+  return new Date(currentTime.getTime() + Math.round(backoffMs * jitterFactor)).toISOString();
+}
+
+export function buildProviderProbeExtendedComment(
+  job: AgentJobDto,
+  probe: ProviderCapacityProbeResult,
+  probeCount: number,
+  nextRetryAt: string
+): string {
+  return buildSystemComment({
+    title: probe.status === "exhausted"
+      ? "AI provider capacity still unavailable"
+      : "AI provider capacity probe inconclusive",
+    outcome: "waiting",
+    summary: probe.message,
+    fields: [
+      { label: "Job", value: `#${job.id}`, code: true },
+      { label: "Provider", value: probe.provider, code: true },
+      { label: "Probe source", value: probe.source, code: true },
+      { label: "Probe status", value: probe.status, code: true },
+      { label: "Probe count", value: probeCount },
+      { label: "Checked at", value: probe.checkedAt, code: true },
+      probe.resetAt ? { label: "Provider reset", value: probe.resetAt, code: true } : null,
+      { label: "Next probe", value: nextRetryAt, code: true }
+    ],
+    sections: [
+      {
+        title: "Preserved execution",
+        items: [
+          "The real Agent Job was not started, so no Objective round or provider turn was consumed.",
+          "The same job input, worktree, Objective, and provider session remain preserved."
+        ]
+      }
+    ],
+    nextStep: "OneTeam will run another lightweight capacity probe at the scheduled time. Repeated probe errors eventually fall back to one real retry so an older provider client cannot wait forever.",
+    recordedAt: new Date(probe.checkedAt)
+  });
+}
+
 export async function resumeProviderWait(
   repos: Repositories,
   job: AgentJobDto,
   trigger: "automatic" | "manual",
-  aiProvider = job.aiProvider
+  aiProvider = job.aiProvider,
+  probe: ProviderCapacityProbeResult | null = null
 ): Promise<AgentJobDto | null> {
   const resumed = await repos.agentJobs.resumeProviderWait(job.projectId, job.id, aiProvider);
   if (!resumed) {
@@ -245,16 +405,29 @@ export async function resumeProviderWait(
 
   const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
   if (step) {
-    await repos.loopSteps.updateForAgentJob(job.projectId, job.id, { status: "queued" });
+    const recoveryEvidence = probe
+      ? {
+          type: "provider_probe",
+          title: probe.status === "available" ? "AI provider capacity recovered" : "AI provider probe fallback",
+          summary: probe.message,
+          payload: probe
+        }
+      : null;
+    const run = recoveryEvidence ? await repos.loopRuns.get(job.projectId, step.loopRunId) : null;
+    await repos.loopSteps.updateForAgentJob(job.projectId, job.id, {
+      status: "queued",
+      evidence: recoveryEvidence ? mergeEvidenceItems(step.evidence, [recoveryEvidence]) : undefined
+    });
     await repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "queued", {
       summary: `${trigger === "manual" ? "Manual" : "Automatic"} provider retry queued.`,
-      stopReason: null
+      stopReason: null,
+      evidence: recoveryEvidence ? mergeEvidenceItems(run?.evidence ?? null, [recoveryEvidence]) : undefined
     });
   }
 
   const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
   const providerChanged = job.aiProvider !== resumed.aiProvider;
-  const message = buildProviderRetryComment(job, trigger, resumed.aiProvider);
+  const message = buildProviderRetryComment(job, trigger, resumed.aiProvider, probe);
   const targets = await providerEventTargets(repos, job, objective);
   for (const target of targets) {
     await repos.activities.create({
@@ -263,7 +436,11 @@ export async function resumeProviderWait(
       targetType: target.targetType,
       targetId: target.targetId,
       activityType: "system",
-      title: providerChanged ? "AI provider switched and retry queued" : "AI provider retry queued",
+      title: probe?.status === "available"
+        ? "AI provider capacity recovered"
+        : providerChanged
+          ? "AI provider switched and retry queued"
+          : "AI provider retry queued",
       body: message,
       payload: {
         trigger,
@@ -271,7 +448,8 @@ export async function resumeProviderWait(
         providerWaitEvent: "retry_queued",
         retryCount,
         previousProvider: job.aiProvider,
-        provider: resumed.aiProvider
+        provider: resumed.aiProvider,
+        providerProbe: probe
       }
     });
     if (trigger === "manual" || retryCount === 1 || retryCount % 3 === 0) {
@@ -287,7 +465,8 @@ export async function resumeProviderWait(
           retryCount,
           previousProvider: job.aiProvider,
           provider: resumed.aiProvider,
-          previousNextRetryAt: job.nextRetryAt
+          previousNextRetryAt: job.nextRetryAt,
+          providerProbe: probe
         }
       });
     }
@@ -345,12 +524,17 @@ export async function recordProviderWaitCanceled(repos: Repositories, job: Agent
 export function buildProviderRetryComment(
   job: AgentJobDto,
   trigger: "automatic" | "manual",
-  aiProvider = job.aiProvider
+  aiProvider = job.aiProvider,
+  probe: ProviderCapacityProbeResult | null = null
 ): string {
   const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
   const providerChanged = job.aiProvider !== aiProvider;
   return buildSystemComment({
-    title: providerChanged ? "AI provider switched and retry queued" : "AI provider retry queued",
+    title: probe?.status === "available"
+      ? "AI provider capacity recovered"
+      : providerChanged
+        ? "AI provider switched and retry queued"
+        : "AI provider retry queued",
     outcome: "info",
     summary: `${trigger === "manual" ? "A user" : "The scheduler"} resumed the preserved Agent Job for another provider attempt.`,
     fields: [
@@ -360,6 +544,9 @@ export function buildProviderRetryComment(
       providerChanged ? { label: "Previous provider", value: job.aiProvider, code: true } : null,
       { label: "Resume trigger", value: trigger, code: true },
       { label: "Retry attempt", value: retryCount },
+      probe ? { label: "Probe status", value: probe.status, code: true } : null,
+      probe ? { label: "Probe source", value: probe.source, code: true } : null,
+      probe ? { label: "Checked at", value: probe.checkedAt, code: true } : null,
       job.nextRetryAt ? { label: "Previous retry time", value: job.nextRetryAt, code: true } : null
     ],
     sections: [
@@ -371,7 +558,9 @@ export function buildProviderRetryComment(
         ]
       }
     ],
-    nextStep: "OneTeam will run the queued Agent Job. If capacity is still unavailable, it will calculate the next bounded retry without treating the attempt as an implementation failure."
+    nextStep: probe?.status === "available"
+      ? "The lightweight probe confirmed capacity. OneTeam will now resume the preserved Agent Job."
+      : "OneTeam will run the queued Agent Job. If capacity is still unavailable, it will calculate the next bounded retry without treating the attempt as an implementation failure."
   });
 }
 
@@ -436,6 +625,20 @@ async function createProviderEventComment(
 function numericMetadata(value: Record<string, unknown> | null, key: string): number | null {
   const item = value?.[key];
   return typeof item === "number" && Number.isFinite(item) ? item : null;
+}
+
+function appendOutputEvidence(
+  output: Record<string, unknown> | null,
+  evidence: Record<string, unknown>
+): Record<string, unknown>[] {
+  const current = Array.isArray(output?.evidence)
+    ? output.evidence.filter(isRecord)
+    : [];
+  return [...current, evidence].slice(-80);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseResetAt(message: string, currentTime: Date): string | null {

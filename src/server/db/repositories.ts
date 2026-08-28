@@ -1494,6 +1494,35 @@ export function createRepositories(db: Database) {
         return rows.map(mapAgentJob);
       },
 
+      async extendProviderWait(
+        projectId: string,
+        jobId: number,
+        input: {
+          metadata: Record<string, unknown>;
+          nextRetryAt: string;
+          output: Record<string, unknown>;
+        }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            outputJson: stringifyJson(input.output),
+            error: null,
+            waitMetadataJson: stringifyJson(input.metadata),
+            nextRetryAt: input.nextRetryAt,
+            finishedAt: null
+          })
+          .where(
+            and(
+              eq(agentJobs.projectId, projectId),
+              eq(agentJobs.id, jobId),
+              eq(agentJobs.status, "waiting_provider")
+            )
+          )
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
       async resumeProviderWait(
         projectId: string,
         jobId: number,

@@ -31,7 +31,12 @@ import {
   preflightObjectiveJob,
   recordObjectiveJobResult
 } from "../services/objective-runs";
-import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../services/provider-wait";
+import {
+  classifyProviderWait,
+  enterProviderWait,
+  extendProviderWaitAfterProbe,
+  resumeProviderWait
+} from "../services/provider-wait";
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
@@ -87,7 +92,7 @@ export class AgentWorker {
     try {
       const dueProviderWaits = await this.repos.agentJobs.listDueProviderWaits(new Date().toISOString());
       for (const waitingJob of dueProviderWaits) {
-        await resumeProviderWait(this.repos, waitingJob, "automatic");
+        await this.handleDueProviderWait(waitingJob);
       }
       const job = await this.repos.agentJobs.nextQueued();
       if (!job) {
@@ -97,6 +102,43 @@ export class AgentWorker {
     } finally {
       this.isTicking = false;
     }
+  }
+
+  private async handleDueProviderWait(job: AgentJobDto): Promise<void> {
+    if (!this.adapter.probeCapacity) {
+      await resumeProviderWait(this.repos, job, "automatic");
+      return;
+    }
+    let probe;
+    try {
+      probe = await this.adapter.probeCapacity({ job, timeoutMs: 10_000 });
+    } catch (error) {
+      probe = {
+        status: "unknown" as const,
+        provider: job.aiProvider,
+        checkedAt: new Date().toISOString(),
+        source: "provider_probe_error",
+        message: error instanceof Error ? error.message : "Provider capacity probe failed.",
+        usageSnapshot: null,
+        resetAt: null
+      };
+    }
+    if (!probe) {
+      await resumeProviderWait(this.repos, job, "automatic");
+      return;
+    }
+    if (probe.status === "available") {
+      await resumeProviderWait(this.repos, job, "automatic", job.aiProvider, probe);
+      return;
+    }
+    const previousProbeFailures = typeof job.waitMetadata?.probeFailureCount === "number"
+      ? job.waitMetadata.probeFailureCount
+      : 0;
+    if (probe.status === "unknown" && previousProbeFailures >= 2) {
+      await resumeProviderWait(this.repos, job, "automatic", job.aiProvider, probe);
+      return;
+    }
+    await extendProviderWaitAfterProbe(this.repos, job, probe);
   }
 
   private async runJob(job: AgentJobDto): Promise<void> {

@@ -42,7 +42,20 @@ describe("automatic delivery pipeline", () => {
       input: { objectiveRunId: objective?.id ?? null }
     });
     let calls = 0;
+    let probeCalls = 0;
     const adapter: AgentAdapter = {
+      async probeCapacity() {
+        probeCalls += 1;
+        return {
+          status: probeCalls === 1 ? "exhausted" : "available",
+          provider: "codex",
+          checkedAt: new Date().toISOString(),
+          source: "test_rate_limits",
+          message: probeCalls === 1 ? "Capacity is still exhausted." : "Capacity recovered.",
+          usageSnapshot: { remaining: probeCalls === 1 ? 0 : 50 },
+          resetAt: null
+        };
+      },
       async run() {
         calls += 1;
         return calls === 1
@@ -89,6 +102,30 @@ describe("automatic delivery pipeline", () => {
     const restartedWorker = new AgentWorker(repos, adapter, { pollIntervalMs: 1000 });
     await restartedWorker.tick();
 
+    const extendedJob = await repos.agentJobs.get(project.id, job.id);
+    const extendedObjective = objective ? await repos.objectives.get(project.id, objective.id) : null;
+    expect(calls).toBe(1);
+    expect(probeCalls).toBe(1);
+    expect(extendedJob).toMatchObject({
+      status: "waiting_provider",
+      attempt: 1,
+      waitMetadata: {
+        probeCount: 1,
+        probeFailureCount: 0,
+        lastProbe: { status: "exhausted", source: "test_rate_limits" }
+      }
+    });
+    expect(extendedJob?.nextRetryAt).toBeTruthy();
+    expect(extendedObjective).toMatchObject({ status: "waiting_provider", roundCount: 0 });
+    const probeActivities = await repos.activities.list(project.id, "issue", issue.id);
+    expect(probeActivities.map((activity) => activity.title)).toContain("AI provider capacity still unavailable");
+
+    await context.client.execute({
+      sql: "update agent_jobs set next_retry_at = ? where id = ?",
+      args: ["2000-01-01T00:00:00.000Z", job.id]
+    });
+    await restartedWorker.tick();
+
     const completedJob = await repos.agentJobs.get(project.id, job.id);
     const completedObjective = objective ? await repos.objectives.get(project.id, objective.id) : null;
     expect(completedJob).toMatchObject({
@@ -100,12 +137,16 @@ describe("automatic delivery pipeline", () => {
     });
     expect(completedObjective?.roundCount).toBe(1);
     expect(calls).toBe(2);
+    expect(probeCalls).toBe(2);
     const resumedComments = await repos.comments.list(project.id, "issue", issue.id);
+    expect(resumedComments.some((comment) => comment.metadata?.providerWaitEvent === "probe_extended")).toBe(true);
     expect(
       resumedComments.some(
         (comment) => comment.metadata?.providerWaitEvent === "retry_queued" && comment.metadata?.trigger === "automatic"
       )
     ).toBe(true);
+    const recoveredActivities = await repos.activities.list(project.id, "issue", issue.id);
+    expect(recoveredActivities.map((activity) => activity.title)).toContain("AI provider capacity recovered");
 
     context.client.close();
   });
