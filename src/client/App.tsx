@@ -10,6 +10,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   GitPullRequest,
+  Link2,
   ListTodo,
   MessageCircle,
   Pause,
@@ -342,6 +343,30 @@ function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[], a
   return entries.sort((left, right) => left.timestamp - right.timestamp);
 }
 
+function ConversationPermalink(props: { anchor: string; createdAt: string }) {
+  return (
+    <a className="conversation-permalink" href={`#${props.anchor}`} aria-label={t("issues.permalink")}>
+      <Link2 aria-hidden="true" size={12} />
+      <span>{formatDateTime(props.createdAt)}</span>
+    </a>
+  );
+}
+
+function CollapsibleConversationMarkdown(props: { content: string; format?: CommentDto["bodyFormat"]; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = props.content.length > 3_500;
+  return (
+    <div className={collapsible && !expanded ? "conversation-report collapsed" : "conversation-report"}>
+      <MarkdownContent className={props.className} content={props.content} format={props.format} />
+      {collapsible ? (
+        <button className="conversation-report-toggle" onClick={() => setExpanded((current) => !current)} type="button">
+          {expanded ? t("issues.collapseComment") : t("issues.showFullComment")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJob: (jobId: number) => void }) {
   const normalizedTitle = props.activity.title.toLowerCase();
   const Icon = normalizedTitle.includes("merge")
@@ -354,14 +379,14 @@ function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJo
           ? Bot
           : Settings;
   return (
-    <article className="conversation-activity">
+    <article className="conversation-activity" id={`activity-${props.activity.id}`}>
       <span className="conversation-activity-icon"><Icon aria-hidden="true" size={16} /></span>
       <div>
         <header>
           <strong>{props.activity.title}</strong>
-          <span>{formatDateTime(props.activity.createdAt)}</span>
+          <ConversationPermalink anchor={`activity-${props.activity.id}`} createdAt={props.activity.createdAt} />
         </header>
-        {props.activity.body ? <MarkdownContent content={props.activity.body} /> : null}
+        {props.activity.body ? <CollapsibleConversationMarkdown content={props.activity.body} /> : null}
         {props.activity.agentJobId ? (
           <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.activity.agentJobId!)} type="button">
             {t("issues.openGate")}
@@ -387,13 +412,14 @@ function readableCommentBody(comment: CommentDto, relatedJob?: AgentJobDto): str
 }
 
 function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: AgentJobDto }) {
+  const anchor = `comment-${props.comment.id}`;
   return (
-    <article className="conversation-comment">
+    <article className="conversation-comment" id={anchor}>
       <header>
         <strong>{commentAuthorLabel(props.comment)}</strong>
-        <span>{formatDateTime(props.comment.createdAt)}</span>
+        <ConversationPermalink anchor={anchor} createdAt={props.comment.createdAt} />
       </header>
-      <MarkdownContent content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
+      <CollapsibleConversationMarkdown content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
     </article>
   );
 }
@@ -406,11 +432,11 @@ function ConversationAgentJobCard(props: {
   const message = props.comments.length ? null : agentJobMessage(props.job, []);
 
   return (
-    <article className="conversation-agent-job">
+    <article className="conversation-agent-job" id={`agent-job-${props.job.id}`}>
       <header className="conversation-agent-job-header">
         <div>
           <strong>#{props.job.id} {props.job.agentType}</strong>
-          <span>{formatDateTime(props.job.createdAt)}</span>
+          <ConversationPermalink anchor={`agent-job-${props.job.id}`} createdAt={props.job.createdAt} />
         </div>
         <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.job.id)} type="button">
           {t("agents.detail")}
@@ -422,7 +448,7 @@ function ConversationAgentJobCard(props: {
         {props.job.finishedAt ? <span>{formatDateTime(props.job.finishedAt)}</span> : null}
       </div>
       {message ? (
-        <MarkdownContent
+        <CollapsibleConversationMarkdown
           className={props.job.status === "failed" ? "job-error" : "agent-job-message"}
           content={message}
         />
@@ -445,6 +471,23 @@ function ConversationTimeline(props: {
   onOpenAgentJob: (jobId: number) => void;
 }) {
   const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1);
+    if (!/^(?:comment|activity|agent-job)-\d+$/.test(anchor)) return;
+    let animationFrame = 0;
+    let attempts = 0;
+    function reveal(): void {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ block: "center" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 4) animationFrame = window.requestAnimationFrame(reveal);
+    }
+    animationFrame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [entries.length]);
   if (entries.length === 0) {
     return <div className="empty-state">{t("issues.noComments")}</div>;
   }

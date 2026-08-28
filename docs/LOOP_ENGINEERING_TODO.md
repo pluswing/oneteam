@@ -147,7 +147,7 @@
 
 - [x] comment、role別Agent run（reviewを含む）、label delta、status close / reopen、commit、Provider Gate、merge等のsystem Activityを重複排除してIssue / PR timelineへ統合する
 - [ ] checks summaryからAgent Job、Evidence、command output、screenshot、diffへ移動できるようにする
-- [ ] comment permalink、編集履歴、折りたたみ、長文tableのresponsive表示を追加する
+- [ ] **Partial**: comment / Activity / Agent run permalink、非同期hash scroll、長文report折りたたみ、Markdown tableの横scrollは実装済み。comment編集履歴は未実装
 
 ## P1: 後から読み返せるAgent / system comment
 

@@ -1887,6 +1887,76 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.conversation-permalink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #57606a;
+  font-weight: 400;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.conversation-permalink:hover {
+  color: #0969da;
+  text-decoration: underline;
+}
+
+.conversation-comment:target,
+.conversation-agent-job:target,
+.conversation-activity:target > div {
+  border-color: #0969da;
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.18);
+}
+
+.conversation-report {
+  position: relative;
+  min-width: 0;
+}
+
+.conversation-report.collapsed {
+  max-height: 420px;
+  overflow: hidden;
+  padding-bottom: 48px;
+}
+
+.conversation-report.collapsed::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 72px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 58%);
+  content: "";
+  pointer-events: none;
+}
+
+.conversation-agent-job > .conversation-report.collapsed::after {
+  background: linear-gradient(to bottom, rgba(246, 248, 250, 0), #f6f8fa 58%);
+}
+
+.conversation-report-toggle {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-height: 30px;
+  margin: 8px auto 0;
+  padding: 4px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  color: #24292f;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-report.collapsed .conversation-report-toggle {
+  position: absolute;
+  right: 50%;
+  bottom: 4px;
+  transform: translateX(50%);
+}
+
 .conversation-activity .markdown-body {
   margin: 8px 0 0;
   color: #57606a;
@@ -1941,7 +2011,7 @@ textarea {
   margin: 8px 0 0;
 }
 
-.conversation-agent-job > .markdown-body {
+.conversation-agent-job > .conversation-report .markdown-body {
   margin: 0;
 }
 

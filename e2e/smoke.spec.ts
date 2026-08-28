@@ -39,6 +39,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
   await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" })).toBeVisible();
+  await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" }).locator(".conversation-permalink")).toHaveAttribute("href", /^#activity-\d+$/);
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
   await expect(page.locator(".automation-checks")).toContainText("requirements");
   await expect(page.locator(".automation-checks")).toContainText("queued");
