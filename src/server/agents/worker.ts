@@ -15,12 +15,16 @@ import { scanScoreManipulationRisks } from "../services/diff-risk-scanner";
 import { appendLoopMemoryNote } from "../services/knowledge-files";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
 import {
-  cleanupWorktree,
   prepareIssueWorktree,
   preparePullRequestWorktree,
   RecoverableWorktreeError,
   type PreparedWorktree
 } from "../services/worktree-service";
+import {
+  appendWorktreeRetentionEvidence,
+  applyWorktreeDisposition,
+  type WorktreeLifecycleState
+} from "../services/worktree-retention";
 import {
   applyObjectiveHardGate,
   markObjectiveJobStarted,
@@ -130,9 +134,13 @@ export class AgentWorker {
       });
     }
 
+    let project: ProjectDto | null = null;
+    let worktree: PreparedWorktree | null = null;
     try {
-      const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
-      const worktree = await this.prepareWorktreeForJob(runningJob, project);
+      const context = await buildPromptForJob(this.repos, runningJob);
+      project = context.project;
+      const prompt = context.prompt;
+      worktree = await this.prepareWorktreeForJob(runningJob, project);
       const executionRepoPath = worktree?.repoPath ?? project.repoPath;
       if (worktree) {
         await recordIssueImplementationStarted(this.repos, runningJob, worktree);
@@ -166,9 +174,11 @@ export class AgentWorker {
 
       const currentJob = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
       if (currentJob?.status === "paused") {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "paused");
         return;
       }
       if (currentJob?.status === "canceled" && result.status !== "canceled") {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "canceled");
         const target = normalizeActivityTarget(runningJob);
         if (target) {
           await this.repos.activities.create({
@@ -185,12 +195,20 @@ export class AgentWorker {
       }
 
       if (agentDeadlineReached(timing)) {
-        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, result));
+        const timeoutResult = await this.applyWorktreePolicy(
+          runningJob,
+          project,
+          worktree,
+          agentTimeoutResult(runningJob, timing, result),
+          "waiting_human"
+        );
+        await this.applyResult(runningJob, timeoutResult!);
         return;
       }
 
       const providerWait = classifyProviderWait(runningJob, result);
       if (providerWait) {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "waiting_provider");
         await enterProviderWait(this.repos, runningJob, providerWait);
         return;
       }
@@ -203,7 +221,14 @@ export class AgentWorker {
         timing
       );
       if (agentDeadlineReached(timing)) {
-        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, finalizedResult));
+        const timeoutResult = await this.applyWorktreePolicy(
+          runningJob,
+          project,
+          worktree,
+          agentTimeoutResult(runningJob, timing, finalizedResult),
+          "waiting_human"
+        );
+        await this.applyResult(runningJob, timeoutResult!);
         return;
       }
       finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, executionRepoPath, finalizedResult);
@@ -220,23 +245,36 @@ export class AgentWorker {
       if (agentDeadlineReached(timing)) {
         finalizedResult = agentTimeoutResult(runningJob, timing, finalizedResult);
       }
+      finalizedResult = (await this.applyWorktreePolicy(
+        runningJob,
+        project,
+        worktree,
+        finalizedResult,
+        finalizedResult.status
+      )) ?? finalizedResult;
       await this.applyResult(runningJob, finalizedResult);
-      if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
-        await cleanupWorktree(project, worktree.worktreePath);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
       if (agentDeadlineReached(timing)) {
-        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, null, message));
+        const timeoutResult = await this.applyWorktreePolicy(
+          runningJob,
+          project,
+          worktree,
+          agentTimeoutResult(runningJob, timing, null, message),
+          "waiting_human"
+        );
+        await this.applyResult(runningJob, timeoutResult!);
         return;
       }
       const providerWait = classifyProviderWait(runningJob, { status: "failed", message });
       if (providerWait) {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "waiting_provider");
         await enterProviderWait(this.repos, runningJob, providerWait);
         return;
       }
       const recovery = classifyRecoverableRuntimeError(error);
       if (recovery) {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "recoverable_error");
         await this.requeueAfterRecovery(runningJob, {
           ...recovery,
           message
@@ -256,23 +294,7 @@ export class AgentWorker {
           body: message
         });
       }
-      await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", {
-        output: {
-          status: "failed",
-          message,
-          stopReason: "failed",
-          evidence: [
-            {
-              type: "error",
-              title: "Agent job failed",
-              summary: message,
-              payload: null
-            }
-          ]
-        },
-        error: message
-      });
-      const failedResult: AgentRunResult = {
+      let failedResult: AgentRunResult = {
         status: "failed",
         message,
         stopReason: "failed",
@@ -285,6 +307,17 @@ export class AgentWorker {
           }
         ]
       };
+      failedResult = (await this.applyWorktreePolicy(
+        runningJob,
+        project,
+        worktree,
+        failedResult,
+        "runtime_error"
+      )) ?? failedResult;
+      await this.repos.agentJobs.updateStatus(runningJob.projectId, runningJob.id, "failed", {
+        output: failedResult as unknown as Record<string, unknown>,
+        error: message
+      });
       await this.updateLoopForResult(runningJob, failedResult);
       await recordObjectiveJobResult(this.repos, { job: runningJob, result: failedResult });
     }
@@ -635,6 +668,18 @@ export class AgentWorker {
     }
 
     return null;
+  }
+
+  private async applyWorktreePolicy(
+    job: AgentJobDto,
+    project: ProjectDto | null,
+    worktree: PreparedWorktree | null,
+    result: AgentRunResult | null,
+    state: WorktreeLifecycleState
+  ): Promise<AgentRunResult | null> {
+    if (!project || !worktree) return result;
+    const record = await applyWorktreeDisposition(this.repos, { job, project, worktree, state });
+    return result ? appendWorktreeRetentionEvidence(result, record) : null;
   }
 
   private async recordLoopWorktree(job: AgentJobDto, worktreePath: string): Promise<void> {

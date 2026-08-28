@@ -442,8 +442,15 @@ describe("agent worker", () => {
       expect.arrayContaining([expect.stringContaining("lint ok"), expect.stringContaining("test ok")])
     );
     expect(activities.map((activity) => activity.title)).toEqual(
-      expect.arrayContaining(["Worktree ready", "Changed files captured", "lint command passed", "test command passed"])
+      expect.arrayContaining([
+        "Worktree ready",
+        "Changed files captured",
+        "lint command passed",
+        "test command passed",
+        "Worktree cleaned up"
+      ])
     );
+    expect(output?.metadata?.worktreeRetention).toMatchObject({ action: "cleanup", reason: "completed" });
     expect(pullRequests.total).toBe(1);
     expect(pullRequests.items[0].sourceBranch).toBe("oneteam/issue-1-add-setup");
     expect(issueComments.some((comment) => comment.body.includes("## Implementation started"))).toBe(true);
@@ -594,6 +601,8 @@ describe("agent worker", () => {
     expect(output?.testResults?.[0].status).toBe("failed");
     expect(output?.testResults?.[0].exitCode).toBe(7);
     expect(activities.map((activity) => activity.title)).toContain("test command failed");
+    expect(activities.map((activity) => activity.title)).toContain("Worktree retained");
+    expect(output?.metadata?.worktreeRetention).toMatchObject({ action: "retain", reason: "failed" });
     expect(pullRequests.total).toBe(0);
 
     context.client.close();

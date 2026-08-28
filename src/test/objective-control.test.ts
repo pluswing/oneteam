@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -46,6 +46,9 @@ describe("objective controls", () => {
       objectiveRunId: objective?.id ?? null,
       jobInput: { objectiveRunId: objective?.id ?? null }
     });
+    const retainedWorktreePath = join(dir, "retained-worktree");
+    await mkdir(retainedWorktreePath);
+    await repos.loopRuns.setWorktreeState(project.id, started.run.id, { worktreePath: retainedWorktreePath });
     await Promise.all([
       repos.agentJobs.updateStatus(project.id, started.job.id, "running"),
       repos.loopSteps.updateForAgentJob(project.id, started.job.id, { status: "running" }),
@@ -68,6 +71,7 @@ describe("objective controls", () => {
     expect(paused.jobs).toMatchObject([{ id: started.job.id, status: "paused", attempt: 1 }]);
     expect(pausedStep?.status).toBe("paused");
     expect(pausedRun).toMatchObject({ status: "paused", stopReason: "paused_by_user" });
+    await expect(access(retainedWorktreePath)).resolves.toBeUndefined();
     await expect(repos.agentJobs.updateStatus(project.id, started.job.id, "running")).resolves.toBeNull();
 
     const blockedManualJob = await app.request(`/api/projects/${project.id}/agent-jobs`, {
@@ -107,8 +111,11 @@ describe("objective controls", () => {
     expect(activities.map((activity) => activity.title)).toEqual([
       "Objective paused",
       "Objective resumed",
+      "Worktree cleaned up",
       "Objective canceled"
     ]);
+    await expect(access(retainedWorktreePath)).rejects.toThrow();
+    await expect(repos.loopRuns.get(project.id, started.run.id)).resolves.toMatchObject({ worktreePath: null });
 
     context.client.close();
   });

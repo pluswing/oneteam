@@ -123,15 +123,18 @@ export async function enterProviderWait(
 
   const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
   if (step) {
+    const run = await repos.loopRuns.get(job.projectId, step.loopRunId);
+    const stepEvidence = mergeEvidenceItems(step.evidence, output.evidence);
+    const runEvidence = mergeEvidenceItems(run?.evidence ?? null, output.evidence);
     await repos.loopSteps.updateForAgentJob(job.projectId, job.id, {
       status: "waiting_provider",
       output,
-      evidence: { items: output.evidence }
+      evidence: stepEvidence
     });
     await repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "waiting_provider", {
       summary: message,
       stopReason: decision.reason,
-      evidence: { items: output.evidence }
+      evidence: runEvidence
     });
   }
 
@@ -163,6 +166,16 @@ export async function enterProviderWait(
   }
 
   return waitingJob;
+}
+
+function mergeEvidenceItems(
+  current: Record<string, unknown> | null,
+  next: Array<Record<string, unknown>>
+): Record<string, unknown> {
+  const items = Array.isArray(current?.items)
+    ? current.items.filter((value): value is Record<string, unknown> => typeof value === "object" && value !== null)
+    : [];
+  return { items: [...items, ...next].slice(-80) };
 }
 
 export function buildProviderWaitComment(job: AgentJobDto, decision: ProviderWaitDecision): string {

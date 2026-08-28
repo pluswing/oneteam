@@ -1,6 +1,7 @@
 import type { AgentJobDto, LoopRunStatus, ObjectiveRunDto } from "../../shared/types";
 import type { Repositories } from "../db/repositories";
 import { buildSystemComment } from "./system-comment";
+import { cleanupInactiveJobWorktree } from "./worktree-retention";
 
 type ObjectiveControlAction = "pause" | "resume" | "cancel";
 
@@ -156,6 +157,11 @@ export async function cancelObjective(
       error: "Canceled with Objective by the user."
     })))
   ).filter((job): job is AgentJobDto => Boolean(job));
+  await Promise.all(
+    jobs
+      .filter((job) => job.status !== "running")
+      .map((job) => cleanupInactiveJobWorktree(repos, job))
+  );
   await Promise.all(canceledJobs.map((job) =>
     syncLoopStatus(repos, job, "canceled", `Objective #${objective.id} was canceled by the user.`, "canceled_by_user")
   ));

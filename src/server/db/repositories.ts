@@ -1730,6 +1730,25 @@ export function createRepositories(db: Database) {
           .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
           .returning();
         return rows[0] ? mapLoopRun(rows[0]) : null;
+      },
+
+      async setWorktreeState(
+        projectId: string,
+        loopRunId: number,
+        patch: {
+          worktreePath: string | null;
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopRunDto | null> {
+        const rows = await db
+          .update(loopRuns)
+          .set({
+            worktreePath: patch.worktreePath,
+            evidenceJson: patch.evidence === undefined ? undefined : stringifyJson(patch.evidence)
+          })
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .returning();
+        return rows[0] ? mapLoopRun(rows[0]) : null;
       }
     },
 

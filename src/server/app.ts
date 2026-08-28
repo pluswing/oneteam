@@ -52,6 +52,7 @@ import {
   toPullRequestLineComment
 } from "./services/pull-request-line-comments";
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
+import { cleanupInactiveJobWorktree } from "./services/worktree-retention";
 import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issue-reopen";
 import { recordGoalContractChange } from "./services/goal-contract-change";
 import { agentJobReferencesArtifact, readStoredEvidenceArtifact } from "./services/evidence-artifacts";
@@ -1572,6 +1573,9 @@ export function createApp({
     }
     if (job.status === "waiting_provider") {
       await recordProviderWaitCanceled(repos, job);
+    }
+    if (job.status !== "running") {
+      await cleanupInactiveJobWorktree(repos, job);
     }
 
     if (job.targetType !== "project") {
