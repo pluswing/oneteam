@@ -21,7 +21,12 @@ import {
   RecoverableWorktreeError,
   type PreparedWorktree
 } from "../services/worktree-service";
-import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult } from "../services/objective-runs";
+import {
+  applyObjectiveHardGate,
+  markObjectiveJobStarted,
+  preflightObjectiveJob,
+  recordObjectiveJobResult
+} from "../services/objective-runs";
 import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../services/provider-wait";
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
@@ -90,10 +95,17 @@ export class AgentWorker {
   }
 
   private async runJob(job: AgentJobDto): Promise<void> {
+    const objectivePreflightResult = await preflightObjectiveJob(this.repos, job);
+    if (objectivePreflightResult) {
+      await this.applyResult(job, objectivePreflightResult);
+      return;
+    }
+
     const runningJob = await this.repos.agentJobs.updateStatus(job.projectId, job.id, "running");
     if (!runningJob) {
       return;
     }
+    await markObjectiveJobStarted(this.repos, runningJob);
 
     const activityTarget = normalizeActivityTarget(runningJob);
     await this.repos.loopSteps.updateForAgentJob(runningJob.projectId, runningJob.id, { status: "running" });
@@ -110,12 +122,6 @@ export class AgentWorker {
     }
 
     try {
-      const objectivePreflightResult = await preflightObjectiveJob(this.repos, runningJob);
-      if (objectivePreflightResult) {
-        await this.applyResult(runningJob, objectivePreflightResult);
-        return;
-      }
-
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
       const worktree = await this.prepareWorktreeForJob(runningJob, project);
       const executionRepoPath = worktree?.repoPath ?? project.repoPath;

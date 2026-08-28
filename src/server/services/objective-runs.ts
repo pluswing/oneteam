@@ -179,12 +179,17 @@ export async function preflightObjectiveJob(repos: Repositories, job: AgentJobDt
     };
   }
 
+  return null;
+}
+
+export async function markObjectiveJobStarted(repos: Repositories, job: AgentJobDto): Promise<void> {
+  const objective = await objectiveForJob(repos, job);
+  if (!objective) return;
   await repos.objectives.update(job.projectId, objective.id, {
     status: "running",
     workflowStage: workflowStageForAgent(job.agentType) ?? objective.workflowStage,
     lastAgentJobId: job.id
   });
-  return null;
 }
 
 export async function applyObjectiveHardGate(
