@@ -123,7 +123,7 @@
 ### Information architecture
 
 - [x] repository headerとIssues / Pull Requests / Agent runs / Repositoryを同一タブ階層へ整理し、Settingsを管理メニューへ分離する
-- [ ] **Partial**: Issue / PR listにstatus、label、comments、latest Agent check、PR commit / file統計、branch、updated timeを集約した。author roleは永続モデル未実装
+- [x] Issue / PRの作成主体をuser / agent / systemとして永続化し、一覧にstatus、label、author role、comments、latest Agent check、PR commit / file統計、branch、updated timeを集約する
 - [ ] Issue / PR detailをheader、conversation timeline、checks、sidebar metadataに整理する
 - [ ] Objective、Evidence、Human Gate、Provider Gateを別のLoop管理画面ではなくIssue / PRの文脈内に統合する
 - [ ] loading / empty / error / waiting / retrying状態のvisual languageを統一する

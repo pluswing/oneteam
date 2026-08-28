@@ -886,6 +886,7 @@ export class AgentWorker {
           body: typeof pr.body === "string" ? pr.body : "",
           sourceBranch: pr.sourceBranch,
           targetBranch: pr.targetBranch,
+          createdByType: "agent",
           labelIds: reviewLabel ? [reviewLabel.id] : []
         });
         await runLabelAutomation(this.repos, {

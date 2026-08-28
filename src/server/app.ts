@@ -396,6 +396,7 @@ async function detectAndPersistCommands(
         projectId,
         title: issue.title,
         body: issue.body,
+        createdByType: "system",
         labelIds: requirementsLabel ? [requirementsLabel.id] : []
       });
       await repos.agentJobs.create({
@@ -689,6 +690,7 @@ export function createApp({
       projectId,
       title: input.title,
       body: input.body,
+      createdByType: "user",
       labelIds
     });
     const automationJobs = await runLabelAutomation(repos, {
@@ -855,6 +857,7 @@ export function createApp({
     const pullRequest = await repos.pullRequests.create({
       projectId,
       ...c.req.valid("json"),
+      createdByType: "user",
       labelIds: c.req.valid("json").labelIds ?? (reviewLabel ? [reviewLabel.id] : [])
     });
     const automationJobs = await runLabelAutomation(repos, {
@@ -1382,6 +1385,7 @@ export function createApp({
       projectId,
       title: triageItem.title,
       body: triageItem.body,
+      createdByType: "user",
       labelIds: requirementsLabel ? [requirementsLabel.id] : []
     });
     await runLabelAutomation(repos, {

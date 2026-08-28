@@ -405,6 +405,13 @@ const migrations: Migration[] = [
           else 'requirements'
         end`
     ]
+  },
+  {
+    id: "0010_work_item_author_type",
+    statements: [
+      "alter table issues add column created_by_type text not null default 'user'",
+      "alter table pull_requests add column created_by_type text not null default 'user'"
+    ]
   }
 ];
 

@@ -2,6 +2,7 @@ import type { AiProvider, AiSettingsDto } from "./ai-providers";
 
 export type IssueStatus = "open" | "closed";
 export type PullRequestStatus = "open" | "closed" | "merged";
+export type WorkItemAuthorType = "user" | "agent" | "system";
 export type LabelKind = "system" | "custom";
 export type AgentType =
   | "requirements"
@@ -138,6 +139,7 @@ export type IssueDto = {
   title: string;
   body: string;
   status: IssueStatus;
+  createdByType: WorkItemAuthorType;
   labels: LabelDto[];
   commentCount: number;
   lastAgentStatus: AgentJobStatus | null;
@@ -153,6 +155,7 @@ export type PullRequestDto = {
   title: string;
   body: string;
   status: PullRequestStatus;
+  createdByType: WorkItemAuthorType;
   sourceBranch: string;
   targetBranch: string;
   labels: LabelDto[];

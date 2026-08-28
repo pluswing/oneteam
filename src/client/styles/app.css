@@ -666,6 +666,14 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.work-item-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #57606a;
+  font-weight: 600;
+}
+
 .work-item-stop-reason {
   color: #9a6700;
   font-size: 12px;

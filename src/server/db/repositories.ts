@@ -350,6 +350,7 @@ function mapIssue(row: IssueRow, labelMap: Map<number, LabelDto[]>, commentCount
     title: row.title,
     body: row.body,
     status: row.status,
+    createdByType: row.createdByType,
     labels: labelMap.get(row.id) ?? [],
     commentCount: commentCounts.get(row.id) ?? 0,
     lastAgentStatus: null,
@@ -418,6 +419,7 @@ function mapPullRequest(
     title: row.title,
     body: row.body,
     status: row.status,
+    createdByType: row.createdByType,
     sourceBranch: row.sourceBranch,
     targetBranch: row.targetBranch,
     labels: labelMap.get(row.id) ?? [],
@@ -666,6 +668,7 @@ export function createRepositories(db: Database) {
         projectId: string;
         title: string;
         body?: string;
+        createdByType?: IssueDto["createdByType"];
         labelIds?: number[];
       }): Promise<IssueDto> {
         const timestamp = now();
@@ -676,6 +679,7 @@ export function createRepositories(db: Database) {
             title: input.title,
             body: input.body ?? "",
             status: "open",
+            createdByType: input.createdByType ?? "user",
             createdAt: timestamp,
             updatedAt: timestamp
           })
@@ -806,6 +810,7 @@ export function createRepositories(db: Database) {
         body?: string;
         sourceBranch: string;
         targetBranch: string;
+        createdByType?: PullRequestDto["createdByType"];
         labelIds?: number[];
       }): Promise<PullRequestDto> {
         const timestamp = now();
@@ -817,6 +822,7 @@ export function createRepositories(db: Database) {
             title: input.title,
             body: input.body ?? "",
             status: "open",
+            createdByType: input.createdByType ?? "user",
             sourceBranch: input.sourceBranch,
             targetBranch: input.targetBranch,
             createdAt: timestamp,

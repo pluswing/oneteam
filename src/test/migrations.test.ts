@@ -64,9 +64,25 @@ describe("database migrations", () => {
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.done);
     expect(pullRequest.labels.map((label) => label.name)).toContain(workflowLabelNames.reviewing);
+    expect(pullRequest.createdByType).toBe("user");
     expect(job.status).toBe("queued");
     expect(job.aiProvider).toBe("codex");
     expect(activity.title).toBe("Review queued");
+
+    const automatedIssue = await repos.issues.create({
+      projectId: project.id,
+      title: "Automated issue",
+      createdByType: "system"
+    });
+    const automatedPullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Automated PR",
+      sourceBranch: "feature/automated",
+      targetBranch: "main",
+      createdByType: "agent"
+    });
+    expect(automatedIssue.createdByType).toBe("system");
+    expect(automatedPullRequest.createdByType).toBe("agent");
 
     context.client.close();
   });

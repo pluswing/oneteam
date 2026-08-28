@@ -17,7 +17,9 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Settings,
   Terminal,
+  UserRound,
   XCircle
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -95,6 +97,22 @@ function AgentCheckSummary(props: { status: AgentJobDto["status"] | null }) {
       ) : (
         <span>{t("issues.noChecks")}</span>
       )}
+    </span>
+  );
+}
+
+function WorkItemAuthor(props: { type: IssueDto["createdByType"] }) {
+  const label = props.type === "agent"
+    ? t("issues.authorAgent")
+    : props.type === "system"
+      ? t("issues.authorSystem")
+      : t("issues.authorUser");
+  const Icon = props.type === "agent" ? Bot : props.type === "system" ? Settings : UserRound;
+
+  return (
+    <span className="work-item-author" title={`${t("issues.createdBy")} ${label}`}>
+      <Icon aria-hidden="true" size={13} />
+      <span>{label}</span>
     </span>
   );
 }
@@ -394,6 +412,7 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
               </span>
               <span className="work-item-subtitle">
                 <span>#{issue.id}</span>
+                <WorkItemAuthor type={issue.createdByType} />
                 <span>{t("issues.updated")} {formatDateTime(issue.updatedAt)}</span>
               </span>
               {issue.lastAgentStopReason ? <span className="work-item-stop-reason">{t("agents.stopReason")}: {issue.lastAgentStopReason}</span> : null}
@@ -1153,6 +1172,7 @@ function PullRequestsListScreen(props: {
               </span>
               <span className="work-item-subtitle">
                 <span>#{pullRequest.id}</span>
+                <WorkItemAuthor type={pullRequest.createdByType} />
                 <code>{pullRequest.sourceBranch}</code>
                 <span aria-hidden="true">→</span>
                 <code>{pullRequest.targetBranch}</code>
