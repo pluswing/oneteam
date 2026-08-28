@@ -79,7 +79,7 @@
 - [ ] **Partial**: merge gate中のsource / target driftはmergeを止めるが、必要範囲の自動再実行は未実装
 - [x] conflictがある場合は`resolving-conflicts`へ戻し、conflict-resolution workflowをqueueする
 - [x] Gate通過後はOneTeamがmergeし、PR statusを`merged`、Objectiveを`succeeded`にする
-- [ ] **Partial**: conflictと不明な失敗をcorrectable / Human Gateへ分類済み。retryable merge errorのbackoffは未実装
+- [x] **Done**: conflictをcorrectable、不明・回復不能な失敗をHuman Gateへ分類し、既知のlocal Git lock / resource busyだけを500 ms、2秒、5秒で再試行する。再試行前にsource / target snapshotを再確認し、履歴をPR / Issue Activity、merge summary、Objective Evidenceへ保存する
 - [x] automatic merge、required command pass / failure、stale Evidence、target drift、conflict routingのintegration testを追加する
 
 ### Issue lifecycle

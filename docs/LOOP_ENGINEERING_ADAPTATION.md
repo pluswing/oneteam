@@ -1,7 +1,7 @@
 # OneTeam の Loop Engineering / 自動完遂型開発方針
 
 作成日: 2026-06-17
-最終更新日: 2026-08-27
+最終更新日: 2026-08-29
 
 ## 2026-08-27 方針更新
 
@@ -40,6 +40,8 @@ implementation、review、QA、verifierはproject標準とは別のprovider / mo
 - project の auto-merge policy が有効である
 
 merge 直前には conflict、HEAD、必須 verification を再評価する。target branch が進んだ場合は再レビューまたは再検証へ戻し、検証済みでない差分を merge しない。merge 成功後は PR を `merged`、Objective を `succeeded` にし、関連 Issue を更新または close して、最終 Evidence と Decision Summary を Memory に保存する。
+
+automatic merge中の失敗は、conflict、再検証が必要なsnapshot drift、回復不能または不明な失敗、一時的なlocal Git失敗に分類する。`.git/index.lock`などの既知のlock競合とresource busyだけは500 ms、2秒、5秒の上限付きbackoffで再試行し、policy違反、permission error、conflictは再試行しない。各再試行前にsource / target commit snapshotを再確認し、変化していれば再試行を中止してfresh verificationを要求する。待機はprovider turn、Objective round、Agent Job attemptを消費せず、操作名、失敗attempt、backoff、エラー概要をPRと関連IssueのActivityへ保存する。最終merge summaryとObjective Evidenceには再試行回数と履歴を残す。
 
 ### Issue の自動更新
 
