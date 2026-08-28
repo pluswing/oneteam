@@ -103,7 +103,7 @@ stateDiagram-v2
   Verifying --> Fixing: verification failed
   ReadyToMerge --> MergeGate: automatic merge starts
   MergeGate --> Merged: HEAD / conflict / verification / risk checks passed
-  MergeGate --> Reviewing: target branch advanced or evidence became stale
+  MergeGate --> Verifying: source / target advanced or evidence became stale
   MergeGate --> Fixing: conflict or correctable defect detected
   MergeGate --> WaitingHuman: auto-merge policy requires a human decision
   Open --> ConflictFixing: conflict detected

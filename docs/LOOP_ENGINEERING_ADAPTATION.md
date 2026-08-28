@@ -43,6 +43,8 @@ merge 直前には conflict、HEAD、必須 verification を再評価する。ta
 
 automatic merge中の失敗は、conflict、再検証が必要なsnapshot drift、回復不能または不明な失敗、一時的なlocal Git失敗に分類する。`.git/index.lock`などの既知のlock競合とresource busyだけは500 ms、2秒、5秒の上限付きbackoffで再試行し、policy違反、permission error、conflictは再試行しない。各再試行前にsource / target commit snapshotを再確認し、変化していれば再試行を中止してfresh verificationを要求する。待機はprovider turn、Objective round、Agent Job attemptを消費せず、操作名、失敗attempt、backoff、エラー概要をPRと関連IssueのActivityへ保存する。最終merge summaryとObjective Evidenceには再試行回数と履歴を残す。
 
+source / target drift、24時間を超えたverifier Evidence、型付き`Evidence Required`のcommit mismatchは、通常のHuman Gateではなく自動回復経路へ送る。OneTeamは旧judge snapshotを無効化してObjectiveを`verification`へ戻し、専用Loop Runでverifier Jobをqueueする。queue操作自体はObjective roundを消費せず、実際のverifier実行には通常の最大round・token・cost・provider capacity gateを適用する。PRと関連Issueには旧/新commit、旧verifier、新verifier、再開条件を構造化コメントとActivityで残し、新Evidenceが通過した場合だけautomatic merge gateへ再進入する。既存verifierがHuman Gateまたはpause中、または再検証Loopが無効な場合は、そのユーザー判断を迂回せずHuman Gateを維持する。
+
 ### Issue の自動更新
 
 Issue は依頼の入口であると同時に、後から経緯を追跡するための永続的な記録とする。
