@@ -3,9 +3,14 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
+  CircleDot,
+  Files,
   FolderOpen,
+  GitCommitHorizontal,
+  GitMerge,
   GitPullRequest,
   ListTodo,
+  MessageCircle,
   Pause,
   Pencil,
   Play,
@@ -63,6 +68,35 @@ const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels)
 function labelsForTarget(labels: LabelDto[], targetType: "issue" | "pull_request"): LabelDto[] {
   const workflowLabels = targetType === "issue" ? issueWorkflowLabelNames : pullRequestWorkflowLabelNames;
   return labels.filter((label) => label.kind === "custom" || workflowLabels.has(label.name));
+}
+
+function WorkItemLabels(props: { labels: LabelDto[] }) {
+  if (!props.labels.length) {
+    return null;
+  }
+
+  return (
+    <span className="work-item-labels">
+      {props.labels.map((label) => (
+        <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
+          {label.name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function AgentCheckSummary(props: { status: AgentJobDto["status"] | null }) {
+  return (
+    <span className="work-item-check" title={t("issues.checks")}>
+      <CheckCircle2 aria-hidden="true" size={15} />
+      {props.status ? (
+        <span className={`status-pill status-${props.status}`}>{props.status}</span>
+      ) : (
+        <span>{t("issues.noChecks")}</span>
+      )}
+    </span>
+  );
 }
 
 type ConversationEntry =
@@ -348,12 +382,28 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
       <div className="work-item-list">
         {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
         {issues.map((issue) => (
-          <button className="work-item-summary" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
-            <span className="work-item-title">#{issue.id} {issue.title}</span>
-            <span className={`status-pill status-${issue.status}`}>{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
-            {issue.lastAgentStopReason ? <span>{t("agents.stopReason")}: {issue.lastAgentStopReason}</span> : null}
-            <span>{issue.commentCount} {t("issues.comments")}</span>
-            <span>{formatDateTime(issue.updatedAt)}</span>
+          <button className="work-item-summary work-item-rich" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
+            <span className={`work-item-state-icon work-item-state-${issue.status}`}>
+              <CircleDot aria-hidden="true" size={18} />
+              <span className="sr-only">{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
+            </span>
+            <span className="work-item-body">
+              <span className="work-item-heading">
+                <span className="work-item-title">{issue.title}</span>
+                <WorkItemLabels labels={issue.labels} />
+              </span>
+              <span className="work-item-subtitle">
+                <span>#{issue.id}</span>
+                <span>{t("issues.updated")} {formatDateTime(issue.updatedAt)}</span>
+              </span>
+              {issue.lastAgentStopReason ? <span className="work-item-stop-reason">{t("agents.stopReason")}: {issue.lastAgentStopReason}</span> : null}
+            </span>
+            <AgentCheckSummary status={issue.lastAgentStatus} />
+            <span className="work-item-stat" title={`${issue.commentCount} ${t("issues.comments")}`}>
+              <MessageCircle aria-hidden="true" size={16} />
+              <span>{issue.commentCount}</span>
+              <span className="sr-only">{t("issues.comments")}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -1087,16 +1137,48 @@ function PullRequestsListScreen(props: {
         {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
         {pullRequests.map((pullRequest) => (
           <button
-            className="work-item-summary"
+            className="work-item-summary work-item-rich"
             key={pullRequest.id}
             onClick={() => props.onOpen(pullRequest.id)}
             type="button"
           >
-            <span className="work-item-title">#{pullRequest.id} {pullRequest.title}</span>
-            <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
-            {pullRequest.lastAgentStopReason ? <span>{t("agents.stopReason")}: {pullRequest.lastAgentStopReason}</span> : null}
-            <span>{pullRequest.commentCount} {t("issues.comments")}</span>
-            <span>{formatDateTime(pullRequest.updatedAt)}</span>
+            <span className={`work-item-state-icon work-item-state-${pullRequest.status}`}>
+              {pullRequest.status === "merged" ? <GitMerge aria-hidden="true" size={18} /> : <GitPullRequest aria-hidden="true" size={18} />}
+              <span className="sr-only">{formatPullRequestStatus(pullRequest.status)}</span>
+            </span>
+            <span className="work-item-body">
+              <span className="work-item-heading">
+                <span className="work-item-title">{pullRequest.title}</span>
+                <WorkItemLabels labels={pullRequest.labels} />
+              </span>
+              <span className="work-item-subtitle">
+                <span>#{pullRequest.id}</span>
+                <code>{pullRequest.sourceBranch}</code>
+                <span aria-hidden="true">→</span>
+                <code>{pullRequest.targetBranch}</code>
+                {pullRequest.issueId ? <span>· {t("pullRequests.relatedIssue")} #{pullRequest.issueId}</span> : null}
+                <span>· {t("issues.updated")} {formatDateTime(pullRequest.updatedAt)}</span>
+              </span>
+              {pullRequest.lastAgentStopReason ? <span className="work-item-stop-reason">{t("agents.stopReason")}: {pullRequest.lastAgentStopReason}</span> : null}
+            </span>
+            <AgentCheckSummary status={pullRequest.lastAgentStatus} />
+            <span className="work-item-stats">
+              <span className="work-item-stat" title={`${pullRequest.commentCount} ${t("issues.comments")}`}>
+                <MessageCircle aria-hidden="true" size={16} />
+                <span>{pullRequest.commentCount}</span>
+                <span className="sr-only">{t("issues.comments")}</span>
+              </span>
+              <span className="work-item-stat" title={`${pullRequest.commitCount} ${t("pullRequests.commits")}`}>
+                <GitCommitHorizontal aria-hidden="true" size={16} />
+                <span>{pullRequest.commitCount}</span>
+                <span className="sr-only">{t("pullRequests.commits")}</span>
+              </span>
+              <span className="work-item-stat" title={`${pullRequest.changedFileCount} ${t("pullRequests.files")}`}>
+                <Files aria-hidden="true" size={16} />
+                <span>{pullRequest.changedFileCount}</span>
+                <span className="sr-only">{t("pullRequests.files")}</span>
+              </span>
+            </span>
           </button>
         ))}
       </div>

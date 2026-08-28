@@ -55,6 +55,11 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Goal Contract changed").first()).toBeVisible();
 
+  await page.getByRole("button", { name: "Issues", exact: true }).click();
+  const issueSummary = page.locator(".work-item-rich").filter({ hasText: "Add smoke workflow" });
+  await expect(issueSummary).toContainText("requirements");
+  await expect(issueSummary.locator(".work-item-check")).toContainText("queued");
+
   await page.getByRole("button", { name: "Agent runs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
   const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();
@@ -108,6 +113,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   expect(pullRequestResponse.ok()).toBe(true);
 
   await page.getByRole("button", { name: "Pull Requests" }).click();
+  const pullRequestSummary = page.locator(".work-item-rich").filter({ hasText: "Review a large generated diff" });
+  await expect(pullRequestSummary).toContainText("feature/large-diff");
+  await expect(pullRequestSummary.locator(".work-item-stats")).toContainText("1");
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await page.getByRole("button", { name: "Files changed" }).click();
   await expect(page.locator(".diff-render-footer")).toContainText("1,000");

@@ -597,6 +597,116 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.work-item-summary.work-item-rich {
+  grid-template-columns: 24px minmax(260px, 1fr) minmax(120px, max-content) max-content;
+  align-items: start;
+  min-height: 76px;
+  padding: 12px 16px;
+}
+
+.work-item-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+  color: #57606a;
+}
+
+.work-item-state-open {
+  color: #1a7f37;
+}
+
+.work-item-state-merged {
+  color: #8250df;
+}
+
+.work-item-body,
+.work-item-heading,
+.work-item-subtitle,
+.work-item-check,
+.work-item-stats,
+.work-item-stat {
+  display: flex;
+  min-width: 0;
+}
+
+.work-item-body {
+  flex-direction: column;
+  gap: 5px;
+}
+
+.work-item-heading {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.work-item-labels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.work-item-labels .label-pill {
+  min-height: 20px;
+}
+
+.work-item-subtitle {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.work-item-subtitle code {
+  color: #57606a;
+  background: transparent;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.work-item-stop-reason {
+  color: #9a6700;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.work-item-check {
+  align-items: center;
+  gap: 6px;
+  color: #57606a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.work-item-stats {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.work-item-stat {
+  align-items: center;
+  gap: 4px;
+  color: #57606a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .project-selector {
   width: min(1040px, 100%);
 }
@@ -2861,6 +2971,16 @@ button.diff-finding-card:hover {
   .agent-job-summary {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .work-item-summary.work-item-rich {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .work-item-rich .work-item-check,
+  .work-item-rich .work-item-stats {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .project-open-action {
