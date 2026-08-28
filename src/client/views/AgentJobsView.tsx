@@ -161,6 +161,39 @@ function ActivityLog(props: { activities: ActivityDto[] }) {
   );
 }
 
+type EvidenceImageArtifactView = {
+  status: "available" | "unavailable";
+  name: string;
+  caption: string | null;
+  url: string | null;
+  mediaType: string | null;
+  byteSize: number | null;
+  reason: string | null;
+};
+
+function evidenceImageArtifact(job: AgentJobDto, item: Record<string, unknown>): EvidenceImageArtifactView | null {
+  const artifact = recordValue(recordValue(item.payload)?.artifact);
+  const status = stringValue(artifact?.status);
+  if (artifact?.kind !== "image" || (status !== "available" && status !== "unavailable")) return null;
+  const rawUrl = stringValue(artifact.url);
+  const expectedUrlPrefix = `/api/projects/${encodeURIComponent(job.projectId)}/agent-jobs/${job.id}/artifacts/`;
+  return {
+    status,
+    name: stringValue(artifact.name) ?? t("agents.screenshot"),
+    caption: stringValue(artifact.caption),
+    url: status === "available" && rawUrl?.startsWith(expectedUrlPrefix) ? rawUrl : null,
+    mediaType: stringValue(artifact.mediaType),
+    byteSize: numberValue(artifact.byteSize),
+    reason: stringValue(artifact.reason)
+  };
+}
+
+function formatArtifactSize(byteSize: number | null): string | null {
+  if (byteSize === null) return null;
+  if (byteSize < 1_024) return `${byteSize} B`;
+  return `${(byteSize / 1_024).toFixed(byteSize < 10_240 ? 1 : 0)} KB`;
+}
+
 function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDto[] }) {
   const output = props.job.output ?? {};
   const message = agentJobMessage(props.job, props.activities);
@@ -248,6 +281,8 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
               const title = stringValue(item.title) ?? `${t("agents.evidenceItem")} ${index + 1}`;
               const type = stringValue(item.type);
               const summary = stringValue(item.summary);
+              const artifact = evidenceImageArtifact(props.job, item);
+              const artifactSize = artifact ? formatArtifactSize(artifact.byteSize) : null;
               return (
                 <article className="test-result-row" key={`${title}-${index}`}>
                   <header>
@@ -255,6 +290,23 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
                     {type ? <span className="status-pill">{type}</span> : null}
                   </header>
                   {summary ? <p>{summary}</p> : null}
+                  {artifact ? (
+                    <figure className={`evidence-image-artifact artifact-${artifact.status}`}>
+                      {artifact.url ? (
+                        <a href={artifact.url} rel="noreferrer noopener" target="_blank">
+                          <img alt={artifact.caption ?? title} loading="lazy" src={artifact.url} />
+                        </a>
+                      ) : (
+                        <div className="evidence-artifact-unavailable">
+                          {artifact.reason ?? t("agents.artifactUnavailable")}
+                        </div>
+                      )}
+                      <figcaption>
+                        <strong>{artifact.caption ?? artifact.name}</strong>
+                        <span>{[artifact.mediaType, artifactSize].filter(Boolean).join(" · ")}</span>
+                      </figcaption>
+                    </figure>
+                  ) : null}
                 </article>
               );
             })}

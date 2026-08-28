@@ -146,7 +146,7 @@
 ### Conversation / checks
 
 - [x] comment、role別Agent run（reviewを含む）、label delta、status close / reopen、commit、Provider Gate、merge等のsystem Activityを重複排除してIssue / PR timelineへ統合する
-- [ ] **Partial**: Checks summaryからAgent Job、Evidence、command / test output、changed files、Activityへsection deep linkし、PR Agent Jobのchanged filesからdiffへ移動できる。screenshot artifactの正規化と表示は未実装
+- [x] Checks summaryからAgent Job、Evidence、command / test output、changed files、Activityへsection deep linkし、PR Agent Jobのchanged filesからdiffへ移動できる。workspace内のscreenshot evidenceを検証・永続化し、Agent Job detailで表示する
 - [ ] **Partial**: comment / Activity / Agent run permalink、非同期hash scroll、長文report折りたたみ、Markdown tableの横scrollは実装済み。comment編集履歴は未実装
 
 ## P1: 後から読み返せるAgent / system comment

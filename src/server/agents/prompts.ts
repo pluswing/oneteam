@@ -28,7 +28,7 @@ const outputSchema = `Return only JSON with this shape:
   "changedFiles": ["path"] | null,
   "testResults": [] | null,
   "stopReason": "passed" | "failed" | "waiting_human" | "timeout" | "max_rounds_exceeded" | "budget_exceeded" | "risk_detected" | "rollback_required" | "canceled" | null,
-  "evidence": [{ "type": "test", "title": "short title", "summary": "what this proves", "payload": {} }] | null,
+  "evidence": [{ "type": "test | screenshot", "title": "short title", "summary": "what this proves", "payload": {} | { "artifact": { "kind": "image", "path": "relative/path.png", "caption": "optional caption" | null } } }] | null,
   "metadata": {
     "nextLabel": "optional system label" | null,
     "pullRequest": {
@@ -70,7 +70,13 @@ normal comments. Use "bodyFormat": "html" only when a structured report,
 table, callout, or compact visual grouping improves the user's understanding.
 HTML must be self-contained and safe: do not include script, iframe, object,
 embed, event handler attributes, javascript: URLs, external CSS, or unsafe style
-functions.`;
+functions.
+
+When visual verification materially supports QA or review, save PNG, JPEG, GIF,
+or WebP screenshots under .oneteam/artifacts in the current Agent workspace and
+return them as screenshot evidence. Use that workspace-relative path in payload.artifact.path.
+Do not return external URLs, data URLs, SVG, or files outside the workspace.
+OneTeam copies valid images before a temporary worktree is cleaned up.`;
 
 const rolePrompts: Record<AgentJobDto["agentType"], string> = {
   requirements: `You are the Requirements Agent.

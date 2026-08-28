@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createClient } from "@libsql/client";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { diffLineAnchor } from "../src/shared/diff-anchors";
 
@@ -130,6 +130,63 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".page-title-block")).toContainText("canceled");
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator(".page-title-block")).toContainText("queued");
+
+  const artifactJobResponse = await page.request.post(`/api/projects/${projectId}/agent-jobs`, {
+    data: { agentType: "qa", targetType: "project", targetId: 0, triggerType: "e2e_artifact" }
+  });
+  expect(artifactJobResponse.ok()).toBe(true);
+  const artifactJob = (await artifactJobResponse.json()) as { job: { id: number } };
+  const artifactName = "01-qa-dashboard.png";
+  const artifactDirectory = resolve(repoPath, ".oneteam", "data", "artifacts", `job-${artifactJob.job.id}`);
+  mkdirSync(artifactDirectory, { recursive: true });
+  writeFileSync(
+    resolve(artifactDirectory, artifactName),
+    Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
+  );
+  const artifactDatabase = createClient({ url: `file:${resolve(".tmp/e2e/oneteam.db")}` });
+  await artifactDatabase.execute({
+    sql: "UPDATE agent_jobs SET status = 'succeeded', output_json = ?, started_at = ?, finished_at = ? WHERE id = ?",
+    args: [
+      JSON.stringify({
+        status: "succeeded",
+        message: "Visual QA passed.",
+        stopReason: "passed",
+        evidence: [
+          {
+            type: "screenshot",
+            title: "Dashboard visual check",
+            summary: "The dashboard remained readable.",
+            payload: {
+              artifact: {
+                kind: "image",
+                status: "available",
+                name: artifactName,
+                caption: "QA dashboard",
+                mediaType: "image/png",
+                byteSize: 68,
+                url: `/api/projects/${projectId}/agent-jobs/${artifactJob.job.id}/artifacts/${artifactName}`
+              }
+            }
+          }
+        ]
+      }),
+      timestamp,
+      timestamp,
+      artifactJob.job.id
+    ]
+  });
+  artifactDatabase.close();
+  await page.getByRole("button", { name: "Agent runs" }).click();
+  const qaArtifactJob = page.locator(".agent-job-summary").filter({ hasText: `#${artifactJob.job.id} qa` });
+  await expect(qaArtifactJob).toContainText("succeeded");
+  await qaArtifactJob.click();
+  const artifactPreview = page.getByAltText("QA dashboard");
+  await expect(artifactPreview).toBeVisible();
+  await expect(artifactPreview).toHaveAttribute(
+    "src",
+    `/api/projects/${projectId}/agent-jobs/${artifactJob.job.id}/artifacts/${artifactName}`
+  );
+  await expect(page.locator(".evidence-image-artifact figcaption")).toContainText("image/png");
 
   await page.getByRole("button", { name: "Repository", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Repository" })).toBeVisible();

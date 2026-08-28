@@ -245,6 +245,8 @@ export const en = {
     stopReason: "Stop reason",
     evidence: "Evidence",
     evidenceItem: "Evidence",
+    screenshot: "Screenshot",
+    artifactUnavailable: "Screenshot artifact unavailable",
     changedFiles: "Changed files",
     tests: "Tests",
     test: "Test",

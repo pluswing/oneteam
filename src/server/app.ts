@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -54,6 +54,7 @@ import {
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
 import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issue-reopen";
 import { recordGoalContractChange } from "./services/goal-contract-change";
+import { agentJobReferencesArtifact, readStoredEvidenceArtifact } from "./services/evidence-artifacts";
 
 const execFileAsync = promisify(execFile);
 
@@ -1464,6 +1465,27 @@ export function createApp({
       })
     });
     return c.json({ job }, 201);
+  });
+
+  app.get("/api/projects/:projectId/agent-jobs/:jobId/artifacts/:fileName", async (c) => {
+    const projectId = c.req.param("projectId");
+    const jobId = Number(c.req.param("jobId"));
+    const [project, job] = await Promise.all([
+      repos.projects.get(projectId),
+      repos.agentJobs.get(projectId, jobId)
+    ]);
+    if (!project || !job || !agentJobReferencesArtifact(job, c.req.param("fileName"))) {
+      notFound("Agent artifact was not found.");
+    }
+    const artifact = await readStoredEvidenceArtifact(project, jobId, c.req.param("fileName"));
+    if (!artifact) notFound("Agent artifact was not found.");
+    const content = await readFile(artifact.absolutePath);
+    return c.body(content, 200, {
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "Content-Length": String(artifact.byteSize),
+      "Content-Type": artifact.mediaType,
+      "X-Content-Type-Options": "nosniff"
+    });
   });
 
   app.get("/api/projects/:projectId/agent-jobs/:jobId", async (c) => {

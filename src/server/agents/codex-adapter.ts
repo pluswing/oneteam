@@ -428,6 +428,30 @@ export const agentOutputSchema = {
                     additionalProperties: false
                   },
                   {
+                    type: "object",
+                    properties: {
+                      artifact: {
+                        type: "object",
+                        properties: {
+                          kind: {
+                            type: "string",
+                            enum: ["image"]
+                          },
+                          path: {
+                            type: "string"
+                          },
+                          caption: {
+                            type: ["string", "null"]
+                          }
+                        },
+                        required: ["kind", "path", "caption"],
+                        additionalProperties: false
+                      }
+                    },
+                    required: ["artifact"],
+                    additionalProperties: false
+                  },
+                  {
                     type: "null"
                   }
                 ]

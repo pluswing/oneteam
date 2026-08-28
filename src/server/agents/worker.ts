@@ -25,6 +25,7 @@ import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
+import { normalizeEvidenceArtifacts } from "../services/evidence-artifacts";
 import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
 import {
   recordIssueImplementationStarted,
@@ -116,12 +117,13 @@ export class AgentWorker {
 
       const { project, prompt } = await buildPromptForJob(this.repos, runningJob);
       const worktree = await this.prepareWorktreeForJob(runningJob, project);
+      const executionRepoPath = worktree?.repoPath ?? project.repoPath;
       if (worktree) {
         await recordIssueImplementationStarted(this.repos, runningJob, worktree);
       }
       const result = await this.adapter.run({
         job: runningJob,
-        repoPath: worktree?.repoPath ?? project.repoPath,
+        repoPath: executionRepoPath,
         prompt,
         isCanceled: async () => {
           const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
@@ -171,9 +173,18 @@ export class AgentWorker {
         return;
       }
 
-      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, worktree?.repoPath ?? project.repoPath, result);
-      finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, worktree?.repoPath ?? project.repoPath, finalizedResult);
+      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, executionRepoPath, result);
+      finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, executionRepoPath, finalizedResult);
       finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
+      finalizedResult = {
+        ...finalizedResult,
+        evidence: await normalizeEvidenceArtifacts({
+          project,
+          job: runningJob,
+          executionRepoPath,
+          evidence: finalizedResult.evidence
+        })
+      };
       await this.applyResult(runningJob, finalizedResult);
       if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
         await cleanupWorktree(project, worktree.worktreePath);

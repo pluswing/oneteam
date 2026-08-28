@@ -1137,6 +1137,50 @@ textarea {
   padding-left: 20px;
 }
 
+.evidence-image-artifact {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  background: #f6f8fa;
+}
+
+.evidence-image-artifact > a {
+  display: grid;
+  max-height: 480px;
+  overflow: auto;
+  background: linear-gradient(45deg, #f6f8fa 25%, transparent 25%),
+    linear-gradient(-45deg, #f6f8fa 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f6f8fa 75%),
+    linear-gradient(-45deg, transparent 75%, #f6f8fa 75%), #ffffff;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.evidence-image-artifact img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: auto;
+}
+
+.evidence-image-artifact figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 8px;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.evidence-artifact-unavailable {
+  padding: 12px;
+  color: #9a6700;
+  background: #fff8c5;
+}
+
 .result-list li {
   overflow-wrap: anywhere;
 }

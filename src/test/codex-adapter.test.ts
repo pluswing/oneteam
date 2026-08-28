@@ -61,6 +61,11 @@ writeFileSync(outputPath, JSON.stringify({
                   anyOf: Array<{
                     type?: string;
                     additionalProperties?: boolean;
+                    properties?: {
+                      artifact?: {
+                        required?: string[];
+                      };
+                    };
                   }>;
                 };
               };
@@ -92,7 +97,10 @@ writeFileSync(outputPath, JSON.stringify({
     const metadataObjectSchema = schema.properties.metadata.anyOf.find((item) => item.properties);
     const evidenceItemSchema = schema.properties.evidence.anyOf.find((item) => item.items)?.items;
     const evidencePayloadObjectSchema = evidenceItemSchema?.properties?.payload?.anyOf.find(
-      (item) => item.type === "object"
+      (item) => item.type === "object" && !item.properties?.artifact
+    );
+    const evidenceArtifactPayloadSchema = evidenceItemSchema?.properties?.payload?.anyOf.find(
+      (item) => item.type === "object" && item.properties?.artifact
     );
     const reviewObjectSchema = metadataObjectSchema?.properties?.review?.anyOf.find((item) => item.properties);
     const findingItemSchema = reviewObjectSchema?.properties?.findings?.anyOf.find((item) => item.items)?.items;
@@ -115,6 +123,7 @@ writeFileSync(outputPath, JSON.stringify({
       expect.arrayContaining(["status", "message", "stopReason", "evidence", "metadata"])
     );
     expect(evidencePayloadObjectSchema?.additionalProperties).toBe(false);
+    expect(evidenceArtifactPayloadSchema?.properties?.artifact?.required).toEqual(["kind", "path", "caption"]);
     expect(findingItemSchema?.required).toEqual(["severity", "path", "line", "title", "body"]);
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Codex completed.");

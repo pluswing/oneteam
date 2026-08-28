@@ -247,6 +247,8 @@ export const ja = {
     stopReason: "停止理由",
     evidence: "証拠",
     evidenceItem: "証拠",
+    screenshot: "スクリーンショット",
+    artifactUnavailable: "スクリーンショットを表示できません",
     changedFiles: "変更ファイル",
     tests: "テスト",
     test: "テスト",
