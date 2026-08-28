@@ -38,7 +38,7 @@
 - [ ] **Partial**: 全Loop Runではなく、書き込みを行うimplementation / fixが主なworktree対象
 - [x] **Done**: 最大変更ファイル数 / diff行数、command allowlist / denylist、protected path / branch、Risk SignalのHuman Gate
 - [x] **Done**: Loop固有またはProject既定のtime budgetをAgent Job全体のdeadlineとしてprovider process / LM Studio request・toolへ伝播し、lint / test / buildのcommand timeoutは独立設定として分離する
-- [ ] **Partial**: Objectiveのmax roundsは実効制御されるが、Issue / project policyから安全に変更する公開導線がない
+- [x] **Done**: Objectiveのmax roundsを実効制御し、Project Settingsで1〜1000の新規Objective既定値を管理する。作成時snapshotのため進行中Objectiveは設定変更の影響を受けない
 - [x] **Done**: Codex / Claude Code / LM Studioのusageを正規化してObjectiveへtokenとprovider報告USD costを累積し、token / cost budget到達後のjobをdequeue時にprovider実行前でHuman Gateへ止める。cost未報告時は単価を推定しない
 
 ### Scheduler / Skills / Memory / UI

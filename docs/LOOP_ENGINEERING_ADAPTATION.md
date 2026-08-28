@@ -335,6 +335,8 @@ UI 上では「成功 / 失敗」だけでなく「なぜ止まったか」を�
 
 Provider usageのbudget制御では、providerごとに異なるtelemetryを共通形式へ正規化し、input / cached input / output / reasoning / total token、request count、USD costをObjectiveへ累積する。token budgetとcost budgetは独立して判定する。
 
+Objectiveの最大round数はProject Settingsで新規Objectiveの既定値として1〜1000の範囲で管理し、Objective作成時にsnapshotする。進行中ObjectiveはProject設定変更で暗黙に上限を変更せず、到達後のpreflight gateも追加roundとして数えない。
+
 - costはproviderが明示的に返したUSD値だけを記録し、モデル名や公開価格表から推定しない
 - costを返さないproviderでもtoken集計は失わない
 - Loop固有の`cost_budget`がある場合はproject既定のObjective cost budgetより優先する
