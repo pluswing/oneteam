@@ -1,4 +1,10 @@
 import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import {
+  evidenceGateFailureSummary,
+  evaluateEvidenceRequirements,
+  normalizeEvidenceRequirements,
+  type EvidenceGateEvaluation
+} from "../../shared/evidence-requirements";
 import type { Repositories } from "../db/repositories";
 import { appendLoopMemoryNote } from "./knowledge-files";
 import { getRevisionHash } from "./git-service";
@@ -145,10 +151,56 @@ export async function applyObjectiveHardGate(
     });
   }
 
+  if (job.agentType === "requirements" && result.metadata && "goalContract" in result.metadata) {
+    const requirements = normalizeEvidenceRequirements(result.metadata.goalContract?.evidenceRequired);
+    if (!requirements.some((requirement) => requirement.required)) {
+      return gateFailureResult(result, {
+        message: "Requirements cannot finish without at least one valid required Evidence Required rule.",
+        title: "Goal Contract evidence rules missing",
+        objectiveRunId: objective.id
+      });
+    }
+  }
+
   if (job.agentType === "verifier") {
     const verifier = result.metadata?.verifier;
     const objectiveEvidenceCount = evidenceItems(objective.evidence).length + (result.evidence?.length ?? 0);
-    if (verifier?.stopConditionMet !== true || objectiveEvidenceCount === 0) {
+    if (verifier?.stopConditionMet !== true) {
+      return gateFailureResult(result, {
+        message: "Verifier cannot mark the objective passed without a met stop condition and collected evidence.",
+        title: "Verifier gate blocked",
+        objectiveRunId: objective.id
+      });
+    }
+    const evidenceContext = await resolveEvidenceContext(repos, job, objective);
+    const evidenceGate = evaluateEvidenceRequirements(
+      objective.evidenceRequirements,
+      [
+        ...evidenceItems(objective.evidence),
+        ...stampEvidence(result.evidence, evidenceContext),
+        stampEvidenceItem({
+          type: "agent_job",
+          title: `verifier job ${result.status}`,
+          summary: result.message,
+          payload: {
+            agentJobId: job.id,
+            agentType: job.agentType,
+            stopReason: result.stopReason ?? null
+          }
+        }, evidenceContext)
+      ],
+      evidenceContext
+    );
+    if (!evidenceGate.passed) {
+      const missing = evidenceGateFailureSummary(evidenceGate);
+      return gateFailureResult(result, {
+        message: `Evidence Required is not satisfied: ${missing}.`,
+        title: "Evidence Required gate blocked",
+        objectiveRunId: objective.id,
+        evidenceGate
+      });
+    }
+    if (objectiveEvidenceCount === 0) {
       return gateFailureResult(result, {
         message: "Verifier cannot mark the objective passed without a met stop condition and collected evidence.",
         title: "Verifier gate blocked",
@@ -166,7 +218,8 @@ export async function applyObjectiveHardGate(
           payload: {
             objectiveRunId: objective.id,
             judgeAgentJobId: job.id,
-            judgeAiProvider: job.aiProvider
+            judgeAiProvider: job.aiProvider,
+            evidenceGate
           }
         }
       ]
@@ -202,6 +255,9 @@ export async function recordObjectiveJobResult(
       : roundCount >= objective.maxRounds && status === "waiting_human"
         ? "max_rounds_exceeded"
         : (result.stopReason ?? objective.stopReason);
+  const evidenceRequirements = input.job.agentType === "requirements" && result.status === "succeeded" && result.metadata?.goalContract
+    ? normalizeEvidenceRequirements(result.metadata.goalContract.evidenceRequired)
+    : objective.evidenceRequirements;
   const evidence = mergeEvidence(objective.evidence, stampedResultEvidence, stampEvidenceItem({
     type: "agent_job",
     title: `${input.job.agentType} job ${result.status}`,
@@ -225,6 +281,7 @@ export async function recordObjectiveJobResult(
     lastFailureSignature: signature,
     repeatedFailureCount,
     stopReason,
+    evidenceRequirements,
     evidence,
     summary: result.message,
     finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? new Date().toISOString() : objective.finishedAt
@@ -308,6 +365,7 @@ function gateFailureResult(
     message: string;
     title: string;
     objectiveRunId: number;
+    evidenceGate?: EvidenceGateEvaluation;
   }
 ): AgentRunResult {
   return {
@@ -327,7 +385,8 @@ function gateFailureResult(
         title: input.title,
         summary: input.message,
         payload: {
-          objectiveRunId: input.objectiveRunId
+          objectiveRunId: input.objectiveRunId,
+          ...(input.evidenceGate ? { evidenceGate: input.evidenceGate } : {})
         }
       }
     ]

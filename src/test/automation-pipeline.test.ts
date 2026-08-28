@@ -467,6 +467,90 @@ describe("automatic delivery pipeline", () => {
     context.client.close();
   });
 
+  it("re-evaluates typed Evidence Required against current target commit before automatic merge", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-typed-evidence-db-"));
+    const repoPath = await createGitRepo("oneteam-typed-evidence-repo-");
+    const targetHead = await getRevisionHash(repoPath, "main");
+    await git(repoPath, ["checkout", "-b", "feature/typed-evidence"]);
+    await writeFile(join(repoPath, "typed.txt"), "typed evidence\n");
+    await git(repoPath, ["add", "typed.txt"]);
+    await git(repoPath, ["commit", "-m", "add typed evidence fixture"]);
+    const sourceHead = await getRevisionHash(repoPath, "feature/typed-evidence");
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Typed evidence", repoPath, defaultBranch: "main" });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Typed evidence verification",
+      sourceBranch: "feature/typed-evidence",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, verifierJob.id, "succeeded");
+    if (!objective || !completedVerifier) throw new Error("Failed to prepare typed evidence test.");
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidenceRequirements: [
+        { type: "build", required: true, commitScope: "target", maxAgeHours: 24 }
+      ],
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Current verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: sourceHead,
+              targetCommit: targetHead,
+              capturedAt: new Date().toISOString()
+            }
+          },
+          {
+            type: "build",
+            title: "Build from a different target snapshot",
+            payload: {
+              status: "passed",
+              sourceCommit: sourceHead,
+              targetCommit: "0".repeat(40),
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain(
+      "Evidence Required became invalid before merge: build (commit mismatch)"
+    );
+    expect((await repos.pullRequests.get(project.id, pullRequest.id))?.status).toBe("open");
+    context.client.close();
+  });
+
   it("leaves a verified PR for manual merge when its target branch is outside policy", async () => {
     const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-target-policy-db-"));
     const repoPath = await createGitRepo("oneteam-target-policy-repo-");

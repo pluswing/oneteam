@@ -176,7 +176,6 @@ export class AgentWorker {
 
       let finalizedResult = await this.finalizeImplementationResult(runningJob, project, executionRepoPath, result);
       finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, executionRepoPath, finalizedResult);
-      finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
       finalizedResult = {
         ...finalizedResult,
         evidence: await normalizeEvidenceArtifacts({
@@ -186,6 +185,7 @@ export class AgentWorker {
           evidence: finalizedResult.evidence
         })
       };
+      finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
       await this.applyResult(runningJob, finalizedResult);
       if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
         await cleanupWorktree(project, worktree.worktreePath);

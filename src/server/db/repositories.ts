@@ -3,6 +3,7 @@ import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "dri
 import type { SQL } from "drizzle-orm";
 import type { AiProvider } from "../../shared/ai-providers";
 import { normalizeAiSettings } from "../../shared/ai-providers";
+import { normalizeEvidenceRequirements } from "../../shared/evidence-requirements";
 import type {
   ActivityDto,
   AgentJobDto,
@@ -78,6 +79,15 @@ function now(): string {
 function timestampAfter(value: string): string {
   const previous = Date.parse(value);
   return new Date(Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)).toISOString();
+}
+
+function parseEvidenceRequirements(value: string | null) {
+  if (!value) return [];
+  try {
+    return normalizeEvidenceRequirements(JSON.parse(value) as unknown);
+  } catch {
+    return [];
+  }
 }
 
 function mapProject(row: ProjectRow): ProjectDto {
@@ -294,6 +304,7 @@ function mapObjectiveRun(row: ObjectiveRunRow): ObjectiveRunDto {
     lastFailureSignature: row.lastFailureSignature,
     repeatedFailureCount: row.repeatedFailureCount,
     stopReason: row.stopReason,
+    evidenceRequirements: parseEvidenceRequirements(row.evidenceRequirementsJson),
     evidence: parseJsonObject(row.evidenceJson),
     summary: row.summary,
     createdAt: row.createdAt,
@@ -1979,6 +1990,7 @@ export function createRepositories(db: Database) {
             | "lastFailureSignature"
             | "repeatedFailureCount"
             | "stopReason"
+            | "evidenceRequirements"
             | "summary"
             | "finishedAt"
           >
@@ -2004,6 +2016,9 @@ export function createRepositories(db: Database) {
             lastFailureSignature: input.lastFailureSignature,
             repeatedFailureCount: input.repeatedFailureCount,
             stopReason: input.stopReason,
+            evidenceRequirementsJson: input.evidenceRequirements === undefined
+              ? undefined
+              : JSON.stringify(input.evidenceRequirements),
             evidenceJson: input.evidence === undefined ? undefined : stringifyJson(input.evidence),
             summary: input.summary,
             finishedAt: input.finishedAt,

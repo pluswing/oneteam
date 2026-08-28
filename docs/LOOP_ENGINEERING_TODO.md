@@ -28,7 +28,7 @@
 - [x] **Done**: VerifierのStop Condition判定と`ready-to-merge`への遷移
 - [x] **Done**: repeated failureと最大round到達時のHuman Gate
 - [x] **Done**: score manipulationの基本diff scan（test skip / only、assertion 0、error swallow、test file deletion）
-- [ ] **Partial**: Evidenceに取得時刻、source / target branchとcommitを保存し、Verifier Evidenceのcommit / 24時間鮮度をGateで照合する。Goal Contractの`Evidence Required`を種類別に照合する制御は未完了
+- [x] **Done**: Evidenceに取得時刻、source / target branchとcommitを保存する。Goal Contractの型付き`Evidence Required`をVerifier / automatic merge Gateで種類、必須性、source / target commit、freshnessごとに照合する
 - [x] **Done**: Verifier pass後のautomatic merge gateでrequired lint / test / buildをsource worktree上で再実行し、local merge、PR / Objective / Issue完了処理へ接続する
 
 ### Worktree / Safety / Budget
@@ -171,7 +171,7 @@
 
 ## P2: Loop Engineering制御の強化
 
-- [ ] Goal Contractの`Evidence Required`を型付きにし、種類、必須性、対象commit、freshnessをGateが機械判定する
+- [x] Goal Contractの`Evidence Required`を型付きにし、種類、必須性、対象commit、freshnessをGateが機械判定する。missing / stale / commit mismatch / unavailableを監査可能な判定結果として残す
 - [ ] implementation / review / QA / verifierでrole-based provider / modelを設定できるようにする
 - [ ] provider usage / token / costをObjectiveに集計し、budgetでqueue前に停止できるようにする
 - [ ] Agent全体deadlineとcommand別timeoutを分離する

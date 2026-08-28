@@ -118,7 +118,15 @@ writeFileSync(outputPath, JSON.stringify({
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--sandbox");
     expect(args.at(-1)).toBe("-");
-    expect(metadataObjectSchema?.required).toEqual(["nextLabel", "pullRequest", "review", "fix", "qa", "verifier"]);
+    expect(metadataObjectSchema?.required).toEqual([
+      "nextLabel",
+      "goalContract",
+      "pullRequest",
+      "review",
+      "fix",
+      "qa",
+      "verifier"
+    ]);
     expect(schema.required).toEqual(
       expect.arrayContaining(["status", "message", "stopReason", "evidence", "metadata"])
     );

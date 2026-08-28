@@ -435,6 +435,12 @@ const migrations: Migration[] = [
       "alter table agent_activities add column last_occurred_at text",
       "update agent_activities set last_occurred_at = created_at where last_occurred_at is null"
     ]
+  },
+  {
+    id: "0013_objective_evidence_requirements",
+    statements: [
+      "alter table objective_runs add column evidence_requirements_json text not null default '[]'"
+    ]
   }
 ];
 

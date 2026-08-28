@@ -474,6 +474,65 @@ export const agentOutputSchema = {
             nextLabel: {
               type: ["string", "null"]
             },
+            goalContract: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    evidenceRequired: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              type: {
+                                type: "string",
+                                enum: [
+                                  "test",
+                                  "lint",
+                                  "build",
+                                  "command",
+                                  "screenshot",
+                                  "ui_snapshot",
+                                  "file_change",
+                                  "diff_summary",
+                                  "performance",
+                                  "ci_status",
+                                  "review",
+                                  "qa",
+                                  "verifier"
+                                ]
+                              },
+                              required: {
+                                type: "boolean"
+                              },
+                              commitScope: {
+                                type: "string",
+                                enum: ["source", "target", "both", "none"]
+                              },
+                              maxAgeHours: {
+                                type: ["number", "null"]
+                              }
+                            },
+                            required: ["type", "required", "commitScope", "maxAgeHours"],
+                            additionalProperties: false
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["evidenceRequired"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
+            },
             pullRequest: {
               anyOf: [
                 {
@@ -711,7 +770,7 @@ export const agentOutputSchema = {
               ]
             }
           },
-          required: ["nextLabel", "pullRequest", "review", "fix", "qa", "verifier"],
+          required: ["nextLabel", "goalContract", "pullRequest", "review", "fix", "qa", "verifier"],
           additionalProperties: false
         },
         {

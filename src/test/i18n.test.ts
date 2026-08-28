@@ -18,6 +18,7 @@ describe("i18n", () => {
     const japanesePrompt = buildAgentPrompt(fakeJob, {
       project: { ...fakeProject, locale: "ja" },
       target: { ...fakeProject, locale: "ja" },
+      objective: null,
       comments: [],
       commands: [],
       knowledge: []
@@ -25,6 +26,7 @@ describe("i18n", () => {
     const englishPrompt = buildAgentPrompt(fakeJob, {
       project: { ...fakeProject, locale: "en" },
       target: { ...fakeProject, locale: "en" },
+      objective: null,
       comments: [],
       commands: [],
       knowledge: []

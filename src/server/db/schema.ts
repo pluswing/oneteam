@@ -280,6 +280,7 @@ export const objectiveRuns = sqliteTable("objective_runs", {
   lastFailureSignature: text("last_failure_signature"),
   repeatedFailureCount: integer("repeated_failure_count").notNull().default(0),
   stopReason: text("stop_reason"),
+  evidenceRequirementsJson: text("evidence_requirements_json").notNull().default("[]"),
   evidenceJson: text("evidence_json"),
   summary: text("summary").notNull().default(""),
   createdAt: text("created_at").notNull(),

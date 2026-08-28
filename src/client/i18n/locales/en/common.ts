@@ -294,6 +294,7 @@ export const en = {
     noObjective: "No objective yet",
     stopReason: "Stop reason",
     evidence: "Evidence",
+    requiredEvidence: "Evidence Required",
     generator: "Generator",
     judge: "Judge",
     updated: "Updated",

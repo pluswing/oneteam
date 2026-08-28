@@ -1,4 +1,5 @@
 import type { ActivityType, AgentJobDto, AgentJobStatus } from "../../shared/types";
+import type { ObjectiveEvidenceRequirement } from "../../shared/evidence-requirements";
 
 export type AgentActivityResult = {
   type: ActivityType;
@@ -42,6 +43,9 @@ export type AgentRunResult = {
   evidence?: AgentEvidenceResult[] | null;
   metadata?: {
     nextLabel?: string | null;
+    goalContract?: {
+      evidenceRequired?: ObjectiveEvidenceRequirement[] | null;
+    } | null;
     pullRequest?: {
       title: string;
       body?: string | null;

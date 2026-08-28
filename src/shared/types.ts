@@ -1,4 +1,5 @@
 import type { AiProvider, AiSettingsDto } from "./ai-providers";
+import type { ObjectiveEvidenceRequirement } from "./evidence-requirements";
 
 export type IssueStatus = "open" | "closed";
 export type PullRequestStatus = "open" | "closed" | "merged";
@@ -311,6 +312,7 @@ export type ObjectiveRunDto = {
   lastFailureSignature: string | null;
   repeatedFailureCount: number;
   stopReason: string | null;
+  evidenceRequirements: ObjectiveEvidenceRequirement[];
   evidence: Record<string, unknown> | null;
   summary: string;
   createdAt: string;

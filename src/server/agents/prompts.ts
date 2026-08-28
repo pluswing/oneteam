@@ -2,6 +2,7 @@ import type {
   AgentJobDto,
   CommentDto,
   IssueDto,
+  ObjectiveRunDto,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
@@ -13,6 +14,7 @@ import { workflowLabelNames } from "../../shared/workflow-labels";
 export type AgentPromptContext = {
   project: ProjectDto;
   target: IssueDto | PullRequestDto | ProjectDto;
+  objective: ObjectiveRunDto | null;
   comments: CommentDto[];
   commands: ProjectCommandDto[];
   knowledge: SkillFileDto[];
@@ -31,6 +33,14 @@ const outputSchema = `Return only JSON with this shape:
   "evidence": [{ "type": "test | screenshot", "title": "short title", "summary": "what this proves", "payload": {} | { "artifact": { "kind": "image", "path": "relative/path.png", "caption": "optional caption" | null } } }] | null,
   "metadata": {
     "nextLabel": "optional system label" | null,
+    "goalContract": {
+      "evidenceRequired": [{
+        "type": "test | lint | build | command | screenshot | ui_snapshot | file_change | diff_summary | performance | ci_status | review | qa | verifier",
+        "required": true,
+        "commitScope": "source | target | both | none",
+        "maxAgeHours": 24 | null
+      }]
+    } | null,
     "pullRequest": {
       "title": "optional PR title",
       "body": "optional markdown" | null,
@@ -98,6 +108,12 @@ Tasks:
 
 The requirements definition must include a Goal Contract, Stop Condition,
 Evidence Required, and Human Handoff Conditions.
+
+Return the machine-readable Evidence Required rules in
+metadata.goalContract.evidenceRequired. Use only the evidence types in the
+output schema. Set commitScope to source, target, both, or none and set an
+explicit maxAgeHours when stale evidence must not satisfy the Gate. Mark
+acceptance-critical evidence as required.
 
 Do not ask the user to configure Loops directly. Treat loop settings as internal
 workflow policy derived from the issue and the repository.
@@ -174,6 +190,7 @@ function serializeContext(context: AgentPromptContext): string {
     {
       project: context.project,
       target: context.target,
+      objective: context.objective,
       comments: context.comments,
       commands: context.commands,
       knowledge: context.knowledge.map((item) => ({

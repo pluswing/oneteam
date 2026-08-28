@@ -272,6 +272,15 @@ Goal Contract に必須化する項目:
 - Human Handoff Conditions
 - Loop Memory Update
 
+`Evidence Required`は自由文だけでなく、次の型付きruleとしてObjectiveに保存する。
+
+- `type`: `test`、`lint`、`build`、`screenshot`、`file_change`、`review`、`qa`など、照合するEvidence種別
+- `required`: Gateを通過するために必須か
+- `commitScope`: `source`、`target`、`both`、`none`のどのcommit snapshotへ紐づけるか
+- `maxAgeHours`: Evidenceを有効とみなす最大経過時間。鮮度を問わない場合は`null`
+
+Verifierとautomatic merge gateは各ruleを機械照合し、`missing`、`stale`、`commit_mismatch`、`unavailable`を区別して記録する。required ruleが1件でも不成立なら、Agentの自己申告がpassでも完了・mergeへ進めない。
+
 ### 5. Evidence Gate を追加する
 
 Loop の完了は Agent の自己申告ではなく、証拠で判断する必要がある。

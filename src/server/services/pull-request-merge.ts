@@ -2,6 +2,7 @@ import type { AgentJobDto, ObjectiveRunDto, ProjectDto, ProjectSettingsDto, Pull
 import { diffFileAnchor } from "../../shared/diff-anchors";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import { repositoryCommitPath } from "../../shared/repository-anchors";
+import { evidenceGateFailureSummary, evaluateEvidenceRequirements } from "../../shared/evidence-requirements";
 import type { Repositories } from "../db/repositories";
 import {
   commitAllChanges,
@@ -501,6 +502,23 @@ async function checkAutomaticMergeGate(
       reason: "The Objective does not have a current verifier decision and evidence snapshot.",
       conflicts: false
     };
+  }
+  if (objective.evidenceRequirements.length) {
+    const [sourceCommit, targetCommit] = await Promise.all([
+      getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+      getRevisionHash(project.repoPath, pullRequest.targetBranch)
+    ]);
+    const evidenceGate = evaluateEvidenceRequirements(objective.evidenceRequirements, evidence, {
+      sourceCommit,
+      targetCommit
+    });
+    if (!evidenceGate.passed) {
+      return {
+        state: "blocked",
+        reason: `Evidence Required became invalid before merge: ${evidenceGateFailureSummary(evidenceGate)}.`,
+        conflicts: false
+      };
+    }
   }
   return null;
 }

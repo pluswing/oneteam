@@ -171,6 +171,12 @@ function AutomationChecksSummary(props: {
           <span className={`status-pill status-${props.objective.status}`}>{props.objective.status}</span>
           <span>{objectiveWorkflowStageLabel(props.objective.workflowStage)}</span>
           <span>{objectiveEvidenceCount(props.objective)} {t("objectives.evidence")}</span>
+          {props.objective.evidenceRequirements.length ? (
+            <span>
+              {props.objective.evidenceRequirements.filter((requirement) => requirement.required).length}/
+              {props.objective.evidenceRequirements.length} {t("objectives.requiredEvidence")}
+            </span>
+          ) : null}
         </div>
       ) : null}
       {latestJobs.length ? (
@@ -994,6 +1000,14 @@ function ObjectivePanel(props: {
         <div>
           <dt>{t("objectives.evidence")}</dt>
           <dd>{objectiveEvidenceCount(objective)}</dd>
+        </div>
+        <div>
+          <dt>{t("objectives.requiredEvidence")}</dt>
+          <dd>
+            {objective.evidenceRequirements.length
+              ? `${objective.evidenceRequirements.filter((requirement) => requirement.required).length}/${objective.evidenceRequirements.length}`
+              : "-"}
+          </dd>
         </div>
         <div>
           <dt>{t("objectives.generator")}</dt>

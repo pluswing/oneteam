@@ -296,6 +296,7 @@ export const ja = {
     noObjective: "Objective はまだありません",
     stopReason: "停止理由",
     evidence: "証拠",
+    requiredEvidence: "必須証拠",
     generator: "生成役",
     judge: "評価役",
     updated: "更新",

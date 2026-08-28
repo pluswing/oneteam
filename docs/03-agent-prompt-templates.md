@@ -112,6 +112,16 @@ Return structured JSON that matches the requested output schema.
   ],
   "metadata": {
     "nextLabel": null,
+    "goalContract": {
+      "evidenceRequired": [
+        {
+          "type": "test",
+          "required": true,
+          "commitScope": "source",
+          "maxAgeHours": 24
+        }
+      ]
+    },
     "pullRequest": null,
     "review": null,
     "fix": null,
@@ -120,6 +130,8 @@ Return structured JSON that matches the requested output schema.
   }
 }
 ```
+
+Requirements Agentは`metadata.goalContract.evidenceRequired`を返す。`type`は定義済みEvidence種別、`commitScope`は`source | target | both | none`、`maxAgeHours`は正の時間数または`null`とする。この構造はObjectiveへ正規化して保存され、Verifierとautomatic merge gateがEvidence snapshotに対して照合する。
 
 `status`:
 
