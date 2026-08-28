@@ -167,7 +167,7 @@
 - [x] Agent runごとに節目単位のcommentを1件生成し、逐次ログはActivityへ分離する。30秒以内の連続した同一Activityはoccurrence count付きの1件へ圧縮し、Issue / PR timelineはsystem / commit等の監査イベントだけを表示する
 - [ ] **Partial**: merge / Issue完了 / Agent commentのPR / changed file / finding line / implementation・snapshot・merge commit参照は検証済みdeep link化し、Repositoryに全branchのcommit historyとstable anchorを追加済み。自由文中の参照検証は未実装
 - [x] merge後のfinal summaryにstable anchorを付け、Issueの完了サマリーとPRのmergeサマリーを相互参照できるようにする
-- [ ] 日本語 / 英語で情報階層と表の読みやすさが崩れないsnapshot / browser testを追加する
+- [x] 日本語 / 英語で情報階層と表の読みやすさが崩れないbrowser testを追加する。言語切替後のrich table、Checks、巨大diff、長いfile pathを同一データで検証する
 
 ## P2: Loop Engineering制御の強化
 

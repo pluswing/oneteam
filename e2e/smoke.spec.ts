@@ -234,11 +234,23 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByLabel("Diff risk threshold")).toHaveValue("high");
 
   execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
+  const longDiffPath = [
+    "src",
+    "features",
+    "automation",
+    "orchestration",
+    "provider-usage-recovery",
+    "review-evidence",
+    "components",
+    "provider-usage-recovery-status-panel-with-verification-evidence.tsx"
+  ].join("/");
   writeFileSync(
     resolve(repoPath, "large.ts"),
     Array.from({ length: 6_000 }, (_, index) => `export const value${index + 1} = ${index + 1};`).join("\n") + "\n"
   );
-  execFileSync("git", ["add", "large.ts"], { cwd: repoPath });
+  mkdirSync(resolve(repoPath, longDiffPath, ".."), { recursive: true });
+  writeFileSync(resolve(repoPath, longDiffPath), "export const recoveryStatus = \"waiting-for-usage-reset\";\n");
+  execFileSync("git", ["add", "large.ts", longDiffPath], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "add large diff fixture"], { cwd: repoPath });
 
   const pullRequestResponse = await page.request.post(`/api/projects/${projectId}/pull-requests`, {
@@ -251,12 +263,38 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   });
   expect(pullRequestResponse.ok()).toBe(true);
   const createdPullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
+  const bilingualReportDatabase = createClient({ url: `file:${resolve(".tmp/e2e/oneteam.db")}` });
+  const bilingualReportTimestamp = new Date().toISOString();
+  await bilingualReportDatabase.execute({
+    sql: `INSERT INTO comments (
+      project_id, target_type, target_id, author_type, agent_type, body, body_format, metadata_json, created_at, updated_at
+    ) VALUES (?, 'pull_request', ?, 'system', NULL, ?, 'html', NULL, ?, ?)`,
+    args: [
+      projectId,
+      createdPullRequest.pullRequest.id,
+      `<section>
+        <h2>Bilingual verification report / 日英表示検証レポート</h2>
+        <p>Checks, evidence, and implementation decisions remain scannable after switching locale.</p>
+        <table>
+          <thead><tr><th>Gate / 判定</th><th>Evidence / 証拠</th><th>Next action / 次の処理</th></tr></thead>
+          <tbody><tr>
+            <td><strong>Verifier passed</strong></td>
+            <td><div style="width: 1600px"><code>${longDiffPath}</code> was reviewed against the required checks and retained as stable audit evidence.</div></td>
+            <td>Continue automatic review and merge processing.</td>
+          </tr></tbody>
+        </table>
+      </section>`,
+      bilingualReportTimestamp,
+      bilingualReportTimestamp
+    ]
+  });
+  bilingualReportDatabase.close();
 
   await page.getByRole("button", { name: "Pull Requests" }).click();
   const pullRequestSummary = page.locator(".work-item-rich").filter({ hasText: "Review a large generated diff" });
   await expect(pullRequestSummary).toContainText("feature/large-diff");
   await expect(pullRequestSummary.locator(".work-item-author")).toHaveText("user");
-  await expect(pullRequestSummary.locator(".work-item-stats")).toContainText("1");
+  await expect(pullRequestSummary.locator(".work-item-stats")).toContainText("2");
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
   await expect(page.locator(".automation-checks")).toContainText("review");
@@ -290,4 +328,46 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Review a large generated diff/ })).toBeVisible();
   await expect(page.locator(`#${linkedLineAnchor}`)).toBeVisible();
   await expect.poll(() => page.locator(".diff-table-scroll").evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Project and settings" }).click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  await page.getByLabel("Locale").selectOption("ja");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
+  await expect(page.getByText("設定を保存しました")).toBeVisible();
+
+  await page.getByRole("button", { name: "Pull Request", exact: true }).click();
+  await page.getByRole("button", { name: /Review a large generated diff/ }).click();
+  await expect(page.getByRole("button", { name: "変更ファイル", exact: true })).toBeVisible();
+  await expect(page.locator(".automation-checks")).toContainText("review");
+  const bilingualReport = page.locator(".html-body section").filter({ hasText: "日英表示検証レポート" });
+  await expect(bilingualReport).toBeVisible();
+  const bilingualTable = bilingualReport.locator("table");
+  await expect(bilingualTable).toBeVisible();
+  await expect(bilingualTable).toContainText("Gate / 判定");
+  const tableMetrics = await bilingualTable.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    right: element.getBoundingClientRect().right,
+    viewportWidth: document.documentElement.clientWidth
+  }));
+  expect(tableMetrics.scrollWidth).toBeGreaterThan(tableMetrics.clientWidth);
+  expect(tableMetrics.right).toBeLessThanOrEqual(tableMetrics.viewportWidth + 1);
+  const conversationPageMetrics = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }));
+  expect(conversationPageMetrics.scrollWidth).toBeLessThanOrEqual(conversationPageMetrics.clientWidth + 1);
+
+  await page.getByRole("button", { name: "変更ファイル", exact: true }).click();
+  await expect(page.locator(".diff-viewer")).toContainText("2 ファイル");
+  await expect(page.getByPlaceholder("変更ファイルを検索")).toBeVisible();
+  const longPathEntry = page.locator(".diff-file-list > button").filter({ hasText: longDiffPath });
+  await expect(longPathEntry).toBeVisible();
+  await expect(page.locator(".diff-virtual-status")).toContainText("表示中のdiff行:");
+  const diffPageMetrics = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }));
+  expect(diffPageMetrics.scrollWidth).toBeLessThanOrEqual(diffPageMetrics.clientWidth + 1);
 });
