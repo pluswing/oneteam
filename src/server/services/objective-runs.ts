@@ -34,11 +34,13 @@ export async function ensureObjectiveForTarget(
       return null;
     }
     const existing = await repos.objectives.findByIssue(input.projectId, issue.id);
+    const maxRounds = existing ? undefined : (await readAutomationSettings(repos)).objectiveMaxRounds;
     const objective = await repos.objectives.ensureForIssue({
       projectId: input.projectId,
       issueId: issue.id,
       title: issue.title,
-      goal: issue.body
+      goal: issue.body,
+      maxRounds
     });
     if (!existing) {
       await rememberObjectiveEvent(repos, input.projectId, {
@@ -56,13 +58,15 @@ export async function ensureObjectiveForTarget(
       return null;
     }
     const existing = await repos.objectives.findByPullRequest(input.projectId, pullRequest.id);
+    const maxRounds = existing ? undefined : (await readAutomationSettings(repos)).objectiveMaxRounds;
     const issue = pullRequest.issueId ? await repos.issues.get(input.projectId, pullRequest.issueId) : null;
     const objective = await repos.objectives.ensureForPullRequest({
       projectId: input.projectId,
       pullRequestId: pullRequest.id,
       issueId: pullRequest.issueId,
       title: issue?.title ?? pullRequest.title,
-      goal: issue?.body ?? pullRequest.body
+      goal: issue?.body ?? pullRequest.body,
+      maxRounds
     });
     if (!existing) {
       await rememberObjectiveEvent(repos, input.projectId, {

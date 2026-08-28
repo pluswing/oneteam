@@ -99,6 +99,7 @@ export type ProjectSettingsDto = {
     autoMergeTargetBranches: string[];
     autoMergeStrategy: "merge" | "squash";
     autoMergeRiskThreshold: "medium" | "high" | "none";
+    objectiveMaxRounds: number;
     objectiveTokenBudget: number | null;
     objectiveCostBudgetUsd: number | null;
     agentTimeBudgetMinutes: number | null;

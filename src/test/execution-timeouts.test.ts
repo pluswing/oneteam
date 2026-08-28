@@ -23,6 +23,7 @@ describe("execution timeouts", () => {
       autoMergeTargetBranches: [],
       autoMergeStrategy: "merge",
       autoMergeRiskThreshold: "medium",
+      objectiveMaxRounds: 12,
       objectiveTokenBudget: null,
       objectiveCostBudgetUsd: null,
       agentTimeBudgetMinutes: 0.001,

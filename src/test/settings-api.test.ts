@@ -130,6 +130,7 @@ describe("settings API", () => {
     expect(settings.automation.autoMergeTargetBranches).toEqual([]);
     expect(settings.automation.autoMergeStrategy).toBe("merge");
     expect(settings.automation.autoMergeRiskThreshold).toBe("medium");
+    expect(settings.automation.objectiveMaxRounds).toBe(12);
     expect(settings.automation.objectiveTokenBudget).toBeNull();
     expect(settings.automation.objectiveCostBudgetUsd).toBeNull();
     expect(settings.automation.agentTimeBudgetMinutes).toBeNull();
@@ -191,6 +192,7 @@ describe("settings API", () => {
           autoMergeTargetBranches: ["main", "release", "main"],
           autoMergeStrategy: "squash",
           autoMergeRiskThreshold: "high",
+          objectiveMaxRounds: 24,
           objectiveTokenBudget: 750_000,
           objectiveCostBudgetUsd: 12.5,
           agentTimeBudgetMinutes: 45,
@@ -214,6 +216,12 @@ describe("settings API", () => {
       })
     });
     const jobPayload = (await jobResponse.json()) as { job: { aiProvider: string; aiModel: string | null } };
+    const firstObjective = await repos.objectives.findByIssue(created.project.id, issue.id);
+    const maxRoundsUpdateResponse = await app.request(`/api/projects/${created.project.id}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en", automation: { objectiveMaxRounds: 30 } })
+    });
     const implementationJobResponse = await app.request(`/api/projects/${created.project.id}/agent-jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -226,6 +234,19 @@ describe("settings API", () => {
     const implementationJobPayload = (await implementationJobResponse.json()) as {
       job: { aiProvider: string; aiModel: string | null };
     };
+    const retainedObjective = await repos.objectives.findByIssue(created.project.id, issue.id);
+    const nextIssue = await repos.issues.create({ projectId: created.project.id, title: "Use new round policy" });
+    await app.request(`/api/projects/${created.project.id}/agent-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentType: "requirements", targetType: "issue", targetId: nextIssue.id })
+    });
+    const nextObjective = await repos.objectives.findByIssue(created.project.id, nextIssue.id);
+    const invalidMaxRoundsResponse = await app.request(`/api/projects/${created.project.id}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en", automation: { objectiveMaxRounds: 1_001 } })
+    });
 
     expect(createResponse.status).toBe(201);
     expect(initialSettings.ai.provider).toBe("claude_code");
@@ -242,10 +263,16 @@ describe("settings API", () => {
     expect(settings.automation.autoMergeTargetBranches).toEqual(["main", "release"]);
     expect(settings.automation.autoMergeStrategy).toBe("squash");
     expect(settings.automation.autoMergeRiskThreshold).toBe("high");
+    expect(settings.automation.objectiveMaxRounds).toBe(24);
     expect(settings.automation.objectiveTokenBudget).toBe(750_000);
     expect(settings.automation.objectiveCostBudgetUsd).toBe(12.5);
     expect(settings.automation.agentTimeBudgetMinutes).toBe(45);
     expect(settings.automation.verificationCommandTimeoutMinutes).toBe(8);
+    expect(firstObjective?.maxRounds).toBe(24);
+    expect(maxRoundsUpdateResponse.status).toBe(200);
+    expect(retainedObjective?.maxRounds).toBe(24);
+    expect(nextObjective?.maxRounds).toBe(30);
+    expect(invalidMaxRoundsResponse.status).toBe(400);
     expect(jobPayload.job.aiProvider).toBe("lm_studio");
     expect(jobPayload.job.aiModel).toBe("qwen-coder");
     expect(implementationJobResponse.status).toBe(201);

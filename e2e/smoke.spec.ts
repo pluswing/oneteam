@@ -259,6 +259,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByLabel("Automatic merge target branches").fill("main, release");
   await page.getByLabel("Merge strategy").selectOption("squash");
   await page.getByLabel("Diff risk threshold").selectOption("high");
+  await page.getByLabel("Default max rounds for new Objectives").fill("24");
   await page.getByLabel("Implementation AI provider").selectOption("claude_code");
   await page.getByLabel("Implementation Model").fill("claude-implementation");
   await page.getByLabel("Verification AI provider").selectOption("codex");
@@ -271,6 +272,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByLabel("Automatic merge target branches")).toHaveValue("main, release");
   await expect(page.getByLabel("Merge strategy")).toHaveValue("squash");
   await expect(page.getByLabel("Diff risk threshold")).toHaveValue("high");
+  await expect(page.getByLabel("Default max rounds for new Objectives")).toHaveValue("24");
   await expect(page.getByLabel("Implementation AI provider")).toHaveValue("claude_code");
   await expect(page.getByLabel("Implementation Model")).toHaveValue("claude-implementation");
   await expect(page.getByLabel("Verification AI provider")).toHaveValue("codex");

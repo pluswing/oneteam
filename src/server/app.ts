@@ -191,6 +191,7 @@ const updateProjectSettingsSchema = z
         autoMergeTargetBranches: z.array(z.string().min(1)).optional(),
         autoMergeStrategy: z.enum(["merge", "squash"]).optional(),
         autoMergeRiskThreshold: z.enum(["medium", "high", "none"]).optional(),
+        objectiveMaxRounds: z.number().int().min(1).max(1_000).optional(),
         objectiveTokenBudget: z.number().int().positive().nullable().optional(),
         objectiveCostBudgetUsd: z.number().positive().nullable().optional(),
         agentTimeBudgetMinutes: z.number().positive().nullable().optional(),

@@ -2610,6 +2610,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [autoMergeStrategy, setAutoMergeStrategy] = useState<ProjectSettingsDto["automation"]["autoMergeStrategy"]>("merge");
   const [autoMergeRiskThreshold, setAutoMergeRiskThreshold] =
     useState<ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]>("medium");
+  const [objectiveMaxRounds, setObjectiveMaxRounds] = useState("12");
   const [objectiveTokenBudget, setObjectiveTokenBudget] = useState("");
   const [objectiveCostBudgetUsd, setObjectiveCostBudgetUsd] = useState("");
   const [agentTimeBudgetMinutes, setAgentTimeBudgetMinutes] = useState("");
@@ -2637,6 +2638,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setAutoMergeTargetBranches(response.automation.autoMergeTargetBranches.join(", "));
     setAutoMergeStrategy(response.automation.autoMergeStrategy);
     setAutoMergeRiskThreshold(response.automation.autoMergeRiskThreshold);
+    setObjectiveMaxRounds(String(response.automation.objectiveMaxRounds));
     setObjectiveTokenBudget(response.automation.objectiveTokenBudget === null
       ? ""
       : String(response.automation.objectiveTokenBudget));
@@ -2686,6 +2688,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           autoMergeTargetBranches: autoMergeTargetBranches.split(",").map((branch) => branch.trim()).filter(Boolean),
           autoMergeStrategy,
           autoMergeRiskThreshold,
+          objectiveMaxRounds: Number(objectiveMaxRounds || "12"),
           objectiveTokenBudget: objectiveTokenBudget.trim() ? Number(objectiveTokenBudget) : null,
           objectiveCostBudgetUsd: objectiveCostBudgetUsd.trim() ? Number(objectiveCostBudgetUsd) : null,
           agentTimeBudgetMinutes: agentTimeBudgetMinutes.trim() ? Number(agentTimeBudgetMinutes) : null,
@@ -2835,6 +2838,19 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               <option value="none">{t("settings.riskThresholdNone")}</option>
             </select>
             <small>{t("settings.autoMergeRiskThresholdDescription")}</small>
+          </label>
+          <label>
+            {t("settings.objectiveMaxRounds")}
+            <input
+              max="1000"
+              min="1"
+              onChange={(event) => setObjectiveMaxRounds(event.target.value)}
+              required
+              step="1"
+              type="number"
+              value={objectiveMaxRounds}
+            />
+            <small>{t("settings.objectiveMaxRoundsDescription")}</small>
           </label>
           <label>
             {t("settings.objectiveTokenBudget")}

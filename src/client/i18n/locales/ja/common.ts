@@ -249,6 +249,8 @@ export const ja = {
     riskThresholdMedium: "Medium以上",
     riskThresholdHigh: "Highのみ",
     riskThresholdNone: "停止しない",
+    objectiveMaxRounds: "新規Objectiveの既定最大round数",
+    objectiveMaxRoundsDescription: "Objective作成時にsnapshotします。進行中Objectiveの上限は変更しません。",
     objectiveTokenBudget: "Objective ごとの token budget",
     objectiveTokenBudgetDescription: "provider が報告した累積 token 使用量がこの値に達すると、新しい agent 作業を停止します。",
     objectiveCostBudget: "Objective ごとの cost budget (USD)",

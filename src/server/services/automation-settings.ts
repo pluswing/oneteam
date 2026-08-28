@@ -6,6 +6,7 @@ export const defaultAutomationSettings: ProjectSettingsDto["automation"] = {
   autoMergeTargetBranches: [],
   autoMergeStrategy: "merge",
   autoMergeRiskThreshold: "medium",
+  objectiveMaxRounds: 12,
   objectiveTokenBudget: null,
   objectiveCostBudgetUsd: null,
   agentTimeBudgetMinutes: null,
@@ -33,6 +34,12 @@ export async function readAutomationSettings(repos: Repositories): Promise<Proje
     autoMergeRiskThreshold: ["medium", "high", "none"].includes(String(stored?.autoMergeRiskThreshold))
       ? (stored?.autoMergeRiskThreshold as ProjectSettingsDto["automation"]["autoMergeRiskThreshold"])
       : defaultAutomationSettings.autoMergeRiskThreshold,
+    objectiveMaxRounds: boundedInteger(
+      stored?.objectiveMaxRounds,
+      1,
+      1_000,
+      defaultAutomationSettings.objectiveMaxRounds
+    ),
     objectiveTokenBudget: positiveIntegerOrNull(stored?.objectiveTokenBudget),
     objectiveCostBudgetUsd: positiveNumberOrNull(stored?.objectiveCostBudgetUsd),
     agentTimeBudgetMinutes: positiveNumberOrNull(stored?.agentTimeBudgetMinutes),
@@ -51,6 +58,10 @@ export async function saveAutomationSettings(
 
 function positiveIntegerOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function boundedInteger(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
 }
 
 function positiveNumberOrNull(value: unknown): number | null {

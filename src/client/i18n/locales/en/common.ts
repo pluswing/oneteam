@@ -247,6 +247,8 @@ export const en = {
     riskThresholdMedium: "Medium and high",
     riskThresholdHigh: "High only",
     riskThresholdNone: "Do not block",
+    objectiveMaxRounds: "Default max rounds for new Objectives",
+    objectiveMaxRoundsDescription: "Snapshotted when an Objective is created. Existing Objectives keep their current limit.",
     objectiveTokenBudget: "Token budget per Objective",
     objectiveTokenBudgetDescription: "Stops new agent work after provider-reported token usage reaches this total.",
     objectiveCostBudget: "Cost budget per Objective (USD)",
