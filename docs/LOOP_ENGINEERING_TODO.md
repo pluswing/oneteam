@@ -68,7 +68,7 @@
 - [ ] 各stepの完了条件と次stepをlabelだけでなくObjective state machineでも管理する
 - [ ] retry、fix、re-review、re-QA、re-verifyを同じObjectiveのroundとして追跡する
 - [x] アプリ起動 / リポジトリ切替後にqueuedを継続し、interrupted running Jobをattempt付きで再queueしてLoop Step / Run・Objective・Activityを同期する。waiting_providerは期限を保持して自動再開する
-- [ ] ユーザーがPause / Resume / Cancelでき、後続Jobの自動作成を確実に止められる
+- [x] Issue / PRのObjectiveパネルからPause / Resume / Cancelでき、Job / Loop / Objectiveを永続的に同期し、paused / canceled中のlabel automationと手動queueを止める
 
 ### Automatic merge gate
 

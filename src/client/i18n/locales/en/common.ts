@@ -244,7 +244,15 @@ export const en = {
     evidence: "Evidence",
     generator: "Generator",
     judge: "Judge",
-    updated: "Updated"
+    updated: "Updated",
+    pause: "Pause automation",
+    pausing: "Pausing…",
+    resume: "Resume automation",
+    resuming: "Resuming…",
+    cancel: "Cancel objective",
+    canceling: "Canceling…",
+    cancelConfirm: "Cancel this Objective and all of its queued or paused agent work?",
+    controlFailed: "Failed to update the Objective."
   },
   loops: {
     title: "Loops",

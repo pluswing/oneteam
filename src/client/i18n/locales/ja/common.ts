@@ -246,7 +246,15 @@ export const ja = {
     evidence: "証拠",
     generator: "生成役",
     judge: "評価役",
-    updated: "更新"
+    updated: "更新",
+    pause: "自動実行を一時停止",
+    pausing: "停止中…",
+    resume: "自動実行を再開",
+    resuming: "再開中…",
+    cancel: "Objectiveをキャンセル",
+    canceling: "キャンセル中…",
+    cancelConfirm: "このObjectiveと、待機中または一時停止中のAgent作業をキャンセルしますか？",
+    controlFailed: "Objectiveの状態を更新できませんでした。"
   },
   loops: {
     title: "Loop",

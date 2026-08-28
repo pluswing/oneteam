@@ -920,6 +920,7 @@ textarea {
 
 .status-waiting_human,
 .status-waiting_provider,
+.status-paused,
 .status-waiting {
   border-color: #8250df;
   color: #6639ba;
@@ -1191,6 +1192,28 @@ textarea {
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.objective-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.objective-controls .secondary-button,
+.objective-controls .danger-button {
+  justify-content: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.objective-control-error {
+  padding: 7px 8px;
+  border-radius: 5px;
+  color: #82071e;
+  background: #ffebe9;
+  font-size: 12px;
 }
 
 .objective-panel-header {

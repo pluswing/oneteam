@@ -76,6 +76,11 @@ type ObjectiveResponse = {
   objective: ObjectiveRunDto | null;
 };
 
+type ObjectiveControlResponse = {
+  objective: ObjectiveRunDto;
+  jobs: AgentJobDto[];
+};
+
 type RepositorySwitchResponse = {
   repository: KnownRepositoryDto;
   projects: ProjectDto[];
@@ -259,6 +264,16 @@ export const api = {
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/objective`
     );
     return response.objective;
+  },
+
+  async controlObjective(
+    projectId: string,
+    objectiveId: number,
+    action: "pause" | "resume" | "cancel"
+  ): Promise<ObjectiveControlResponse> {
+    return request<ObjectiveControlResponse>(`/api/projects/${projectId}/objectives/${objectiveId}/${action}`, {
+      method: "POST"
+    });
   },
 
   async createPullRequest(

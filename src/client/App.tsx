@@ -6,11 +6,14 @@ import {
   FolderOpen,
   GitPullRequest,
   ListTodo,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Save,
-  Terminal
+  Terminal,
+  XCircle
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AiProvider } from "../shared/ai-providers";
@@ -474,11 +477,32 @@ function objectiveEvidenceCount(objective: ObjectiveRunDto | null): number {
   return Array.isArray(items) ? items.length : 0;
 }
 
-function ObjectivePanel(props: { objective: ObjectiveRunDto | null }) {
+function ObjectivePanel(props: {
+  objective: ObjectiveRunDto | null;
+  onControl: (action: "pause" | "resume" | "cancel") => Promise<void>;
+}) {
   const objective = props.objective;
+  const [busyAction, setBusyAction] = useState<"pause" | "resume" | "cancel" | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
   if (!objective) {
     return <div className="empty-state">{t("objectives.noObjective")}</div>;
   }
+
+  async function control(action: "pause" | "resume" | "cancel"): Promise<void> {
+    if (action === "cancel" && !window.confirm(t("objectives.cancelConfirm"))) return;
+    setBusyAction(action);
+    setControlError(null);
+    try {
+      await props.onControl(action);
+    } catch (error) {
+      setControlError(error instanceof Error ? error.message : t("objectives.controlFailed"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const canPause = ["open", "running", "waiting_provider", "waiting_human", "failed"].includes(objective.status);
+  const canCancel = !["succeeded", "canceled"].includes(objective.status);
 
   return (
     <div className="objective-panel">
@@ -509,6 +533,26 @@ function ObjectivePanel(props: { objective: ObjectiveRunDto | null }) {
         </div>
       </dl>
       {objective.summary ? <p className="muted-text">{objective.summary}</p> : null}
+      {controlError ? <div className="objective-control-error" role="alert">{controlError}</div> : null}
+      <div className="objective-controls">
+        {objective.status === "paused" ? (
+          <button className="secondary-button" disabled={busyAction !== null} onClick={() => void control("resume")} type="button">
+            <Play aria-hidden="true" size={14} />
+            {busyAction === "resume" ? t("objectives.resuming") : t("objectives.resume")}
+          </button>
+        ) : canPause ? (
+          <button className="secondary-button" disabled={busyAction !== null} onClick={() => void control("pause")} type="button">
+            <Pause aria-hidden="true" size={14} />
+            {busyAction === "pause" ? t("objectives.pausing") : t("objectives.pause")}
+          </button>
+        ) : null}
+        {canCancel ? (
+          <button className="danger-button" disabled={busyAction !== null} onClick={() => void control("cancel")} type="button">
+            <XCircle aria-hidden="true" size={14} />
+            {busyAction === "cancel" ? t("objectives.canceling") : t("objectives.cancel")}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -563,6 +607,13 @@ function IssueDetailScreen(props: {
       targetId: props.issueId,
       triggerType: "manual"
     });
+    await load();
+  }
+
+  async function controlObjective(action: "pause" | "resume" | "cancel") {
+    if (!objective) return;
+    const result = await api.controlObjective(props.project.id, objective.id, action);
+    setObjective(result.objective);
     await load();
   }
 
@@ -622,7 +673,7 @@ function IssueDetailScreen(props: {
         </section>
         <aside className="side-panel detail-sidebar">
           <h2>{t("objectives.title")}</h2>
-          <ObjectivePanel objective={objective} />
+          <ObjectivePanel objective={objective} onControl={controlObjective} />
           <h2>{t("labels.title")}</h2>
           <div className="label-row">
             {issue?.labels.length ? (
@@ -637,11 +688,11 @@ function IssueDetailScreen(props: {
           </div>
           <h2>{t("agents.title")}</h2>
           <div className="action-row">
-            <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("requirements")} type="button">
               <ListTodo size={16} />
               {t("agents.queueRequirements")}
             </button>
-            <button className="secondary-button" onClick={() => void queueAgent("implementation")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("implementation")} type="button">
               <Terminal size={16} />
               {t("agents.queueImplementation")}
             </button>
@@ -1217,6 +1268,13 @@ function PullRequestDetailScreen(props: {
     await load();
   }
 
+  async function controlObjective(action: "pause" | "resume" | "cancel") {
+    if (!objective) return;
+    const result = await api.controlObjective(props.project.id, objective.id, action);
+    setObjective(result.objective);
+    await load();
+  }
+
   async function resolveConflicts() {
     setResolvingConflicts(true);
     setError(null);
@@ -1375,7 +1433,7 @@ function PullRequestDetailScreen(props: {
         </section>
         <aside className="side-panel detail-sidebar">
           <h2>{t("objectives.title")}</h2>
-          <ObjectivePanel objective={objective} />
+          <ObjectivePanel objective={objective} onControl={controlObjective} />
           <h2>{t("pullRequests.merge")}</h2>
           <div className="merge-panel">
             {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}
@@ -1404,19 +1462,19 @@ function PullRequestDetailScreen(props: {
           </div>
           <h2>{t("agents.title")}</h2>
           <div className="action-row">
-            <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("review")} type="button">
               <GitPullRequest size={16} />
               {t("agents.queueReview")}
             </button>
-            <button className="secondary-button" onClick={() => void queueAgent("fix")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("fix")} type="button">
               <CircleAlert size={16} />
               {t("agents.queueFix")}
             </button>
-            <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("qa")} type="button">
               <CheckCircle2 size={16} />
               {t("agents.queueQa")}
             </button>
-            <button className="secondary-button" onClick={() => void queueAgent("verifier")} type="button">
+            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("verifier")} type="button">
               <CheckCircle2 size={16} />
               {t("agents.queueVerifier")}
             </button>

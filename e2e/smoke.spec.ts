@@ -34,6 +34,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause automation" }).click();
+  await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
+  await page.getByRole("button", { name: "Resume automation" }).click();
+  await expect(page.locator(".objective-panel .status-pill")).toHaveText("running");
 
   await page.getByRole("button", { name: "Agent Jobs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
