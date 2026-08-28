@@ -332,9 +332,11 @@ export type RepositoryCommitDto = {
 
 export type RepositoryFileChangeDto = {
   path: string;
+  previousPath?: string;
   status: string;
   additions: number;
   deletions: number;
+  binary?: boolean;
   patch?: string;
 };
 

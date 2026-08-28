@@ -10,6 +10,7 @@ import {
   getBranches,
   getCommitCount,
   getCommits,
+  getDiffFilePatch,
   getDiffFiles,
   getRepositoryStatus
 } from "../server/services/git-service";
@@ -45,6 +46,34 @@ describe("git service", () => {
     expect(commits[0].subject).toBe("change readme");
     expect(commitCount).toBe(1);
     expect(files[0]).toMatchObject({ path: "README.md", status: "M" });
+  });
+
+  it("reports rename and binary metadata and loads one file patch", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "oneteam-git-diff-"));
+    await git(repo, ["init", "-b", "main"]);
+    await git(repo, ["config", "user.name", "Test User"]);
+    await git(repo, ["config", "user.email", "test@example.com"]);
+    await writeFile(join(repo, "old-name.txt"), "same content\n");
+    await writeFile(join(repo, "image.bin"), Buffer.from([0, 1, 2, 3]));
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "-m", "initial"]);
+    await git(repo, ["checkout", "-b", "feature"]);
+    await git(repo, ["mv", "old-name.txt", "new-name.txt"]);
+    await writeFile(join(repo, "image.bin"), Buffer.from([0, 4, 5, 6]));
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "-m", "rename and binary"]);
+
+    const files = await getDiffFiles(repo, "feature", "main");
+    const renamed = files.find((file) => file.path === "new-name.txt");
+    const binary = files.find((file) => file.path === "image.bin");
+    const renamePatch = await getDiffFilePatch(repo, "feature", "main", "new-name.txt", {
+      previousPath: "old-name.txt"
+    });
+
+    expect(renamed).toMatchObject({ previousPath: "old-name.txt", status: "R100" });
+    expect(binary).toMatchObject({ binary: true, additions: 0, deletions: 0 });
+    expect(renamePatch).toContain("rename from old-name.txt");
+    expect(renamePatch).toContain("rename to new-name.txt");
   });
 
   it("commits dirty worktrees and reads merge conflict contents", async () => {

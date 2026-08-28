@@ -42,6 +42,7 @@ import { api } from "./api";
 import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
 import { summarizeAgentJobs } from "./agent-status";
 import { AppShell } from "./components/AppShell";
+import { DiffViewer } from "./components/DiffViewer";
 import { MarkdownContent } from "./components/MarkdownContent";
 import { SetupWizard } from "./components/SetupWizard";
 import { formatDateTime, formatPullRequestStatus } from "./formatters";
@@ -284,27 +285,6 @@ function LabelPicker(props: {
         ))}
       </div>
     </section>
-  );
-}
-
-function DiffPreview(props: { patch: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const lines = props.patch.split("\n");
-  const isLarge = lines.length > 120;
-  const visiblePatch = isLarge && !expanded ? lines.slice(0, 120).join("\n") : props.patch;
-
-  return (
-    <>
-      <pre>{visiblePatch}</pre>
-      {isLarge ? (
-        <div className="diff-actions">
-          <span>{lines.length} {t("pullRequests.diffLines")}</span>
-          <button className="secondary-button" onClick={() => setExpanded((current) => !current)} type="button">
-            {expanded ? t("pullRequests.collapseDiff") : t("pullRequests.showFullDiff")}
-          </button>
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -1344,20 +1324,7 @@ function PullRequestDetailScreen(props: {
             </>
           ) : null}
           {tab === "files" ? (
-            <div className="file-list">
-              {files.length === 0 ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
-              {files.map((file) => (
-                <article className="file-row" key={file.path}>
-                  <header>
-                    <strong>{file.path}</strong>
-                    <span>
-                      +{file.additions} -{file.deletions}
-                    </span>
-                  </header>
-                  {file.patch ? <DiffPreview patch={file.patch} /> : null}
-                </article>
-              ))}
-            </div>
+            <DiffViewer files={files} projectId={props.project.id} pullRequestId={props.pullRequestId} />
           ) : null}
           {tab === "commits" ? (
             <div className="commit-list">

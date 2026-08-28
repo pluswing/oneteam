@@ -8,7 +8,7 @@ import { createApp } from "../server/app";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
-import type { PullRequestDto, RepositoryCommitDto } from "../shared/types";
+import type { PullRequestDto, RepositoryCommitDto, RepositoryFileChangeDto } from "../shared/types";
 
 const execFileAsync = promisify(execFile);
 
@@ -56,15 +56,24 @@ describe("pull request git API", () => {
     const detailResponse = await app.request(`/api/projects/${project.id}/pull-requests/${pullRequest.id}`);
     const listResponse = await app.request(`/api/projects/${project.id}/pull-requests`);
     const commitsResponse = await app.request(`/api/projects/${project.id}/pull-requests/${pullRequest.id}/commits`);
+    const filesResponse = await app.request(`/api/projects/${project.id}/pull-requests/${pullRequest.id}/files`);
+    const diffResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/diff-file?path=${encodeURIComponent("README.md")}`
+    );
     const detail = (await detailResponse.json()) as { pullRequest: PullRequestDto };
     const list = (await listResponse.json()) as { items: PullRequestDto[] };
     const commits = (await commitsResponse.json()) as { items: RepositoryCommitDto[] };
+    const files = (await filesResponse.json()) as { files: RepositoryFileChangeDto[] };
+    const diff = (await diffResponse.json()) as { file: RepositoryFileChangeDto };
 
     expect(detail.pullRequest.changedFileCount).toBe(1);
     expect(detail.pullRequest.commitCount).toBe(1);
     expect(list.items[0].changedFileCount).toBe(1);
     expect(list.items[0].commitCount).toBe(1);
     expect(commits.items[0].subject).toBe("change readme");
+    expect(files.files[0]).toMatchObject({ path: "README.md", status: "M" });
+    expect(files.files[0].patch).toBeUndefined();
+    expect(diff.file.patch).toContain("+Feature");
 
     context.client.close();
   });

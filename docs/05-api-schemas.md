@@ -422,6 +422,8 @@ Response:
 
 ### 7.3 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
 
+全ファイルのpatchを必要とする互換API。画面の通常経路では`/files`でメタデータを取得し、次の`/diff-file`で選択ファイルのみ遅延取得する。
+
 Response:
 
 ```json
@@ -438,7 +440,30 @@ Response:
 }
 ```
 
-### 7.4 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
+### 7.4 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff-file
+
+Query:
+
+- `path`: 必須。変更後のファイルパス
+- `whitespace=ignore`: 任意。空白のみの変更を無視する
+
+Response:
+
+```json
+{
+  "file": {
+    "path": "package.json",
+    "previousPath": "package.old.json",
+    "status": "R095",
+    "additions": 1,
+    "deletions": 0,
+    "binary": false,
+    "patch": "@@ ..."
+  }
+}
+```
+
+### 7.5 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
 
 Request:
 

@@ -204,31 +204,71 @@ export async function getDiffFiles(
   targetBranch: string
 ): Promise<RepositoryFileChangeDto[]> {
   const revision = `${targetBranch}...${sourceBranch}`;
-  const nameStatus = await git(repoPath, ["diff", "--name-status", revision]);
-  const numstat = await git(repoPath, ["diff", "--numstat", revision]);
+  const nameStatus = await git(repoPath, ["diff", "--name-status", "-z", revision]);
+  const numstat = await git(repoPath, ["diff", "--numstat", "-z", revision]);
 
-  const stats = new Map<string, { additions: number; deletions: number }>();
-  for (const line of numstat.split("\n").filter(Boolean)) {
-    const [additions, deletions, path] = line.split("\t");
+  const stats = new Map<string, { additions: number; deletions: number; binary: boolean }>();
+  const statFields = numstat.split("\0");
+  for (let index = 0; index < statFields.length; index += 1) {
+    const field = statFields[index];
+    if (!field) {
+      continue;
+    }
+    const [additions, deletions, inlinePath] = field.split("\t");
+    const path = inlinePath || statFields[index + 2];
+    if (!inlinePath) {
+      index += 2;
+    }
+    if (!path) {
+      continue;
+    }
     stats.set(path, {
       additions: additions === "-" ? 0 : Number(additions),
-      deletions: deletions === "-" ? 0 : Number(deletions)
+      deletions: deletions === "-" ? 0 : Number(deletions),
+      binary: additions === "-" || deletions === "-"
     });
   }
 
-  return nameStatus
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [status, path] = line.split("\t");
-      const fileStats = stats.get(path) ?? { additions: 0, deletions: 0 };
-      return {
-        path,
-        status,
-        additions: fileStats.additions,
-        deletions: fileStats.deletions
-      };
+  const files: RepositoryFileChangeDto[] = [];
+  const nameFields = nameStatus.split("\0");
+  for (let index = 0; index < nameFields.length; index += 1) {
+    const status = nameFields[index];
+    if (!status) {
+      continue;
+    }
+    const renamed = status.startsWith("R") || status.startsWith("C");
+    const previousPath = renamed ? nameFields[index + 1] : undefined;
+    const path = renamed ? nameFields[index + 2] : nameFields[index + 1];
+    index += renamed ? 2 : 1;
+    if (!path) {
+      continue;
+    }
+    const fileStats = stats.get(path) ?? { additions: 0, deletions: 0, binary: false };
+    files.push({
+      path,
+      ...(previousPath ? { previousPath } : {}),
+      status,
+      additions: fileStats.additions,
+      deletions: fileStats.deletions,
+      binary: fileStats.binary
     });
+  }
+  return files;
+}
+
+export async function getDiffFilePatch(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string,
+  path: string,
+  options: { ignoreWhitespace?: boolean; previousPath?: string } = {}
+): Promise<string> {
+  const args = ["diff", `${targetBranch}...${sourceBranch}`];
+  if (options.ignoreWhitespace) {
+    args.push("--ignore-all-space");
+  }
+  args.push("--", ...(options.previousPath ? [options.previousPath, path] : [path]));
+  return git(repoPath, args);
 }
 
 export async function getDiffWithPatches(
@@ -240,7 +280,9 @@ export async function getDiffWithPatches(
   return Promise.all(
     files.map(async (file) => ({
       ...file,
-      patch: await git(repoPath, ["diff", `${targetBranch}...${sourceBranch}`, "--", file.path])
+      patch: await getDiffFilePatch(repoPath, sourceBranch, targetBranch, file.path, {
+        previousPath: file.previousPath
+      })
     }))
   );
 }

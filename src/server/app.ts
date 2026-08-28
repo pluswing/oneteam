@@ -31,6 +31,7 @@ import {
   getBranches,
   getCommitCount,
   getCommits,
+  getDiffFilePatch,
   getDiffFiles,
   getDiffWithPatches,
   getRepositoryStatus
@@ -928,6 +929,28 @@ export function createApp({
     }
     const files = await getDiffWithPatches(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
     return c.json({ files });
+  });
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/diff-file", async (c) => {
+    const project = await getProjectOr404(repos, c.req.param("projectId"));
+    const pullRequest = await repos.pullRequests.get(project.id, Number(c.req.param("pullRequestId")));
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const path = c.req.query("path");
+    if (!path) {
+      throw new HTTPException(400, { message: "A file path is required." });
+    }
+    const files = await getDiffFiles(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    const file = files.find((candidate) => candidate.path === path);
+    if (!file) {
+      notFound("Changed file was not found.");
+    }
+    const patch = await getDiffFilePatch(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch, path, {
+      ignoreWhitespace: c.req.query("whitespace") === "ignore",
+      previousPath: file.previousPath
+    });
+    return c.json({ file: { ...file, patch } });
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId/conflicts", async (c) => {

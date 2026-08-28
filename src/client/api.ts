@@ -328,9 +328,26 @@ export const api = {
 
   async listPullRequestFiles(projectId: string, pullRequestId: number): Promise<RepositoryFileChangeDto[]> {
     const response = await request<{ files: RepositoryFileChangeDto[] }>(
-      `/api/projects/${projectId}/pull-requests/${pullRequestId}/diff`
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/files`
     );
     return response.files;
+  },
+
+  async getPullRequestFileDiff(
+    projectId: string,
+    pullRequestId: number,
+    path: string,
+    options: { ignoreWhitespace?: boolean; signal?: AbortSignal } = {}
+  ): Promise<RepositoryFileChangeDto> {
+    const params = new URLSearchParams({ path });
+    if (options.ignoreWhitespace) {
+      params.set("whitespace", "ignore");
+    }
+    const response = await request<{ file: RepositoryFileChangeDto }>(
+      `/api/projects/${projectId}/pull-requests/${pullRequestId}/diff-file?${params.toString()}`,
+      { signal: options.signal }
+    );
+    return response.file;
   },
 
   async listPullRequestCommits(projectId: string, pullRequestId: number): Promise<RepositoryCommitDto[]> {

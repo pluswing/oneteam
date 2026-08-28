@@ -1667,20 +1667,461 @@ textarea {
   white-space: pre;
 }
 
-.diff-actions {
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.diff-viewer {
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #d0d7de;
+  background: #f6f8fa;
+}
+
+.diff-progress,
+.diff-toolbar-actions,
+.diff-file-actions,
+.diff-file-title,
+.diff-file-stats {
+  display: flex;
+  align-items: center;
+}
+
+.diff-progress {
+  gap: 9px;
+  min-width: 0;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.diff-progress strong {
+  color: #24292f;
+  font-size: 13px;
+}
+
+.diff-progress-track {
+  width: 72px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d8dee4;
+}
+
+.diff-progress-track > span {
+  display: block;
+  height: 100%;
+  background: #1f883d;
+  transition: width 160ms ease;
+}
+
+.diff-toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.segmented-control {
+  display: inline-flex;
+}
+
+.segmented-control button,
+.diff-file-actions > button {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid #d0d7de;
+  color: #24292f;
+  background: #ffffff;
+}
+
+.segmented-control button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.segmented-control button:last-child {
+  margin-left: -1px;
+  border-radius: 0 6px 6px 0;
+}
+
+.segmented-control button.active {
+  position: relative;
+  z-index: 1;
+  border-color: #0969da;
+  color: #ffffff;
+  background: #0969da;
+}
+
+.diff-checkbox,
+.diff-viewed-toggle {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 6px;
+  color: #24292f;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.diff-checkbox input,
+.diff-viewed-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+}
+
+.diff-workspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 360px;
+}
+
+.diff-file-panel {
+  min-width: 0;
+  border-right: 1px solid #d0d7de;
+  background: #f6f8fa;
+}
+
+.diff-search {
+  position: relative;
+  display: block;
+  padding: 10px;
+}
+
+.diff-search svg {
+  position: absolute;
+  z-index: 1;
+  top: 19px;
+  left: 19px;
+  color: #656d76;
+}
+
+.diff-search input {
+  height: 32px;
+  padding: 5px 8px 5px 29px;
+  font-size: 12px;
+}
+
+.diff-file-list {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  border-top: 1px solid #d8dee4;
+}
+
+.diff-file-list > button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 46px;
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid #d8dee4;
+  color: #24292f;
+  background: transparent;
+  text-align: left;
+}
+
+.diff-file-list > button:hover {
+  background: #ffffff;
+}
+
+.diff-file-list > button.active {
+  box-shadow: inset 3px 0 #0969da;
+  background: #ddf4ff;
+}
+
+.diff-file-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.diff-file-status.status-added,
+.diff-status-label.status-added {
+  color: #116329;
+  background: #dafbe1;
+}
+
+.diff-file-status.status-deleted,
+.diff-status-label.status-deleted {
+  color: #82071e;
+  background: #ffebe9;
+}
+
+.diff-file-status.status-renamed,
+.diff-status-label.status-renamed {
+  color: #633c01;
+  background: #fff8c5;
+}
+
+.diff-file-status.status-modified,
+.diff-status-label.status-modified {
+  color: #0550ae;
+  background: #ddf4ff;
+}
+
+.diff-file-name {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.diff-file-name > span,
+.diff-file-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file-name small,
+.diff-file-title small {
+  overflow: hidden;
+  color: #656d76;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file-stats {
+  gap: 5px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.diff-file-stats .addition {
+  color: #1a7f37;
+}
+
+.diff-file-stats .deletion {
+  color: #cf222e;
+}
+
+.diff-viewed-icon {
+  color: #1a7f37;
+}
+
+.diff-file-empty {
+  padding: 18px 10px;
+  color: #656d76;
+  font-size: 12px;
+  text-align: center;
+}
+
+.diff-file-content {
+  min-width: 0;
+  background: #ffffff;
+}
+
+.diff-file-header {
+  position: sticky;
+  z-index: 5;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px;
-  border-top: 1px solid #d8dee4;
-  color: #57606a;
-  font-size: 13px;
+  min-height: 50px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #d0d7de;
+  background: rgba(246, 248, 250, 0.97);
+  backdrop-filter: blur(4px);
 }
 
-.diff-actions .secondary-button {
-  min-height: 30px;
-  padding: 5px 8px;
+.diff-file-header:target {
+  box-shadow: inset 0 0 0 2px #0969da;
+}
+
+.diff-file-title {
+  min-width: 0;
+  gap: 8px;
+}
+
+.diff-file-title > div {
+  display: grid;
+  min-width: 0;
+}
+
+.diff-file-title svg {
+  flex: 0 0 auto;
+  color: #656d76;
+}
+
+.diff-status-label,
+.diff-binary-label {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.diff-binary-label {
+  color: #633c01;
+  background: #fff8c5;
+}
+
+.diff-file-actions {
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.diff-file-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.diff-file-actions > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.diff-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.diff-table td {
+  height: 20px;
+  padding: 0;
+  border: 0;
+  vertical-align: top;
+}
+
+.diff-table .diff-line-number {
+  width: 48px;
+  padding: 0 8px;
+  border-right: 1px solid rgba(31, 35, 40, 0.08);
+  color: #656d76;
+  background: #f6f8fa;
+  text-align: right;
+  user-select: none;
+}
+
+.diff-line-number a {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.diff-line-number a:hover,
+.diff-line-number a:target {
+  color: #0969da;
+  font-weight: 700;
+}
+
+.diff-code {
+  min-width: 0;
+  padding: 0 10px !important;
+  overflow: visible;
+  color: #1f2328;
+  white-space: pre;
+}
+
+.diff-code code {
+  display: block;
+  min-width: max-content;
+}
+
+.diff-prefix {
+  display: inline-block;
+  width: 15px;
+  color: #656d76;
+  user-select: none;
+}
+
+.diff-line-addition,
+.diff-line-addition .diff-line-number {
+  background: #e6ffec;
+}
+
+.diff-line-deletion,
+.diff-line-deletion .diff-line-number {
+  background: #ffebe9;
+}
+
+.diff-line-meta .diff-code {
+  color: #656d76;
+  background: #f6f8fa;
+  font-style: italic;
+}
+
+.diff-line-empty {
+  background: #f6f8fa;
+}
+
+.diff-hunk-row td {
+  padding: 6px 10px;
+  color: #0550ae;
+  background: #ddf4ff;
+  white-space: pre-wrap;
+}
+
+.diff-split .diff-line-number {
+  width: 48px;
+}
+
+.diff-split .diff-code {
+  width: calc(50% - 48px);
+  border-right: 1px solid #d8dee4;
+}
+
+.diff-split .diff-code:last-child {
+  border-right: 0;
+}
+
+.diff-word-changed {
+  border-radius: 2px;
+  background: rgba(255, 129, 130, 0.48);
+  font-weight: 600;
+}
+
+.diff-line-addition .diff-word-changed {
+  background: rgba(70, 191, 104, 0.42);
+}
+
+.diff-notice {
+  padding: 28px 16px;
+  color: #656d76;
+  text-align: center;
 }
 
 .commit-row p {
@@ -1887,5 +2328,41 @@ textarea {
 
   .project-open-action {
     justify-self: start;
+  }
+
+  .diff-toolbar,
+  .diff-file-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .diff-toolbar-actions,
+  .diff-file-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .diff-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-file-panel {
+    border-right: 0;
+    border-bottom: 1px solid #d0d7de;
+  }
+
+  .diff-file-list {
+    display: flex;
+    max-height: 180px;
+    overflow: auto;
+  }
+
+  .diff-file-list > button {
+    flex: 0 0 230px;
+    border-right: 1px solid #d8dee4;
+  }
+
+  .diff-file-header {
+    position: static;
   }
 }

@@ -50,7 +50,7 @@
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
 - [ ] **Partial**: system commentの内容とレイアウトはAgent出力依存が強く、節目ごとの統一templateやdiff deep linkがない
-- [ ] **Partial**: 現在のdiffはファイル単位patchと大規模patchの展開 / 折りたたみまで
+- [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、word-level diff、Viewed、空白無視、line anchorまで対応。syntax highlight、context展開、inline review、virtualizationは未実装
 
 ### Provider / Connector
 
@@ -131,17 +131,17 @@
 
 ### Diff viewer（最優先）
 
-- [ ] file tree / file list、file search、sticky file header、previous / next navigation
-- [ ] unified / split diff切り替え
-- [ ] old / new line number、syntax highlighting、word-level diff
-- [ ] additions / deletions、rename、binary、added / deleted statusの表示
-- [ ] context展開、折りたたみ、全文表示、whitespace無視
-- [ ] viewed状態とreview progressの永続化
-- [ ] file / line deep linkとURL routeを追加する
+- [x] **Done**: file list、file search、sticky file header、previous / next navigation（tree表示は必要性を見て追加）
+- [x] **Done**: unified / split diff切り替え
+- [ ] **Partial**: old / new line numberとsplit表示のword-level diffは実装済み。syntax highlightingは未実装
+- [x] **Done**: additions / deletions、rename、binary、added / deleted statusの表示
+- [ ] **Partial**: whitespace無視は実装済み。context展開、折りたたみ、全文表示は未実装
+- [x] **Done**: viewed状態とreview progressをPR単位でlocalStorageへ永続化
+- [ ] **Partial**: file / line hash anchorは実装済み。専用URL routeとcommentからのlink生成は未実装
 - [ ] line comment、review finding、Agent findingを該当行へ表示する
 - [ ] system comment / check summaryから重要diffへ直接移動できるようにする
-- [ ] 大規模diffのfile-level lazy loading、virtualization、cache、abortを実装する
-- [ ] diff parser / rendererのunit testとlarge diffのbrowser performance testを追加する
+- [ ] **Partial**: 大規模diffのfile-level lazy loadingと選択変更時のabortは実装済み。virtualizationとcacheは未実装
+- [ ] **Partial**: diff parser、split row、word diff、deep-linkのunit testは実装済み。renderer testとlarge diffのbrowser performance testは未実装
 
 ### Conversation / checks
 
