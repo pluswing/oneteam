@@ -87,7 +87,7 @@
 - [x] 要件確定、実装開始、PR作成、review、fix、QA、最終検証、Provider Gate、merge結果をIssueへ構造化Markdownで自動記録する
 - [x] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [ ] Goal Contract変更時は旧条件との差分と変更理由を残す
-- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿する。行単位の主要diffとMemory参照の集約は未完了
+- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / strategy / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿済み。行単位の主要diffとMemory参照の集約は未完了
 - [ ] **Partial**: merge後のIssue自動closeと`done` labelは実装済み。再open時のObjective選択は未実装
 
 ## P0: Codex usage remaining待機と自動再開

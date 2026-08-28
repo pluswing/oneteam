@@ -328,7 +328,9 @@ describe("automatic delivery pipeline", () => {
     ]);
     const prComments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
     const issueComments = await repos.comments.list(project.id, "issue", issue.id);
+    const issueActivities = await repos.activities.list(project.id, "issue", issue.id);
     const mergeParents = (await git(repoPath, ["rev-list", "--parents", "-n", "1", "main"])).split(" ");
+    const completionComment = issueComments.find((comment) => comment.body.includes("## Objective completed"));
 
     expect(updatedJob?.status).toBe("succeeded");
     expect(updatedPullRequest).toMatchObject({ status: "merged" });
@@ -358,8 +360,21 @@ describe("automatic delivery pipeline", () => {
     expect(
       prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
     ).toBe(true);
-    expect(issueComments.some((comment) => comment.body.includes("## Objective completed"))).toBe(true);
+    expect(completionComment?.body).toContain("| Merge strategy | `squash` |");
+    expect(completionComment?.body).toContain("| Source snapshot |");
+    expect(completionComment?.body).toContain("| Target snapshot |");
+    expect(completionComment?.body).toContain("| Merge base |");
+    expect(completionComment?.body).toContain(`| Verifier job | \`#${job.id}\` |`);
+    expect(completionComment?.body).toContain("test -f result.txt");
+    expect(completionComment?.body).toContain("No diff risk signal met the `high` automatic-merge threshold");
+    expect(completionComment?.body).toContain(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`);
+    expect(completionComment?.metadata).toMatchObject({
+      mergeMode: "automatic",
+      mergeStrategy: "squash",
+      verifierJobId: job.id
+    });
     expect(issueComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}`))).toBe(true);
+    expect(issueActivities.map((activity) => activity.title)).toContain("Objective completed");
 
     context.client.close();
   });

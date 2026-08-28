@@ -191,7 +191,18 @@ export async function mergePullRequest(
     pullRequest: mergedPullRequest,
     mergeCommit: mergeResult.mergeCommit
   });
-  await closeLinkedIssue(repos, project, mergedPullRequest, mergeResult.mergeCommit);
+  await closeLinkedIssue(repos, {
+    project,
+    pullRequest: mergedPullRequest,
+    mergeCommit: mergeResult.mergeCommit,
+    mode,
+    mergeStrategy: automation.autoMergeStrategy,
+    sourceHead,
+    targetHead,
+    mergeBase,
+    verifierJob: input.verifierJob ?? null,
+    automaticGateEvidence
+  });
 
   return {
     state: "merged",
@@ -586,10 +597,20 @@ async function recordAutomaticMergeBlock(
 
 async function closeLinkedIssue(
   repos: Repositories,
-  project: ProjectDto,
-  pullRequest: PullRequestDto,
-  mergeCommit: string
+  input: {
+    project: ProjectDto;
+    pullRequest: PullRequestDto;
+    mergeCommit: string;
+    mode: "automatic" | "manual";
+    mergeStrategy: ProjectSettingsDto["automation"]["autoMergeStrategy"];
+    sourceHead: string;
+    targetHead: string;
+    mergeBase: string;
+    verifierJob: AgentJobDto | null;
+    automaticGateEvidence: AutomaticGateEvidence | null;
+  }
 ): Promise<void> {
+  const { project, pullRequest } = input;
   if (!pullRequest.issueId) {
     return;
   }
@@ -602,34 +623,69 @@ async function closeLinkedIssue(
     status: "closed",
     labelIds: doneLabel ? [doneLabel.id] : undefined
   });
+  const eventKey = `objective-completed:pull-request:${pullRequest.id}:merge:${input.mergeCommit}`;
+  const comments = await repos.comments.list(project.id, "issue", issue.id);
+  if (comments.some((comment) => comment.metadata?.mergeCompletionEventKey === eventKey)) return;
+  const body = buildSystemComment({
+    title: "Objective completed",
+    outcome: "success",
+    summary: `Pull request #${pullRequest.id} was merged and this linked Issue was closed. The snapshots below identify the exact candidate and policy decision.`,
+    fields: [
+      { label: "Pull request", value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id})` },
+      { label: "Merge mode", value: input.mode, code: true },
+      { label: "Merge strategy", value: input.mergeStrategy, code: true },
+      { label: "Merge commit", value: input.mergeCommit, code: true },
+      { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+      { label: "Source snapshot", value: input.sourceHead, code: true },
+      { label: "Target branch", value: pullRequest.targetBranch, code: true },
+      { label: "Target snapshot", value: input.targetHead, code: true },
+      { label: "Merge base", value: input.mergeBase, code: true },
+      input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
+    ],
+    sections: [
+      ...(input.automaticGateEvidence
+        ? automaticMergeEvidenceSections(input.automaticGateEvidence, pullRequest.id)
+        : []),
+      {
+        title: "Final state",
+        items: [
+          `[Pull request #${pullRequest.id}](/pulls/${pullRequest.id}) is marked as merged.`,
+          "The Objective is marked as succeeded with its final merge evidence.",
+          "This Issue is closed with its original description preserved."
+        ]
+      }
+    ],
+    nextStep: "Use the linked changed files, Pull Request timeline, and Objective evidence when auditing the implementation or planning follow-up work."
+  });
+  const metadata = {
+    mergeCompletionEventKey: eventKey,
+    pullRequestId: pullRequest.id,
+    mergeMode: input.mode,
+    mergeStrategy: input.mergeStrategy,
+    mergeCommit: input.mergeCommit,
+    sourceHead: input.sourceHead,
+    targetHead: input.targetHead,
+    mergeBase: input.mergeBase,
+    verifierJobId: input.verifierJob?.id ?? null,
+    automaticGateEvidence: input.automaticGateEvidence
+  };
   await repos.comments.create({
     projectId: project.id,
     targetType: "issue",
     targetId: issue.id,
     authorType: "system",
-    body: buildSystemComment({
-      title: "Objective completed",
-      outcome: "success",
-      summary: `Pull request #${pullRequest.id} was merged and this linked Issue was closed.`,
-      fields: [
-        { label: "Pull request", value: `#${pullRequest.id}`, code: true },
-        { label: "Merge commit", value: mergeCommit, code: true },
-        { label: "Source branch", value: pullRequest.sourceBranch, code: true },
-        { label: "Target branch", value: pullRequest.targetBranch, code: true }
-      ],
-      sections: [
-        {
-          title: "Final state",
-          items: [
-            `[Pull request #${pullRequest.id}](/pulls/${pullRequest.id}) is marked as merged.`,
-            "The Objective is marked as succeeded with its final merge evidence.",
-            "This Issue is closed with its original description preserved."
-          ]
-        }
-      ],
-      nextStep: "Use the Pull Request timeline and Objective evidence when auditing the implementation or planning follow-up work."
-    }),
+    body,
     bodyFormat: "markdown",
-    metadata: { pullRequestId: pullRequest.id, mergeCommit }
+    metadata
+  });
+  await repos.activities.create({
+    projectId: project.id,
+    agentJobId: input.verifierJob?.id ?? null,
+    targetType: "issue",
+    targetId: issue.id,
+    activityType: "system",
+    title: "Objective completed",
+    body,
+    payload: metadata
   });
 }
