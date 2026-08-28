@@ -349,6 +349,7 @@ export const ja = {
     ready: "Ready",
     queued: "Queued",
     running: "実行中",
+    loading: "読み込み中…",
     waiting: "待機中",
     waitingProvider: "利用枠待機",
     paused: "一時停止中",

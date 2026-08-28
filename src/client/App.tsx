@@ -56,6 +56,7 @@ import { api } from "./api";
 import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
 import { summarizeAgentJobs } from "./agent-status";
 import { AppShell } from "./components/AppShell";
+import { AsyncState } from "./components/AsyncState";
 import { DiffViewer } from "./components/DiffViewer";
 import { MarkdownContent } from "./components/MarkdownContent";
 import { SetupWizard } from "./components/SetupWizard";
@@ -480,10 +481,15 @@ type IssueScreen =
 function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpen: (issueId: number) => void }) {
   const [issues, setIssues] = useState<IssueDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
-    const issueResponse = await api.listIssues(props.project.id);
-    setIssues(issueResponse.items);
+    try {
+      const issueResponse = await api.listIssues(props.project.id);
+      setIssues(issueResponse.items);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -501,9 +507,10 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
           </button>
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       <div className="work-item-list">
-        {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && issues.length === 0 ? <AsyncState kind="empty" message={t("issues.noIssues")} /> : null}
         {issues.map((issue) => (
           <button className="work-item-summary work-item-rich" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
             <span className={`work-item-state-icon work-item-state-${issue.status}`}>
@@ -886,10 +893,11 @@ function IssueDetailScreen(props: {
           </div>
         ) : null}
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       {issue ? <WorkItemDetailMeta item={issue} /> : null}
       <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
-      <div className="detail-layout">
+      {!issue && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      <div className={issue ? "detail-layout" : "detail-layout pending"}>
         <section className="page-section detail-main">
           {issue?.body ? <MarkdownContent content={issue.body} /> : <div className="empty-state">{t("issues.noDescription")}</div>}
           <h2>{t("issues.conversation")}</h2>
@@ -1239,10 +1247,15 @@ function PullRequestsListScreen(props: {
 }) {
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
-    const response = await api.listPullRequests(props.project.id);
-    setPullRequests(response.items);
+    try {
+      const response = await api.listPullRequests(props.project.id);
+      setPullRequests(response.items);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -1260,9 +1273,10 @@ function PullRequestsListScreen(props: {
           </button>
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       <div className="work-item-list">
-        {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && pullRequests.length === 0 ? <AsyncState kind="empty" message={t("pullRequests.noPullRequests")} /> : null}
         {pullRequests.map((pullRequest) => (
           <button
             className="work-item-summary work-item-rich"
@@ -1621,10 +1635,11 @@ function PullRequestDetailScreen(props: {
           </button>
         ) : null}
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       {pullRequest ? <WorkItemDetailMeta item={pullRequest} /> : null}
       <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
-      <div className="detail-layout">
+      {!pullRequest && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      <div className={pullRequest ? "detail-layout" : "detail-layout pending"}>
         <section className="page-section detail-main">
           {pullRequest ? (
             <>
@@ -2586,7 +2601,7 @@ export function App() {
   }, [project, screen]);
 
   if (isLoading) {
-    return <div className="loading-screen">{t("status.running")}</div>;
+    return <div className="loading-screen"><AsyncState kind="loading" message={t("status.loading")} /></div>;
   }
 
   if (screen === "select") {

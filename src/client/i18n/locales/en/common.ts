@@ -347,6 +347,7 @@ export const en = {
     ready: "Ready",
     queued: "Queued",
     running: "Running",
+    loading: "Loading…",
     waiting: "Waiting",
     waitingProvider: "Provider wait",
     paused: "Paused",

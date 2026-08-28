@@ -430,6 +430,46 @@ textarea {
   font-size: 13px;
 }
 
+.async-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 84px;
+  padding: 20px;
+  color: #57606a;
+  background: #f6f8fa;
+  text-align: center;
+}
+
+.async-state.compact {
+  min-height: 52px;
+  margin: 12px;
+  padding: 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+}
+
+.async-state-error {
+  color: #82071e;
+  background: #ffebe9;
+}
+
+.async-state-retrying {
+  color: #7d4e00;
+  background: #fff8c5;
+}
+
+.async-state-spinner {
+  animation: async-state-spin 1s linear infinite;
+}
+
+@keyframes async-state-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .warning-banner .action-row {
   justify-content: flex-end;
   flex: 0 0 auto;
@@ -564,6 +604,10 @@ textarea {
 .detail-layout > *,
 .editor-layout > * {
   min-width: 0;
+}
+
+.detail-layout.pending {
+  display: none;
 }
 
 .editor-form .page-section {

@@ -20,6 +20,7 @@ import {
   type DiffWordSegment
 } from "../diff-parser";
 import { t } from "../i18n";
+import { AsyncState } from "./AsyncState";
 import { highlightDiffSyntax } from "../diff-syntax";
 import { formatDateTime } from "../formatters";
 
@@ -759,8 +760,8 @@ export function DiffViewer(props: {
               </div>
             </header>
           ) : null}
-          {loading ? <div className="diff-notice">{t("pullRequests.loadingDiff")}</div> : null}
-          {error ? <div className="error-banner">{error}</div> : null}
+          {loading ? <AsyncState compact kind="loading" message={t("pullRequests.loadingDiff")} /> : null}
+          {error ? <AsyncState compact kind="error" message={error} /> : null}
           {displayedFindings.length ? (
             <div className="diff-finding-overview" aria-label={t("pullRequests.findings")}>
               {displayedFindings.map((finding) => (
@@ -773,7 +774,7 @@ export function DiffViewer(props: {
               ? <UnifiedDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
               : <SplitDiff comments={displayedLineComments} draft={draftComment} findings={displayedFindings} focus={focusedFinding?.line ? { side: focusedFinding.side, line: focusedFinding.line } : null} onCancelComment={() => setDraftComment(null)} onStartComment={startLineComment} onSubmitComment={submitLineComment} patch={selectedFile.patch} path={selectedFile.path} />
           ) : null}
-          {!currentSummary && !props.files.length ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
+          {!currentSummary && !props.files.length ? <AsyncState compact kind="empty" message={t("pullRequests.noFiles")} /> : null}
         </div>
       </div>
     </section>

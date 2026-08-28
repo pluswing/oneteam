@@ -6,6 +6,7 @@ import { api } from "../api";
 import { agentJobMessage } from "../agent-job-message";
 import { canRetryAgentJob, formatJobTarget, isActiveAgentJob } from "../agent-status";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { AsyncState } from "../components/AsyncState";
 import { formatDateTime } from "../formatters";
 import { t } from "../i18n";
 import { numberValue, recordArrayValue, recordValue, stringArrayValue, stringValue } from "../value-parsers";
@@ -262,9 +263,14 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
 function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: number) => void }) {
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
-    setJobs(await api.listAgentJobs(props.project.id));
+    try {
+      setJobs(await api.listAgentJobs(props.project.id));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -287,9 +293,10 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
       <div className="section-header">
         <h1>{t("agents.title")}</h1>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <AsyncState kind="error" message={error} /> : null}
       <div className="agent-job-list">
-        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && jobs.length === 0 ? <AsyncState kind="empty" message={t("agents.noJobs")} /> : null}
         {jobs.map((job) => (
           <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
             <span className="agent-job-title">#{job.id} {job.agentType}</span>
