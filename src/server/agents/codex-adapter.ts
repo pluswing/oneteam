@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ActivityType } from "../../shared/types";
 import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
+import { unstructuredAdapterStopResult, validateAdapterStopResult } from "./adapter-guardrails";
 
 export type CodexAdapterOptions = {
   command: string;
@@ -15,28 +16,18 @@ export function extractAgentRunResult(text: string, fallbackName = "Agent"): Age
   const trimmed = text.trim();
   const parsed = parseAgentRunResult(trimmed);
   if (parsed) {
-    return parsed;
+    return validateAdapterStopResult(parsed, fallbackName);
   }
 
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   if (fenced) {
     const parsedFenced = parseAgentRunResult(fenced[1]);
     if (parsedFenced) {
-      return parsedFenced;
+      return validateAdapterStopResult(parsedFenced, fallbackName);
     }
   }
 
-  return {
-    status: "succeeded",
-    message: trimmed || `${fallbackName} completed without a structured response.`,
-    activities: [
-      {
-        type: "progress",
-        title: `${fallbackName} response captured`,
-        body: trimmed
-      }
-    ]
-  };
+  return unstructuredAdapterStopResult(trimmed, fallbackName);
 }
 
 function parseAgentRunResult(candidate: string): AgentRunResult | null {

@@ -329,11 +329,21 @@ async function executeToolCall(repoPath: string, toolCall: ToolCall, deadlineAt?
       summary: message,
       payload: {
         tool: name,
-        args
+        args,
+        hookValidation: {
+          hook: "post_tool_use",
+          passed: false,
+          problems: [message]
+        }
       },
       response: {
         ok: false,
-        error: message
+        error: message,
+        hookValidation: {
+          hook: "post_tool_use",
+          passed: false,
+          problems: [message]
+        }
       }
     };
   }
@@ -345,14 +355,20 @@ function toolSuccess(
   summary: string,
   payload: Record<string, unknown>
 ) {
+  const hookValidation = {
+    hook: "post_tool_use",
+    passed: activityType !== "error",
+    problems: activityType === "error" ? [summary] : []
+  };
   return {
     activityType,
     title,
     summary,
-    payload,
+    payload: { ...payload, hookValidation },
     response: {
-      ok: true,
-      ...payload
+      ok: activityType !== "error",
+      ...payload,
+      hookValidation
     }
   };
 }
