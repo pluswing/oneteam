@@ -13,7 +13,8 @@ import {
   getMergeBase,
   getRepositoryStatus,
   getRevisionHash,
-  mergeBranch
+  mergeBranch,
+  type GitRetryEvent
 } from "./git-service";
 import { riskSignalsAtOrAbove, scanScoreManipulationRisks } from "./diff-risk-scanner";
 import { runLabelAutomation } from "./label-automation";
@@ -120,11 +121,30 @@ export async function mergePullRequest(
     return { state: "blocked", reason };
   }
 
+  const mergeRetries: GitRetryEvent[] = [];
   const mergeResult = await mergeBranch(
     project.repoPath,
     pullRequest.sourceBranch,
     pullRequest.targetBranch,
-    automation.autoMergeStrategy
+    automation.autoMergeStrategy,
+    mode === "automatic"
+      ? {
+          delaysMs: [500, 2_000, 5_000],
+          onRetry: async (event) => {
+            mergeRetries.push(event);
+            await recordAutomaticMergeRetry(repos, project, pullRequest, input.verifierJob ?? null, event);
+          },
+          beforeRetry: async () => {
+            const [retrySourceHead, retryTargetHead] = await Promise.all([
+              getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+              getRevisionHash(project.repoPath, pullRequest.targetBranch)
+            ]);
+            if (retrySourceHead !== sourceHead || retryTargetHead !== targetHead) {
+              throw new Error("Source or target branch changed during automatic merge retry backoff. Fresh verification is required.");
+            }
+          }
+        }
+      : undefined
   );
   const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
   const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, {
@@ -155,6 +175,7 @@ export async function mergePullRequest(
       { label: "Source snapshot", value: commitReference(sourceHead) },
       { label: "Target snapshot", value: commitReference(targetHead) },
       { label: "Merge base", value: commitReference(mergeBase) },
+      { label: "Transient merge retries", value: mergeResult.retryCount },
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : [],
@@ -178,6 +199,7 @@ export async function mergePullRequest(
       targetHead,
       mergeBase,
       automaticGateEvidence,
+      mergeRetries,
       verifierJobId: input.verifierJob?.id ?? null
     }
   });
@@ -196,14 +218,16 @@ export async function mergePullRequest(
       sourceHead,
       targetHead,
       mergeBase,
-      automaticGateEvidence
+      automaticGateEvidence,
+      mergeRetries
     }
   });
 
   await markObjectiveMerged(repos, {
     project,
     pullRequest: mergedPullRequest,
-    mergeCommit: mergeResult.mergeCommit
+    mergeCommit: mergeResult.mergeCommit,
+    mergeRetries
   });
   await closeLinkedIssue(repos, {
     project,
@@ -215,7 +239,8 @@ export async function mergePullRequest(
     targetHead,
     mergeBase,
     verifierJob: input.verifierJob ?? null,
-    automaticGateEvidence
+    automaticGateEvidence,
+    mergeRetries
   });
 
   return {
@@ -523,6 +548,57 @@ async function checkAutomaticMergeGate(
   return null;
 }
 
+async function recordAutomaticMergeRetry(
+  repos: Repositories,
+  project: ProjectDto,
+  pullRequest: PullRequestDto,
+  verifierJob: AgentJobDto | null,
+  event: GitRetryEvent
+): Promise<void> {
+  const body = buildSystemComment({
+    title: "Automatic merge transient retry",
+    outcome: "waiting",
+    summary: `A temporary local Git lock or resource-busy error interrupted ${event.operation}. The verified candidate remains unchanged and will be retried after a short backoff.`,
+    fields: [
+      { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+      { label: "Operation", value: event.operation, code: true },
+      { label: "Failed attempt", value: event.failedAttempt },
+      { label: "Next attempt", value: event.nextAttempt },
+      { label: "Backoff", value: `${event.delayMs} ms`, code: true },
+      verifierJob ? { label: "Verifier job", value: `#${verifierJob.id}`, code: true } : null
+    ],
+    sections: [
+      {
+        title: "Safety check",
+        items: [
+          "Source and target commit snapshots are checked again after the backoff and before the retry.",
+          "A snapshot change cancels retry and requires fresh verification.",
+          "Only recognized transient lock or busy errors are retried; policy, conflict, and verification failures are not."
+        ]
+      }
+    ],
+    nextStep: `OneTeam will retry attempt ${event.nextAttempt} automatically. No provider turn or Objective round is consumed.`
+  });
+  const targets: Array<{ targetType: "pull_request" | "issue"; targetId: number }> = [
+    { targetType: "pull_request", targetId: pullRequest.id },
+    ...(pullRequest.issueId ? [{ targetType: "issue" as const, targetId: pullRequest.issueId }] : [])
+  ];
+  await Promise.all(targets.map((target) => repos.activities.create({
+    projectId: project.id,
+    agentJobId: verifierJob?.id ?? null,
+    targetType: target.targetType,
+    targetId: target.targetId,
+    activityType: "system",
+    title: "Automatic merge transient retry",
+    body,
+    payload: {
+      automaticMergeEvent: "transient_retry",
+      pullRequestId: pullRequest.id,
+      ...event
+    }
+  })));
+}
+
 async function recordAutomaticMergeBlock(
   repos: Repositories,
   project: ProjectDto,
@@ -639,6 +715,7 @@ async function closeLinkedIssue(
     mergeBase: string;
     verifierJob: AgentJobDto | null;
     automaticGateEvidence: AutomaticGateEvidence | null;
+    mergeRetries: GitRetryEvent[];
   }
 ): Promise<void> {
   const { project, pullRequest } = input;
@@ -674,6 +751,7 @@ async function closeLinkedIssue(
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
       { label: "Target snapshot", value: commitReference(input.targetHead) },
       { label: "Merge base", value: commitReference(input.mergeBase) },
+      { label: "Transient merge retries", value: input.mergeRetries.length },
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: [
@@ -702,7 +780,8 @@ async function closeLinkedIssue(
     targetHead: input.targetHead,
     mergeBase: input.mergeBase,
     verifierJobId: input.verifierJob?.id ?? null,
-    automaticGateEvidence: input.automaticGateEvidence
+    automaticGateEvidence: input.automaticGateEvidence,
+    mergeRetries: input.mergeRetries
   };
   await repos.comments.create({
     projectId: project.id,

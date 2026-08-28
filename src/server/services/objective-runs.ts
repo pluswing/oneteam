@@ -439,6 +439,13 @@ export async function markObjectiveMerged(
     project: ProjectDto;
     pullRequest: PullRequestDto;
     mergeCommit: string;
+    mergeRetries?: Array<{
+      operation: string;
+      failedAttempt: number;
+      nextAttempt: number;
+      delayMs: number;
+      message: string;
+    }>;
   }
 ): Promise<void> {
   const objective = await repos.objectives.findByPullRequest(input.project.id, input.pullRequest.id);
@@ -456,7 +463,8 @@ export async function markObjectiveMerged(
       summary: `Merged ${input.pullRequest.sourceBranch} into ${input.pullRequest.targetBranch}.`,
       payload: {
         pullRequestId: input.pullRequest.id,
-        mergeCommit: input.mergeCommit
+        mergeCommit: input.mergeCommit,
+        mergeRetries: input.mergeRetries ?? []
       }
     }),
     finishedAt: new Date().toISOString()

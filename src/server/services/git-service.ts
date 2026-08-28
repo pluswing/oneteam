@@ -10,6 +10,21 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+export type GitRetryEvent = {
+  operation: string;
+  failedAttempt: number;
+  nextAttempt: number;
+  delayMs: number;
+  message: string;
+};
+
+export type GitRetryPolicy = {
+  delaysMs: number[];
+  onRetry?: (event: GitRetryEvent) => Promise<void> | void;
+  beforeRetry?: (event: GitRetryEvent) => Promise<void> | void;
+  sleep?: (delayMs: number) => Promise<void>;
+};
+
 async function git(repoPath: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd: repoPath,
@@ -26,6 +41,49 @@ function gitOutput(error: unknown): string {
   return [output.stdout, output.stderr, output.message]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .join("\n");
+}
+
+export function isRetryableGitError(error: unknown): boolean {
+  const message = gitOutput(error);
+  return [
+    /(?:index|shallow|packed-refs)\.lock.*(?:file exists|already exists)/i,
+    /unable to create .*\.lock.*(?:file exists|already exists)/i,
+    /another git process seems to be running/i,
+    /resource temporarily unavailable/i,
+    /device or resource busy/i,
+    /text file busy/i
+  ].some((pattern) => pattern.test(message));
+}
+
+export async function runGitOperationWithBackoff<T>(
+  operation: string,
+  execute: () => Promise<T>,
+  policy: GitRetryPolicy
+): Promise<{ value: T; retryCount: number }> {
+  let failedAttempt = 0;
+  while (true) {
+    try {
+      return { value: await execute(), retryCount: failedAttempt };
+    } catch (error) {
+      failedAttempt += 1;
+      const delayMs = policy.delaysMs[failedAttempt - 1];
+      if (delayMs === undefined || !isRetryableGitError(error)) throw error;
+      const event: GitRetryEvent = {
+        operation,
+        failedAttempt,
+        nextAttempt: failedAttempt + 1,
+        delayMs,
+        message: gitOutput(error).slice(-4_000) || "Retryable Git operation failed."
+      };
+      await policy.onRetry?.(event);
+      await (policy.sleep ?? sleep)(delayMs);
+      await policy.beforeRetry?.(event);
+    }
+  }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function parseAheadBehind(branchLine: string): { ahead: number; behind: number } {
@@ -101,17 +159,28 @@ export async function mergeBranch(
   repoPath: string,
   sourceBranch: string,
   targetBranch: string,
-  strategy: "merge" | "squash" = "merge"
-): Promise<{ mergeCommit: string; output: string }> {
-  await checkoutBranch(repoPath, targetBranch);
+  strategy: "merge" | "squash" = "merge",
+  retryPolicy?: GitRetryPolicy
+): Promise<{ mergeCommit: string; output: string; retryCount: number }> {
+  let retryCount = 0;
+  const run = async (operation: string, args: string[]): Promise<string> => {
+    if (!retryPolicy) return git(repoPath, args);
+    const result = await runGitOperationWithBackoff(operation, () => git(repoPath, args), retryPolicy);
+    retryCount += result.retryCount;
+    return result.value;
+  };
+  await run(`checkout ${targetBranch}`, ["checkout", targetBranch]);
   const output = strategy === "squash"
     ? [
-        await git(repoPath, ["merge", "--squash", sourceBranch]),
-        await git(repoPath, ["commit", "-m", `Squash merge ${sourceBranch} into ${targetBranch}`])
+        await run(`squash merge ${sourceBranch}`, ["merge", "--squash", sourceBranch]),
+        await run("commit squash merge", ["commit", "-m", `Squash merge ${sourceBranch} into ${targetBranch}`])
       ].filter(Boolean).join("\n")
-    : await git(repoPath, ["merge", "--no-ff", "--no-edit", sourceBranch]);
+    : await run(`merge ${sourceBranch}`, ["merge", "--no-ff", "--no-edit", sourceBranch]);
+  // Once the mutating merge operation succeeds, never restart the merge because a
+  // read-only follow-up failed. Retrying from that point would compare snapshots
+  // against the newly created merge commit and could leave persistence behind Git.
   const mergeCommit = await git(repoPath, ["rev-parse", "HEAD"]);
-  return { mergeCommit, output };
+  return { mergeCommit, output, retryCount };
 }
 
 export async function getRevisionHash(repoPath: string, revision: string): Promise<string> {

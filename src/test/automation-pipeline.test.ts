@@ -405,8 +405,10 @@ describe("automatic delivery pipeline", () => {
     expect(mergeComment).toBeDefined();
     expect(mergeComment?.body).toContain(`/issues/${issue.id}#completion-summary`);
     expect(mergeComment?.metadata?.summaryAnchor).toBe("merge-summary");
+    expect(mergeComment?.metadata?.mergeRetries).toEqual([]);
     expect(mergeComment?.body).toMatch(/\/repository#commit-[0-9a-f]{40}/);
     expect(prComments.some((comment) => comment.body.includes("| Merge strategy | `squash` |"))).toBe(true);
+    expect(prComments.some((comment) => comment.body.includes("| Transient merge retries | 0 |"))).toBe(true);
     expect(
       prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
     ).toBe(true);
@@ -414,6 +416,7 @@ describe("automatic delivery pipeline", () => {
     expect(completionComment?.body).toContain("| Source snapshot |");
     expect(completionComment?.body).toContain("| Target snapshot |");
     expect(completionComment?.body).toContain("| Merge base |");
+    expect(completionComment?.body).toContain("| Transient merge retries | 0 |");
     expect(completionComment?.body).toContain(`| Verifier job | \`#${job.id}\` |`);
     expect(completionComment?.body).toContain("test -f result.txt");
     expect(completionComment?.body).toContain("No diff risk signal met the `high` automatic-merge threshold");
@@ -424,6 +427,7 @@ describe("automatic delivery pipeline", () => {
       summaryAnchor: "completion-summary",
       mergeMode: "automatic",
       mergeStrategy: "squash",
+      mergeRetries: [],
       verifierJobId: job.id
     });
     expect(issueComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}`))).toBe(true);

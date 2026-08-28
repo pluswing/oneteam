@@ -12,7 +12,9 @@ import {
   getCommits,
   getDiffFilePatch,
   getDiffFiles,
-  getRepositoryStatus
+  getRepositoryStatus,
+  isRetryableGitError,
+  runGitOperationWithBackoff
 } from "../server/services/git-service";
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +24,62 @@ async function git(repo: string, args: string[]): Promise<void> {
 }
 
 describe("git service", () => {
+  it("retries recognized transient Git locks with bounded backoff", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const events: Array<{ failedAttempt: number; nextAttempt: number }> = [];
+    const result = await runGitOperationWithBackoff(
+      "merge feature",
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw Object.assign(new Error("Unable to create '.git/index.lock': File exists."), {
+            stderr: "Another git process seems to be running in this repository."
+          });
+        }
+        return "merged";
+      },
+      {
+        delaysMs: [500, 2_000, 5_000],
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
+        onRetry: (event) => {
+          events.push(event);
+        }
+      }
+    );
+
+    expect(result).toEqual({ value: "merged", retryCount: 2 });
+    expect(attempts).toBe(3);
+    expect(delays).toEqual([500, 2_000]);
+    expect(events).toMatchObject([
+      { failedAttempt: 1, nextAttempt: 2 },
+      { failedAttempt: 2, nextAttempt: 3 }
+    ]);
+    expect(isRetryableGitError(new Error("merge conflict in README.md"))).toBe(false);
+    expect(isRetryableGitError(new Error("could not lock config file: Permission denied"))).toBe(false);
+  });
+
+  it("cancels a transient retry when candidate revalidation fails", async () => {
+    let attempts = 0;
+    await expect(runGitOperationWithBackoff(
+      "merge feature",
+      async () => {
+        attempts += 1;
+        throw new Error("fatal: Unable to create '.git/index.lock': File exists.");
+      },
+      {
+        delaysMs: [500],
+        sleep: async () => undefined,
+        beforeRetry: async () => {
+          throw new Error("Source or target branch changed. Fresh verification is required.");
+        }
+      }
+    )).rejects.toThrow("Fresh verification is required");
+    expect(attempts).toBe(1);
+  });
+
   it("reads status, branches, commits, and diff files", async () => {
     const repo = await mkdtemp(join(tmpdir(), "oneteam-git-"));
     await git(repo, ["init", "-b", "main"]);
