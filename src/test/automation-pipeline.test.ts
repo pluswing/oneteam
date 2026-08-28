@@ -508,6 +508,178 @@ describe("automatic delivery pipeline", () => {
 
     context.client.close();
   });
+
+  it("blocks automatic merge when the target branch drifts during gate verification", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-target-drift-db-"));
+    const repoPath = await createGitRepo("oneteam-target-drift-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/target-drift"]);
+    await writeFile(join(repoPath, "candidate.txt"), "candidate\n");
+    await git(repoPath, ["add", "candidate.txt"]);
+    await git(repoPath, ["commit", "-m", "candidate change"]);
+    const sourceHead = await getRevisionHash(repoPath, "feature/target-drift");
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Target drift", repoPath, defaultBranch: "main" });
+    await repos.commands.upsertMany(project.id, [
+      {
+        commandType: "test",
+        command:
+          "tree=$(git rev-parse 'main^{tree}') && parent=$(git rev-parse main) && commit=$(printf 'target drift\\n' | git commit-tree \"$tree\" -p \"$parent\") && git update-ref refs/heads/main \"$commit\"",
+        detectionSource: "test",
+        isRequired: true,
+        isAvailable: true
+      }
+    ]);
+    const issue = await repos.issues.create({ projectId: project.id, title: "Reject target drift" });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      issueId: issue.id,
+      title: "Target drift candidate",
+      sourceBranch: "feature/target-drift",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, verifierJob.id, "succeeded");
+    if (!objective || !completedVerifier) throw new Error("Failed to prepare target drift test.");
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      workflowStage: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Current verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: sourceHead,
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+    const [updatedPullRequest, updatedObjective, prComments, issueComments] = await Promise.all([
+      repos.pullRequests.get(project.id, pullRequest.id),
+      repos.objectives.get(project.id, objective.id),
+      repos.comments.list(project.id, "pull_request", pullRequest.id),
+      repos.comments.list(project.id, "issue", issue.id)
+    ]);
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain("target branch changed");
+    expect(updatedPullRequest).toMatchObject({ status: "open" });
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
+    expect(updatedObjective).toMatchObject({ status: "waiting_human", stopReason: "automatic_merge_blocked" });
+    expect(prComments.some((comment) => comment.body.includes("## Automatic merge paused"))).toBe(true);
+    expect(issueComments.some((comment) => comment.body.includes("## Automatic merge paused"))).toBe(true);
+
+    context.client.close();
+  });
+
+  it("routes automatic merge conflicts back to a fix job", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-merge-conflict-db-"));
+    const repoPath = await createGitRepo("oneteam-merge-conflict-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/conflict"]);
+    await writeFile(join(repoPath, "README.md"), "# Feature\n");
+    await git(repoPath, ["commit", "-am", "feature edit"]);
+    const sourceHead = await getRevisionHash(repoPath, "feature/conflict");
+    await git(repoPath, ["checkout", "main"]);
+    await writeFile(join(repoPath, "README.md"), "# Main\n");
+    await git(repoPath, ["commit", "-am", "target edit"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Merge conflict", repoPath, defaultBranch: "main" });
+    const issue = await repos.issues.create({ projectId: project.id, title: "Resolve conflict automatically" });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      issueId: issue.id,
+      title: "Conflicting candidate",
+      sourceBranch: "feature/conflict",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      input: { objectiveRunId: objective?.id ?? null }
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, verifierJob.id, "succeeded");
+    if (!objective || !completedVerifier) throw new Error("Failed to prepare conflict test.");
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      workflowStage: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Current verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: sourceHead,
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+    const [updatedPullRequest, updatedObjective, jobs, issueComments] = await Promise.all([
+      repos.pullRequests.get(project.id, pullRequest.id),
+      repos.objectives.get(project.id, objective.id),
+      repos.agentJobs.list({ projectId: project.id, targetType: "pull_request", targetId: pullRequest.id }),
+      repos.comments.list(project.id, "issue", issue.id)
+    ]);
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain("Merge conflicts detected: README.md");
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.resolvingConflicts);
+    expect(updatedObjective).toMatchObject({ status: "running", workflowStage: "fix", stopReason: "merge_conflict" });
+    expect(jobs.some((job) => job.agentType === "fix" && job.status === "queued")).toBe(true);
+    expect(issueComments.some((comment) => comment.body.includes("## Automatic merge paused"))).toBe(true);
+
+    context.client.close();
+  });
 });
 
 async function createGitRepo(prefix: string): Promise<string> {

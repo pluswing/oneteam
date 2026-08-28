@@ -80,11 +80,11 @@
 - [x] conflictがある場合は`resolving-conflicts`へ戻し、conflict-resolution workflowをqueueする
 - [x] Gate通過後はOneTeamがmergeし、PR statusを`merged`、Objectiveを`succeeded`にする
 - [ ] **Partial**: conflictと不明な失敗をcorrectable / Human Gateへ分類済み。retryable merge errorのbackoffは未実装
-- [ ] **Partial**: automatic merge、required command pass / failure、stale Evidenceのintegration testを追加済み。target drift / conflictの個別回帰testは未実装
+- [x] automatic merge、required command pass / failure、stale Evidence、target drift、conflict routingのintegration testを追加する
 
 ### Issue lifecycle
 
-- [ ] 要件確定、実装開始、PR作成、review、QA、Provider Gate、mergeの節目でIssueを自動更新する
+- [ ] **Partial**: 要件確定、PR作成、review、fix、QA、最終検証、Provider Gate、merge結果をIssueへ構造化Markdownで自動記録する。実装開始時の専用milestoneは未実装
 - [ ] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [ ] Goal Contract変更時は旧条件との差分と変更理由を残す
 - [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿する。行単位の主要diffとMemory参照の集約は未完了

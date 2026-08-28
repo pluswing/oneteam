@@ -480,7 +480,10 @@ async function recordAutomaticMergeBlock(
     outcome: "blocked",
     summary: reason,
     fields: [
-      { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+      {
+        label: "Pull request",
+        value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id})`
+      },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
       { label: "Stop reason", value: conflicts ? "merge_conflict" : "automatic_merge_blocked", code: true },
@@ -504,25 +507,41 @@ async function recordAutomaticMergeBlock(
       ? "Wait for conflict resolution, then review the new evidence from the repeated verifier run."
       : "Review the recorded reason, correct the repository or policy state, and resume the workflow. Manual merge remains an explicit fallback."
   });
-  await repos.comments.create({
-    projectId: project.id,
-    targetType: "pull_request",
-    targetId: pullRequest.id,
-    authorType: "system",
-    body,
-    bodyFormat: "markdown",
-    metadata: { automaticMerge: "blocked", reason, conflicts, verifierJobId: verifierJob?.id ?? null }
-  });
-  await repos.activities.create({
-    projectId: project.id,
-    agentJobId: verifierJob?.id ?? null,
-    targetType: "pull_request",
-    targetId: pullRequest.id,
-    activityType: "system",
-    title: "Automatic merge paused",
-    body,
-    payload: { reason, conflicts }
-  });
+  const eventKey = `automatic-merge-block:${pullRequest.id}:${verifierJob?.id ?? "none"}:${conflicts ? "conflict" : "gate"}:${reason}`;
+  const targets: Array<{ targetType: "pull_request" | "issue"; targetId: number }> = [
+    { targetType: "pull_request", targetId: pullRequest.id },
+    ...(pullRequest.issueId ? [{ targetType: "issue" as const, targetId: pullRequest.issueId }] : [])
+  ];
+  for (const target of targets) {
+    const comments = await repos.comments.list(project.id, target.targetType, target.targetId);
+    if (comments.some((comment) => comment.metadata?.automaticMergeEventKey === eventKey)) continue;
+    await repos.comments.create({
+      projectId: project.id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      authorType: "system",
+      body,
+      bodyFormat: "markdown",
+      metadata: {
+        automaticMerge: "blocked",
+        automaticMergeEventKey: eventKey,
+        pullRequestId: pullRequest.id,
+        reason,
+        conflicts,
+        verifierJobId: verifierJob?.id ?? null
+      }
+    });
+    await repos.activities.create({
+      projectId: project.id,
+      agentJobId: verifierJob?.id ?? null,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      activityType: "system",
+      title: "Automatic merge paused",
+      body,
+      payload: { automaticMergeEventKey: eventKey, pullRequestId: pullRequest.id, reason, conflicts }
+    });
+  }
   if (conflicts) {
     await runLabelAutomation(repos, {
       projectId: project.id,
