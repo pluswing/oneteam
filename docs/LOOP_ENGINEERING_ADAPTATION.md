@@ -212,6 +212,8 @@ Issueを起点に、要件定義、実装、検証、Pull Request、レビュー
 - `main` との差分や直近 commit からリグレッション候補を探す
 - `needs-input` の回答投稿で停止中 Loop を再開する
 
+内部Schedulerはopen IssueのObjective補完とmissing command検出に加え、7日以上更新のないactive Objective、Agent Jobのfailed verification / `ci_status` Evidence、同じ対象で以前成功したQA / Verifierが後に失敗したregression候補、tracked source fileのTODO / FIXMEをTriageへ集約する。incident固有のscheduler keyまたはsource snapshotのfingerprintを保存し、同じ状態を繰り返し通知しない。外部CIからstatusを取得する処理はConnector runtimeの責務とし、Schedulerは取得済みEvidenceの失敗を他の検証失敗と同じcontractで扱う。
+
 UI には `Loops` または `Automations` ページを追加する。
 
 必要な表示:
