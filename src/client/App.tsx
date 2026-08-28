@@ -28,6 +28,7 @@ import type {
   LabelDto,
   MergeConflictDto,
   ObjectiveRunDto,
+  ObjectiveWorkflowStage,
   ProjectCommandDto,
   ProjectDto,
   ProjectSettingsDto,
@@ -477,6 +478,28 @@ function objectiveEvidenceCount(objective: ObjectiveRunDto | null): number {
   return Array.isArray(items) ? items.length : 0;
 }
 
+const objectiveWorkflowStages: ObjectiveWorkflowStage[] = [
+  "requirements",
+  "implementation",
+  "review",
+  "fix",
+  "qa",
+  "verification",
+  "ready_to_merge",
+  "merged"
+];
+
+function objectiveWorkflowStageLabel(stage: ObjectiveWorkflowStage): string {
+  if (stage === "requirements") return t("objectives.stageRequirements");
+  if (stage === "implementation") return t("objectives.stageImplementation");
+  if (stage === "review") return t("objectives.stageReview");
+  if (stage === "fix") return t("objectives.stageFix");
+  if (stage === "qa") return t("objectives.stageQa");
+  if (stage === "verification") return t("objectives.stageVerification");
+  if (stage === "ready_to_merge") return t("objectives.stageReadyToMerge");
+  return t("objectives.stageMerged");
+}
+
 function ObjectivePanel(props: {
   objective: ObjectiveRunDto | null;
   onControl: (action: "pause" | "resume" | "cancel") => Promise<void>;
@@ -503,12 +526,30 @@ function ObjectivePanel(props: {
 
   const canPause = ["open", "running", "waiting_provider", "waiting_human", "failed"].includes(objective.status);
   const canCancel = !["succeeded", "canceled"].includes(objective.status);
+  const stageIndex = objectiveWorkflowStages.indexOf(objective.workflowStage);
+  const stageProgress = ((stageIndex + 1) / objectiveWorkflowStages.length) * 100;
 
   return (
     <div className="objective-panel">
       <div className="objective-panel-header">
         <span className={`status-pill status-${objective.status}`}>{objective.status}</span>
         <span>{objective.roundCount}/{objective.maxRounds}</span>
+      </div>
+      <div className="objective-stage-summary">
+        <div>
+          <span>{t("objectives.workflowStage")}</span>
+          <strong>{objectiveWorkflowStageLabel(objective.workflowStage)}</strong>
+        </div>
+        <span
+          aria-label={`${t("objectives.workflowProgress")} ${stageIndex + 1}/${objectiveWorkflowStages.length}`}
+          className="objective-stage-track"
+          role="progressbar"
+          aria-valuemax={objectiveWorkflowStages.length}
+          aria-valuemin={1}
+          aria-valuenow={stageIndex + 1}
+        >
+          <span style={{ width: `${stageProgress}%` }} />
+        </span>
       </div>
       <dl className="compact-facts">
         <div>

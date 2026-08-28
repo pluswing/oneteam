@@ -64,9 +64,9 @@
 
 ### Workflow controller
 
-- [ ] requirements完了後からimplementation、PR creation、review、fix、QA、verifier、mergeまでをstanding objectiveが自動的に駆動する
-- [ ] 各stepの完了条件と次stepをlabelだけでなくObjective state machineでも管理する
-- [ ] retry、fix、re-review、re-QA、re-verifyを同じObjectiveのroundとして追跡する
+- [x] requirements完了後からimplementation、PR creation、review、fix、QA、verifier、mergeまでをstanding objectiveが自動的に駆動する
+- [x] `requirements → implementation → review ↔ fix → QA → verification → ready-to-merge → merged`をObjectiveの永続`workflowStage`として管理し、許可されないlabel遷移ではAgentをqueueしない
+- [x] retry、fix、re-review、re-QA、re-verifyを同じObjectiveのround、stage、Agent Job履歴として追跡する
 - [x] アプリ起動 / リポジトリ切替後にqueuedを継続し、interrupted running Jobをattempt付きで再queueしてLoop Step / Run・Objective・Activityを同期する。waiting_providerは期限を保持して自動再開する
 - [x] Issue / PRのObjectiveパネルからPause / Resume / Cancelでき、Job / Loop / Objectiveを永続的に同期し、paused / canceled中のlabel automationと手動queueを止める
 

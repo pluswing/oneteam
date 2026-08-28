@@ -1199,6 +1199,43 @@ textarea {
   gap: 8px;
 }
 
+.objective-stage-summary {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  background: #f6f8fa;
+}
+
+.objective-stage-summary > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.objective-stage-summary > div > span {
+  color: #57606a;
+}
+
+.objective-stage-track {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d8dee4;
+}
+
+.objective-stage-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1f883d;
+  transition: width 180ms ease;
+}
+
 .objective-controls .secondary-button,
 .objective-controls .danger-button {
   justify-content: center;

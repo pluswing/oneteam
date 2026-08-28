@@ -254,7 +254,17 @@ export const ja = {
     cancel: "Objectiveをキャンセル",
     canceling: "キャンセル中…",
     cancelConfirm: "このObjectiveと、待機中または一時停止中のAgent作業をキャンセルしますか？",
-    controlFailed: "Objectiveの状態を更新できませんでした。"
+    controlFailed: "Objectiveの状態を更新できませんでした。",
+    workflowStage: "ワークフロー工程",
+    workflowProgress: "ワークフロー進捗",
+    stageRequirements: "要件定義",
+    stageImplementation: "実装",
+    stageReview: "レビュー",
+    stageFix: "修正",
+    stageQa: "QA",
+    stageVerification: "最終検証",
+    stageReadyToMerge: "マージ準備完了",
+    stageMerged: "マージ済み"
   },
   loops: {
     title: "Loop",

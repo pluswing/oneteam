@@ -252,7 +252,17 @@ export const en = {
     cancel: "Cancel objective",
     canceling: "Canceling…",
     cancelConfirm: "Cancel this Objective and all of its queued or paused agent work?",
-    controlFailed: "Failed to update the Objective."
+    controlFailed: "Failed to update the Objective.",
+    workflowStage: "Workflow stage",
+    workflowProgress: "Workflow progress",
+    stageRequirements: "Requirements",
+    stageImplementation: "Implementation",
+    stageReview: "Review",
+    stageFix: "Fix",
+    stageQa: "QA",
+    stageVerification: "Verification",
+    stageReadyToMerge: "Ready to merge",
+    stageMerged: "Merged"
   },
   loops: {
     title: "Loops",
