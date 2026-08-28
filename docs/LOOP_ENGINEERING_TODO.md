@@ -145,7 +145,7 @@
 
 ### Conversation / checks
 
-- [ ] **Partial**: comment、Agent run、label delta、commit、Provider Gate、merge等のsystem Activityを重複排除してIssue / PR timelineへ統合した。専用review eventとstatus close / reopen eventの網羅は未完了
+- [x] comment、role別Agent run（reviewを含む）、label delta、status close / reopen、commit、Provider Gate、merge等のsystem Activityを重複排除してIssue / PR timelineへ統合する
 - [ ] checks summaryからAgent Job、Evidence、command output、screenshot、diffへ移動できるようにする
 - [ ] comment permalink、編集履歴、折りたたみ、長文tableのresponsive表示を追加する
 

@@ -760,6 +760,13 @@ export function createRepositories(db: Database) {
       ): Promise<IssueDto | null> {
         const timestamp = now();
         const previousLabels = input.labelIds ? (await getIssueLabels(db, [issueId])).get(issueId) ?? [] : [];
+        const previousIssueStatus = input.status
+          ? (await db
+              .select({ status: issues.status })
+              .from(issues)
+              .where(and(eq(issues.projectId, projectId), eq(issues.id, issueId)))
+              .limit(1))[0]?.status
+          : undefined;
         const rows = await db
           .update(issues)
           .set({
@@ -774,6 +781,20 @@ export function createRepositories(db: Database) {
 
         if (!rows[0]) {
           return null;
+        }
+
+        if (previousIssueStatus === "open" && input.status === "closed") {
+          await db.insert(agentActivities).values({
+            projectId,
+            agentJobId: null,
+            targetType: "issue",
+            targetId: issueId,
+            activityType: "system",
+            title: "Issue closed",
+            body: "Status changed from `open` to `closed`.",
+            payloadJson: stringifyJson({ previousStatus: previousIssueStatus, currentStatus: input.status }),
+            createdAt: timestamp
+          });
         }
 
         if (input.labelIds) {
@@ -927,6 +948,13 @@ export function createRepositories(db: Database) {
         const previousLabels = input.labelIds
           ? (await getPullRequestLabels(db, [pullRequestId])).get(pullRequestId) ?? []
           : [];
+        const previousPullRequestStatus = input.status
+          ? (await db
+              .select({ status: pullRequests.status })
+              .from(pullRequests)
+              .where(and(eq(pullRequests.projectId, projectId), eq(pullRequests.id, pullRequestId)))
+              .limit(1))[0]?.status
+          : undefined;
         const rows = await db
           .update(pullRequests)
           .set({
@@ -946,6 +974,20 @@ export function createRepositories(db: Database) {
 
         if (!rows[0]) {
           return null;
+        }
+
+        if (previousPullRequestStatus && input.status && previousPullRequestStatus !== input.status && input.status !== "merged") {
+          await db.insert(agentActivities).values({
+            projectId,
+            agentJobId: null,
+            targetType: "pull_request",
+            targetId: pullRequestId,
+            activityType: "system",
+            title: input.status === "closed" ? "Pull request closed" : "Pull request reopened",
+            body: `Status changed from \`${previousPullRequestStatus}\` to \`${input.status}\`.`,
+            payloadJson: stringifyJson({ previousStatus: previousPullRequestStatus, currentStatus: input.status }),
+            createdAt: timestamp
+          });
         }
 
         if (input.labelIds) {

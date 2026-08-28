@@ -52,6 +52,8 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".page-title-block .status-pill")).toHaveText("closed");
   await page.getByRole("button", { name: "Reopen issue" }).click();
   await expect(page.locator(".page-title-block .status-pill")).toHaveText("open");
+  await expect(page.locator(".conversation-activity").filter({ hasText: "Issue closed" })).toBeVisible();
+  await expect(page.locator(".conversation-activity").filter({ hasText: "Existing Objective selected after reopen" })).toBeVisible();
   await expect(page.getByText("Existing Objective selected after reopen").first()).toBeVisible();
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByLabel("Body")).toHaveValue("Exercise setup, label automation, and job controls.");
