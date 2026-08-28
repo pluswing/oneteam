@@ -195,6 +195,7 @@ Issueを起点に、要件定義、実装、検証、Pull Request、レビュー
 | `loops` | name, purpose, trigger_type, cadence, target_scope, enabled, owner, max_rounds, time_budget_minutes, cost_budget, stop_condition_json |
 | `loop_runs` | loop_id, status, started_at, finished_at, stop_reason, worktree_path, summary, evidence_json |
 | `loop_steps` | loop_run_id, agent_type, target_type, target_id, status, input_json, output_json, evidence_json |
+| `objective_runs` | issue_id, pull_request_id, status, workflow_stage, round_count, max_rounds, token_budget, cost_budget_usd, provider_usage_json, evidence_requirements_json, evidence_json |
 | `loop_memory_entries` | loop_id, source_type, source_id, title, body, tags, created_at |
 
 既存の `agent_jobs` は `loop_steps` から参照される実行単位として残すのがよい。
@@ -327,6 +328,15 @@ Stop Reason の例:
 - `canceled`: ユーザーが停止
 
 UI 上では「成功 / 失敗」だけでなく「なぜ止まったか」を目立つ位置に出す。
+
+Provider usageのbudget制御では、providerごとに異なるtelemetryを共通形式へ正規化し、input / cached input / output / reasoning / total token、request count、USD costをObjectiveへ累積する。token budgetとcost budgetは独立して判定する。
+
+- costはproviderが明示的に返したUSD値だけを記録し、モデル名や公開価格表から推定しない
+- costを返さないproviderでもtoken集計は失わない
+- Loop固有の`cost_budget`がある場合はproject既定のObjective cost budgetより優先する
+- budget到達後の次のjobはdequeue時に`budget_exceeded`へ移し、`running`にせずprovider adapterも呼ばない
+- budget gate自体はObjectiveのroundを消費しない
+- 使用量、適用上限、provider / modelをEvidenceへ残し、Issue / PRを後から見返した際に根拠を追跡できるようにする
 
 ### 7. Worktree isolation を導入する
 

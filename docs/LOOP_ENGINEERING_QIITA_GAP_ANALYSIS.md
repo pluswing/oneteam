@@ -138,23 +138,23 @@ Agent type は分かれているが、active AI provider は project setting の
 - Agent Job に実際に使った provider / model を記録する。
 - ready-to-merge の evidence に verifier provider / model を含める。
 
-### 5. 最大ラウンド数とコスト上限が実効制御になっていない
+### 5. 最大ラウンド数とコスト上限の実効制御
 
-重要度: Medium / High
+重要度: Medium / High（2026-08-29対応済み）
 
-DB schema と loop config には `max_rounds` や `cost_budget` があるが、現在の worker では workflow 全体の round count、同一失敗の連続検出、cost budget 超過による停止が明確には実装されていない。
+Objective単位のround count、同一失敗signature、max rounds停止に加え、provider usageのtoken / USD cost累積とbudget停止を実装した。budget到達後のjobはdequeue時に`running`へ遷移させず、provider adapterを呼ぶ前にHuman Gateへ移る。
 
 影響:
 
-- 記事が警告する token / cost runaway を実際には止めきれない。
-- `docs/LOOP_ENGINEERING_TODO.md` の `[x] 最大ラウンド数` と `[x] cost/budget` は、設定項目としては存在しても Loop controller としては未完成に見える。
+- token / cost runawayは設定したObjective上限で停止できる。
+- providerがcostを報告しない場合もtokenは集計するが、公開価格からcostを推定しないためcost-only budgetにはtoken budgetを併用する必要がある。
 
-対応案:
+実装済み:
 
 - objective run 単位で attempt count を持つ。
 - verification failure の signature を保存し、同じ signature が 2 回続いたら fixer または Human Gate に渡す。
-- job start 前に budget を確認し、超過時は queue しない。
-- token / command time / provider usage が取れる範囲で usage evidence を保存する。
+- jobを`running`にする前にbudgetを確認し、超過時はproviderを実行しない。
+- token / provider報告USD costをusage evidenceとして保存する。
 
 ### 6. ズル防止が prompt と risk policy に寄っている
 
@@ -274,7 +274,7 @@ ready-to-merge はユーザー merge を前提にしており、人間判断を�
 | `Loops ページを追加する` | `LoopsView.tsx` はあるが route / nav から外れている | Hidden / Internal |
 | `Triage Inbox を追加する` | API / UI 実装はあるが主要導線に出ていない | Internal / Hidden |
 | `最大ラウンド数を設定できるようにする` | schema / form はあるが workflow controller としての制御が弱い | Partial |
-| `cost budget` 相当 | schema はあるが実効制御が見当たらない | Designed / Partial |
+| `cost budget` 相当 | Objectiveへのusage累積、設定UI、provider実行前gateを実装済み | Done |
 | `Connector 設計` | 設計資料はあるが connector runtime はない | Designed |
 | `Skills 管理 UI` | `.oneteam` knowledge はあるが、現在の主要導線上の管理 UI としては確認が必要 | Partial |
 
