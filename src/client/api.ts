@@ -171,6 +171,7 @@ export const api = {
       body?: string;
       status?: IssueDto["status"];
       labelIds?: number[];
+      goalChangeReason?: string;
     }
   ): Promise<IssueMutationResponse> {
     return request<IssueMutationResponse>(`/api/projects/${projectId}/issues/${issueId}`, {

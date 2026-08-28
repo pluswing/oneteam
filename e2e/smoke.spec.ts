@@ -45,6 +45,12 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Reopen issue" }).click();
   await expect(page.locator(".page-title-block .status-pill")).toHaveText("open");
   await expect(page.getByText("Existing Objective selected after reopen").first()).toBeVisible();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByLabel("Body")).toHaveValue("Exercise setup, label automation, and job controls.");
+  await page.getByLabel("Body").fill("Exercise setup, label automation, job controls, and Goal Contract auditing.");
+  await page.getByLabel("Goal Contract change reason").fill("Include the newly required contract audit flow.");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Goal Contract changed").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Agent Jobs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();

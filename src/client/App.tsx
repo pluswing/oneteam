@@ -773,6 +773,7 @@ function IssueEditScreen(props: {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [status, setStatus] = useState<IssueDto["status"]>("open");
+  const [goalChangeReason, setGoalChangeReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
@@ -787,6 +788,7 @@ function IssueEditScreen(props: {
     setBody(issueResponse.body);
     setStatus(issueResponse.status);
     setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
+    setGoalChangeReason("");
     setLabels(labelResponse);
   }
 
@@ -806,7 +808,8 @@ function IssueEditScreen(props: {
         title,
         body,
         status,
-        labelIds: selectedLabelIds
+        labelIds: selectedLabelIds,
+        goalChangeReason: goalChangeReason.trim() || undefined
       });
       props.onSaved(response.issue.id);
     } catch (err) {
@@ -852,6 +855,19 @@ function IssueEditScreen(props: {
             {t("issues.bodyField")}
             <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} />
           </label>
+          {issue && body !== issue.body ? (
+            <label>
+              {t("issues.goalChangeReason")}
+              <textarea
+                onChange={(event) => setGoalChangeReason(event.target.value)}
+                placeholder={t("issues.goalChangeReasonPlaceholder")}
+                required
+                rows={3}
+                value={goalChangeReason}
+              />
+              <small>{t("issues.goalChangeReasonDescription")}</small>
+            </label>
+          ) : null}
         </section>
         <aside className="side-panel">
           <label>

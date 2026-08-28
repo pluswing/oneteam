@@ -53,6 +53,7 @@ import {
 } from "./services/pull-request-line-comments";
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
 import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issue-reopen";
+import { recordGoalContractChange } from "./services/goal-contract-change";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,7 +89,8 @@ const updateIssueSchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().optional(),
   status: z.enum(["open", "closed"]).optional(),
-  labelIds: z.array(z.number()).optional()
+  labelIds: z.array(z.number()).optional(),
+  goalChangeReason: z.string().trim().min(1).optional()
 });
 
 const createCommentSchema = z.object({
@@ -232,6 +234,10 @@ function notFound(message: string): never {
 
 function conflict(message: string): never {
   throw new HTTPException(409, { message });
+}
+
+function badRequest(message: string): never {
+  throw new HTTPException(400, { message });
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -722,9 +728,20 @@ export function createApp({
     const projectId = c.req.param("projectId");
     const issueId = Number(c.req.param("issueId"));
     const previousIssue = await repos.issues.get(projectId, issueId);
-    const input = c.req.valid("json");
+    const { goalChangeReason, ...input } = c.req.valid("json");
     const isReopening = previousIssue?.status === "closed" && input.status === "open";
-    const previousObjective = isReopening ? await repos.objectives.findByIssue(projectId, issueId) : null;
+    const isBodyChanging = typeof input.body === "string" && previousIssue?.body !== input.body;
+    const previousObjective = isReopening || isBodyChanging
+      ? await repos.objectives.findByIssue(projectId, issueId)
+      : null;
+    const changesActiveGoal =
+      isBodyChanging &&
+      !isReopening &&
+      previousObjective !== null &&
+      !["succeeded", "canceled"].includes(previousObjective.status);
+    if (changesActiveGoal && !goalChangeReason) {
+      badRequest("A Goal Contract change reason is required while an Objective is active.");
+    }
     let patch = input;
     if (isReopening) {
       const labels = await repos.labels.list(projectId);
@@ -741,6 +758,14 @@ export function createApp({
     }
     if (isReopening) {
       await recordIssueReopened(repos, { projectId, issue, previousObjective });
+    } else if (changesActiveGoal && previousObjective && goalChangeReason) {
+      await recordGoalContractChange(repos, {
+        projectId,
+        issue,
+        objective: previousObjective,
+        previousGoal: previousIssue?.body ?? "",
+        reason: goalChangeReason
+      });
     }
     const automationJobs = await runLabelAutomation(repos, {
       projectId,
