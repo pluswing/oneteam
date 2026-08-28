@@ -34,6 +34,7 @@ import type {
   ActivityDto,
   AgentJobDto,
   CommentDto,
+  CommentRevisionDto,
   IssueDto,
   KnownRepositoryDto,
   LabelDto,
@@ -439,17 +440,118 @@ function commentSummaryAnchor(comment: CommentDto): "merge-summary" | "completio
   return anchor === "merge-summary" || anchor === "completion-summary" ? anchor : null;
 }
 
-function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: AgentJobDto }) {
+function ConversationCommentCard(props: {
+  comment: CommentDto;
+  relatedJob?: AgentJobDto;
+  onLoadRevisions?: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdate?: (comment: CommentDto, body: string) => Promise<void>;
+}) {
   const anchor = `comment-${props.comment.id}`;
   const summaryAnchor = commentSummaryAnchor(props.comment);
+  const [isEditing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState(props.comment.body);
+  const [isSaving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [revisions, setRevisions] = useState<CommentRevisionDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isEdited = props.comment.updatedAt !== props.comment.createdAt;
+
+  async function saveEdit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!props.onUpdate || !editBody.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await props.onUpdate(props.comment, editBody);
+      setEditing(false);
+      setRevisions(null);
+      setShowHistory(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.commentUpdateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleHistory(): Promise<void> {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (!next || revisions || !props.onLoadRevisions) return;
+    setError(null);
+    try {
+      setRevisions(await props.onLoadRevisions(props.comment.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.commentHistoryFailed"));
+    }
+  }
+
   return (
     <article className="conversation-comment" id={anchor}>
       {summaryAnchor ? <span aria-hidden="true" className="conversation-semantic-anchor" id={summaryAnchor} /> : null}
       <header>
-        <strong>{commentAuthorLabel(props.comment)}</strong>
-        <ConversationPermalink anchor={anchor} createdAt={props.comment.createdAt} />
+        <div className="conversation-comment-heading">
+          <strong>{commentAuthorLabel(props.comment)}</strong>
+          <ConversationPermalink anchor={anchor} createdAt={props.comment.createdAt} />
+          {isEdited ? (
+            <button className="conversation-text-button" onClick={() => void toggleHistory()} type="button">
+              {t("issues.edited")} {formatDateTime(props.comment.updatedAt)}
+            </button>
+          ) : null}
+        </div>
+        {props.comment.authorType === "user" && props.onUpdate ? (
+          <button
+            className="conversation-text-button"
+            onClick={() => {
+              setEditBody(props.comment.body);
+              setEditing((current) => !current);
+              setError(null);
+            }}
+            type="button"
+          >
+            <Pencil aria-hidden="true" size={12} />
+            {t("actions.edit")}
+          </button>
+        ) : null}
       </header>
-      <CollapsibleConversationMarkdown content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
+      {isEditing ? (
+        <form className="comment-edit-form" onSubmit={(event) => void saveEdit(event)}>
+          <textarea
+            aria-label={t("issues.editComment")}
+            disabled={isSaving}
+            onChange={(event) => setEditBody(event.target.value)}
+            required
+            rows={6}
+            value={editBody}
+          />
+          <div className="action-row">
+            <button className="primary-button" disabled={isSaving || !editBody.trim()} type="submit">
+              <Save aria-hidden="true" size={14} />
+              {t("actions.save")}
+            </button>
+            <button className="secondary-button" disabled={isSaving} onClick={() => setEditing(false)} type="button">
+              {t("actions.cancel")}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <CollapsibleConversationMarkdown content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
+      )}
+      {error ? <div className="inline-error">{error}</div> : null}
+      {showHistory ? (
+        <section className="comment-revision-history">
+          <h4>{t("issues.editHistory")}</h4>
+          {revisions === null ? <span className="muted-text">{t("status.loading")}</span> : null}
+          {revisions?.map((revision, index) => (
+            <article key={revision.id}>
+              <header>
+                <strong>{t("issues.previousVersion")} {revisions.length - index}</strong>
+                <span>{formatDateTime(revision.createdAt)}</span>
+              </header>
+              <CollapsibleConversationMarkdown content={revision.body} format={revision.bodyFormat} />
+            </article>
+          ))}
+        </section>
+      ) : null}
     </article>
   );
 }
@@ -457,6 +559,8 @@ function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: Agen
 function ConversationAgentJobCard(props: {
   job: AgentJobDto;
   comments: CommentDto[];
+  onLoadCommentRevisions?: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdateComment?: (comment: CommentDto, body: string) => Promise<void>;
   onOpenAgentJob: (jobId: number) => void;
 }) {
   const message = props.comments.length ? null : agentJobMessage(props.job, []);
@@ -486,7 +590,13 @@ function ConversationAgentJobCard(props: {
       {props.comments.length ? (
         <div className="conversation-agent-comments">
           {props.comments.map((comment) => (
-            <ConversationCommentCard comment={comment} key={comment.id} relatedJob={props.job} />
+            <ConversationCommentCard
+              comment={comment}
+              key={comment.id}
+              onLoadRevisions={props.onLoadCommentRevisions}
+              onUpdate={props.onUpdateComment}
+              relatedJob={props.job}
+            />
           ))}
         </div>
       ) : null}
@@ -498,6 +608,8 @@ function ConversationTimeline(props: {
   comments: CommentDto[];
   agentJobs: AgentJobDto[];
   activities: ActivityDto[];
+  onLoadCommentRevisions: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdateComment: (comment: CommentDto, body: string) => Promise<void>;
   onOpenAgentJob: (jobId: number) => void;
 }) {
   const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
@@ -526,7 +638,12 @@ function ConversationTimeline(props: {
     <div className="conversation-timeline">
       {entries.map((entry) =>
         entry.kind === "comment" ? (
-          <ConversationCommentCard comment={entry.comment} key={`comment-${entry.comment.id}`} />
+          <ConversationCommentCard
+            comment={entry.comment}
+            key={`comment-${entry.comment.id}`}
+            onLoadRevisions={props.onLoadCommentRevisions}
+            onUpdate={props.onUpdateComment}
+          />
         ) : entry.kind === "activity" ? (
           <ConversationActivityEvent activity={entry.activity} key={`activity-${entry.activity.id}`} onOpenAgentJob={props.onOpenAgentJob} />
         ) : (
@@ -534,7 +651,9 @@ function ConversationTimeline(props: {
             comments={entry.comments}
             job={entry.job}
             key={`agent-job-${entry.job.id}`}
+            onLoadCommentRevisions={props.onLoadCommentRevisions}
             onOpenAgentJob={props.onOpenAgentJob}
+            onUpdateComment={props.onUpdateComment}
           />
         )
       )}
@@ -954,6 +1073,15 @@ function IssueDetailScreen(props: {
     await load();
   }
 
+  async function updateComment(comment: CommentDto, body: string): Promise<void> {
+    await api.updateComment(props.project.id, comment.id, { body, expectedUpdatedAt: comment.updatedAt });
+    await load();
+  }
+
+  function loadCommentRevisions(commentId: number): Promise<CommentRevisionDto[]> {
+    return api.listCommentRevisions(props.project.id, commentId);
+  }
+
   async function queueAgent(agentType: "requirements" | "implementation") {
     await api.createAgentJob(props.project.id, {
       agentType,
@@ -1041,7 +1169,9 @@ function IssueDetailScreen(props: {
             activities={activities}
             agentJobs={relatedAgentJobs}
             comments={comments}
+            onLoadCommentRevisions={loadCommentRevisions}
             onOpenAgentJob={props.onOpenAgentJob}
+            onUpdateComment={updateComment}
           />
           <CommentForm onSubmit={addComment} />
         </section>
@@ -1692,6 +1822,15 @@ function PullRequestDetailScreen(props: {
     await load();
   }
 
+  async function updateComment(comment: CommentDto, body: string): Promise<void> {
+    await api.updateComment(props.project.id, comment.id, { body, expectedUpdatedAt: comment.updatedAt });
+    await load();
+  }
+
+  function loadCommentRevisions(commentId: number): Promise<CommentRevisionDto[]> {
+    return api.listCommentRevisions(props.project.id, commentId);
+  }
+
   async function queueAgent(agentType: "review" | "fix" | "qa" | "verifier") {
     await api.createAgentJob(props.project.id, {
       agentType,
@@ -1836,7 +1975,9 @@ function PullRequestDetailScreen(props: {
                 activities={activities}
                 agentJobs={relatedAgentJobs}
                 comments={comments}
+                onLoadCommentRevisions={loadCommentRevisions}
                 onOpenAgentJob={props.onOpenAgentJob}
+                onUpdateComment={updateComment}
               />
               <CommentForm onSubmit={addComment} />
             </>

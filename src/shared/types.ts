@@ -182,6 +182,15 @@ export type CommentDto = {
   updatedAt: string;
 };
 
+export type CommentRevisionDto = {
+  id: number;
+  commentId: number;
+  editorType: "user";
+  body: string;
+  bodyFormat: CommentBodyFormat;
+  createdAt: string;
+};
+
 export type ActivityDto = {
   id: number;
   agentJobId: number | null;

@@ -92,6 +92,24 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(sanitizedReport.getByAltText("Local artifact")).not.toHaveAttribute("height");
   await expect(sanitizedReport.locator("script, iframe")).toHaveCount(0);
   expect(await page.evaluate(() => "__unsafeHtmlExecuted" in window)).toBe(false);
+  const systemCommentCard = page.locator(".conversation-comment").filter({ hasText: "Sanitizer security report" });
+  await expect(systemCommentCard.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+
+  await page.locator(".comment-form textarea").fill("Initial **implementation note**.");
+  await page.getByRole("button", { name: "Add comment" }).click();
+  const initialUserComment = page.locator(".conversation-comment").filter({
+    has: page.locator("header strong", { hasText: /^user$/ })
+  }).last();
+  await expect(initialUserComment).toBeVisible();
+  await expect(initialUserComment).toContainText("Initial implementation note");
+  await initialUserComment.getByRole("button", { name: "Edit", exact: true }).click();
+  await initialUserComment.getByLabel("Edit comment").fill("Clarified **implementation note** with audit context.");
+  await initialUserComment.getByRole("button", { name: "Save", exact: true }).click();
+  const editedUserComment = page.locator(".conversation-comment").filter({ hasText: "Clarified implementation note" });
+  await expect(editedUserComment).toBeVisible();
+  await expect(editedUserComment.getByRole("button", { name: /^Edited/ })).toBeVisible();
+  await editedUserComment.getByRole("button", { name: /^Edited/ }).click();
+  await expect(editedUserComment.locator(".comment-revision-history")).toContainText("Initial implementation note");
 
   await page.getByRole("button", { name: "Pause automation" }).click();
   await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
@@ -105,7 +123,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".conversation-activity").filter({ hasText: "Issue closed" })).toBeVisible();
   await expect(page.locator(".conversation-activity").filter({ hasText: "Existing Objective selected after reopen" })).toBeVisible();
   await expect(page.getByText("Existing Objective selected after reopen").first()).toBeVisible();
-  await page.getByRole("button", { name: "Edit" }).click();
+  await page.locator(".page-toolbar").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Body")).toHaveValue("Exercise setup, label automation, and job controls.");
   await page.getByLabel("Body").fill("Exercise setup, label automation, job controls, and Goal Contract auditing.");
   await page.getByLabel("Goal Contract change reason").fill("Include the newly required contract audit flow.");

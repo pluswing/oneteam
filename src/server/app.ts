@@ -98,6 +98,11 @@ const createCommentSchema = z.object({
   body: z.string().min(1)
 });
 
+const updateCommentSchema = z.object({
+  body: z.string().refine((value) => value.trim().length > 0),
+  expectedUpdatedAt: z.string().min(1)
+});
+
 const createPullRequestLineCommentSchema = z.object({
   body: z.string().min(1),
   path: z.string().min(1),
@@ -239,6 +244,10 @@ function conflict(message: string): never {
 
 function badRequest(message: string): never {
   throw new HTTPException(400, { message });
+}
+
+function forbidden(message: string): never {
+  throw new HTTPException(403, { message });
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -819,6 +828,30 @@ export function createApp({
       targetId: issueId
     });
     return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
+  });
+
+  app.patch("/api/projects/:projectId/comments/:commentId", zValidator("json", updateCommentSchema), async (c) => {
+    const input = c.req.valid("json");
+    const result = await repos.comments.updateUserComment({
+      projectId: c.req.param("projectId"),
+      commentId: Number(c.req.param("commentId")),
+      body: input.body,
+      expectedUpdatedAt: input.expectedUpdatedAt
+    });
+    if (result.state !== "updated") {
+      if (result.state === "not_found") notFound("Comment was not found.");
+      if (result.state === "forbidden") forbidden("Agent and system comments are immutable.");
+      conflict("Comment changed after editing started. Reload it before saving again.");
+    }
+    return c.json({ comment: result.comment, revision: result.revision });
+  });
+
+  app.get("/api/projects/:projectId/comments/:commentId/revisions", async (c) => {
+    const projectId = c.req.param("projectId");
+    const commentId = Number(c.req.param("commentId"));
+    const comment = await repos.comments.get(projectId, commentId);
+    if (!comment) notFound("Comment was not found.");
+    return c.json({ items: await repos.comments.listRevisions(projectId, commentId) });
   });
 
   app.get("/api/projects/:projectId/issues/:issueId/activities", async (c) => {

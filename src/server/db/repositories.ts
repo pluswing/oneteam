@@ -11,6 +11,7 @@ import type {
   CommentBodyFormat,
   CommandType,
   CommentDto,
+  CommentRevisionDto,
   IssueDto,
   IssueStatus,
   LabelDto,
@@ -36,6 +37,7 @@ import {
   agentJobs,
   appSettings,
   comments,
+  commentRevisions,
   issueLabels,
   issues,
   labels,
@@ -59,6 +61,7 @@ type ProjectCommandRow = typeof projectCommands.$inferSelect;
 type IssueRow = typeof issues.$inferSelect;
 type PullRequestRow = typeof pullRequests.$inferSelect;
 type CommentRow = typeof comments.$inferSelect;
+type CommentRevisionRow = typeof commentRevisions.$inferSelect;
 type ActivityRow = typeof agentActivities.$inferSelect;
 type AgentJobRow = typeof agentJobs.$inferSelect;
 type LoopRow = typeof loops.$inferSelect;
@@ -70,6 +73,11 @@ type TriageItemRow = typeof triageItems.$inferSelect;
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function timestampAfter(value: string): string {
+  const previous = Date.parse(value);
+  return new Date(Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)).toISOString();
 }
 
 function mapProject(row: ProjectRow): ProjectDto {
@@ -123,6 +131,17 @@ function mapComment(row: CommentRow): CommentDto {
     metadata: parseJsonObject(row.metadataJson),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
+  };
+}
+
+function mapCommentRevision(row: CommentRevisionRow): CommentRevisionDto {
+  return {
+    id: row.id,
+    commentId: row.commentId,
+    editorType: row.editorType,
+    body: row.body,
+    bodyFormat: row.bodyFormat,
+    createdAt: row.createdAt
   };
 }
 
@@ -1028,6 +1047,15 @@ export function createRepositories(db: Database) {
     },
 
     comments: {
+      async get(projectId: string, commentId: number): Promise<CommentDto | null> {
+        const rows = await db
+          .select()
+          .from(comments)
+          .where(and(eq(comments.projectId, projectId), eq(comments.id, commentId)))
+          .limit(1);
+        return rows[0] ? mapComment(rows[0]) : null;
+      },
+
       async list(projectId: string, targetType: "issue" | "pull_request", targetId: number): Promise<CommentDto[]> {
         const rows = await db
           .select()
@@ -1064,6 +1092,71 @@ export function createRepositories(db: Database) {
           })
           .returning();
         return mapComment(rows[0]);
+      },
+
+      async updateUserComment(input: {
+        projectId: string;
+        commentId: number;
+        body: string;
+        expectedUpdatedAt: string;
+      }): Promise<
+        | { state: "updated"; comment: CommentDto; revision: CommentRevisionDto | null }
+        | { state: "not_found" | "forbidden" | "conflict" }
+      > {
+        return db.transaction(async (transaction) => {
+          const rows = await transaction
+            .select()
+            .from(comments)
+            .where(and(eq(comments.projectId, input.projectId), eq(comments.id, input.commentId)))
+            .limit(1);
+          const current = rows[0];
+          if (!current) return { state: "not_found" as const };
+          if (current.authorType !== "user") return { state: "forbidden" as const };
+          if (current.updatedAt !== input.expectedUpdatedAt) return { state: "conflict" as const };
+          if (current.body === input.body) {
+            return { state: "updated" as const, comment: mapComment(current), revision: null };
+          }
+
+          const timestamp = timestampAfter(current.updatedAt);
+          const updatedRows = await transaction
+            .update(comments)
+            .set({ body: input.body, updatedAt: timestamp })
+            .where(
+              and(
+                eq(comments.projectId, input.projectId),
+                eq(comments.id, input.commentId),
+                eq(comments.authorType, "user"),
+                eq(comments.updatedAt, input.expectedUpdatedAt)
+              )
+            )
+            .returning();
+          if (!updatedRows[0]) return { state: "conflict" as const };
+          const revisionRows = await transaction
+            .insert(commentRevisions)
+            .values({
+              projectId: input.projectId,
+              commentId: current.id,
+              editorType: "user",
+              body: current.body,
+              bodyFormat: current.bodyFormat,
+              createdAt: timestamp
+            })
+            .returning();
+          return {
+            state: "updated" as const,
+            comment: mapComment(updatedRows[0]),
+            revision: mapCommentRevision(revisionRows[0])
+          };
+        });
+      },
+
+      async listRevisions(projectId: string, commentId: number): Promise<CommentRevisionDto[]> {
+        const rows = await db
+          .select()
+          .from(commentRevisions)
+          .where(and(eq(commentRevisions.projectId, projectId), eq(commentRevisions.commentId, commentId)))
+          .orderBy(desc(commentRevisions.createdAt), desc(commentRevisions.id));
+        return rows.map(mapCommentRevision);
       }
     },
 

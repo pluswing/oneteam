@@ -3,6 +3,7 @@ import type {
   AgentJobDto,
   ActivityDto,
   CommentDto,
+  CommentRevisionDto,
   IssueDto,
   KnownRepositoryDto,
   LabelDto,
@@ -197,6 +198,25 @@ export const api = {
       body: JSON.stringify({ body })
     });
     return response.comment;
+  },
+
+  async updateComment(
+    projectId: string,
+    commentId: number,
+    input: { body: string; expectedUpdatedAt: string }
+  ): Promise<CommentDto> {
+    const response = await request<{ comment: CommentDto }>(`/api/projects/${projectId}/comments/${commentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+    return response.comment;
+  },
+
+  async listCommentRevisions(projectId: string, commentId: number): Promise<CommentRevisionDto[]> {
+    const response = await request<ListResponse<CommentRevisionDto>>(
+      `/api/projects/${projectId}/comments/${commentId}/revisions`
+    );
+    return response.items;
   },
 
   async listIssueActivities(projectId: string, issueId: number): Promise<ActivityDto[]> {

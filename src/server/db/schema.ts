@@ -139,6 +139,16 @@ export const comments = sqliteTable("comments", {
   updatedAt: text("updated_at").notNull()
 });
 
+export const commentRevisions = sqliteTable("comment_revisions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  commentId: integer("comment_id").notNull().references(() => comments.id, { onDelete: "cascade" }),
+  editorType: text("editor_type").notNull().$type<"user">(),
+  body: text("body").notNull(),
+  bodyFormat: text("body_format").notNull().default("markdown").$type<CommentBodyFormat>(),
+  createdAt: text("created_at").notNull()
+});
+
 export const agentJobs = sqliteTable("agent_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),

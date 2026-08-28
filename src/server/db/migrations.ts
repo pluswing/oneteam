@@ -412,6 +412,21 @@ const migrations: Migration[] = [
       "alter table issues add column created_by_type text not null default 'user'",
       "alter table pull_requests add column created_by_type text not null default 'user'"
     ]
+  },
+  {
+    id: "0011_comment_revisions",
+    statements: [
+      `create table if not exists comment_revisions (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        comment_id integer not null references comments(id) on delete cascade,
+        editor_type text not null,
+        body text not null,
+        body_format text not null default 'markdown',
+        created_at text not null
+      )`,
+      "create index if not exists idx_comment_revisions_comment_created on comment_revisions(project_id, comment_id, created_at desc)"
+    ]
   }
 ];
 

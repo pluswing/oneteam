@@ -2094,6 +2094,96 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.conversation-comment-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.conversation-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 1px 4px;
+  border: 0;
+  color: #57606a;
+  background: transparent;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.conversation-text-button:hover {
+  color: #0969da;
+  text-decoration: underline;
+}
+
+.comment-edit-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.comment-edit-form textarea {
+  min-height: 120px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.comment-edit-form .action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.comment-edit-form .primary-button,
+.comment-edit-form .secondary-button {
+  min-height: 32px;
+  margin: 0;
+  padding: 5px 10px;
+}
+
+.inline-error {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  color: #82071e;
+  background: #ffebe9;
+  font-size: 12px;
+}
+
+.comment-revision-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #d8dee4;
+}
+
+.comment-revision-history h4 {
+  margin: 0;
+  color: #24292f;
+  font-size: 13px;
+}
+
+.comment-revision-history > article {
+  padding: 10px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  background: #f6f8fa;
+}
+
+.comment-revision-history > article > header {
+  font-size: 12px;
+}
+
+.comment-revision-history .conversation-report .markdown-body {
+  margin-top: 8px;
+}
+
 .conversation-comment .markdown-body {
   margin: 8px 0 0;
 }
