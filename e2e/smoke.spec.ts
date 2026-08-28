@@ -37,6 +37,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
+  await expect(page.locator(".work-item-detail-meta")).toContainText("user");
+  await expect(page.locator(".automation-checks")).toContainText("requirements");
+  await expect(page.locator(".automation-checks")).toContainText("queued");
   await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
   await page.getByRole("button", { name: "Pause automation" }).click();
   await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
@@ -119,6 +122,8 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(pullRequestSummary.locator(".work-item-author")).toHaveText("user");
   await expect(pullRequestSummary.locator(".work-item-stats")).toContainText("1");
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
+  await expect(page.locator(".work-item-detail-meta")).toContainText("user");
+  await expect(page.locator(".automation-checks")).toContainText("review");
   await page.getByRole("button", { name: "Files changed" }).click();
   await expect(page.locator(".diff-render-footer")).toContainText("1,000");
   await expect(page.locator(".diff-line")).toHaveCount(1_000);

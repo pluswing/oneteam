@@ -481,6 +481,22 @@ textarea {
   line-height: 1.25;
 }
 
+.work-item-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: -8px 0 18px;
+  color: #57606a;
+  font-size: 13px;
+}
+
+.work-item-detail-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .page-title-block {
   display: flex;
   align-items: center;
@@ -1379,6 +1395,55 @@ textarea {
   align-self: start;
   display: grid;
   gap: 16px;
+}
+
+.automation-checks {
+  display: grid;
+  gap: 10px;
+}
+
+.automation-checks-objective {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.automation-check-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+}
+
+.automation-check-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 0;
+  border-top: 1px solid #d8dee4;
+  color: #57606a;
+  background: #ffffff;
+  text-align: left;
+}
+
+.automation-check-row:first-child {
+  border-top: 0;
+}
+
+.automation-check-row:hover {
+  background: #f6f8fa;
+}
+
+.automation-check-row strong {
+  min-width: 0;
+  color: #24292f;
+  overflow-wrap: anywhere;
 }
 
 .detail-sidebar .label-row,

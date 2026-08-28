@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleAlert,
   CircleDot,
+  Clock3,
   Files,
   FolderOpen,
   GitCommitHorizontal,
@@ -114,6 +115,69 @@ function WorkItemAuthor(props: { type: IssueDto["createdByType"] }) {
       <Icon aria-hidden="true" size={13} />
       <span>{label}</span>
     </span>
+  );
+}
+
+function WorkItemDetailMeta(props: {
+  item: Pick<IssueDto, "createdByType" | "createdAt" | "updatedAt" | "commentCount">;
+}) {
+  return (
+    <div className="work-item-detail-meta">
+      <WorkItemAuthor type={props.item.createdByType} />
+      <span>
+        <Clock3 aria-hidden="true" size={14} />
+        {t("issues.created")} {formatDateTime(props.item.createdAt)}
+      </span>
+      <span>
+        <RefreshCw aria-hidden="true" size={14} />
+        {t("issues.updated")} {formatDateTime(props.item.updatedAt)}
+      </span>
+      <span>
+        <MessageCircle aria-hidden="true" size={14} />
+        {props.item.commentCount} {t("issues.comments")}
+      </span>
+    </div>
+  );
+}
+
+function AutomationChecksSummary(props: {
+  jobs: AgentJobDto[];
+  objective: ObjectiveRunDto | null;
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const latestJobs = props.jobs.filter(
+    (job, index, jobs) => jobs.findIndex((candidate) => candidate.agentType === job.agentType) === index
+  );
+
+  return (
+    <div className="automation-checks">
+      {props.objective ? (
+        <div className="automation-checks-objective">
+          <span className={`status-pill status-${props.objective.status}`}>{props.objective.status}</span>
+          <span>{objectiveWorkflowStageLabel(props.objective.workflowStage)}</span>
+          <span>{objectiveEvidenceCount(props.objective)} {t("objectives.evidence")}</span>
+        </div>
+      ) : null}
+      {latestJobs.length ? (
+        <div className="automation-check-list">
+          {latestJobs.map((job) => (
+            <button className="automation-check-row" key={job.id} onClick={() => props.onOpenAgentJob(job.id)} type="button">
+              {job.status === "succeeded" ? (
+                <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
+              ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
+                <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
+              ) : (
+                <Bot aria-hidden="true" size={16} />
+              )}
+              <strong>{job.agentType}</strong>
+              <span className={`status-pill status-${job.status}`}>{job.status}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="muted-text">{t("issues.noChecks")}</p>
+      )}
+    </div>
   );
 }
 
@@ -782,6 +846,7 @@ function IssueDetailScreen(props: {
         ) : null}
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
+      {issue ? <WorkItemDetailMeta item={issue} /> : null}
       <div className="detail-layout">
         <section className="page-section detail-main">
           {issue?.body ? <MarkdownContent content={issue.body} /> : <div className="empty-state">{t("issues.noDescription")}</div>}
@@ -798,6 +863,8 @@ function IssueDetailScreen(props: {
           <CommentForm onSubmit={addComment} />
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("issues.checks")}</h2>
+          <AutomationChecksSummary jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
           <h2>{t("objectives.title")}</h2>
           <ObjectivePanel objective={objective} onControl={controlObjective} />
           <h2>{t("labels.title")}</h2>
@@ -1513,6 +1580,7 @@ function PullRequestDetailScreen(props: {
         ) : null}
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
+      {pullRequest ? <WorkItemDetailMeta item={pullRequest} /> : null}
       <div className="detail-layout">
         <section className="page-section detail-main">
           {pullRequest ? (
@@ -1607,6 +1675,8 @@ function PullRequestDetailScreen(props: {
           ) : null}
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("issues.checks")}</h2>
+          <AutomationChecksSummary jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
           <h2>{t("objectives.title")}</h2>
           <ObjectivePanel objective={objective} onControl={controlObjective} />
           <h2>{t("pullRequests.merge")}</h2>
