@@ -31,6 +31,7 @@ import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
+import { readAutomationSettings } from "../services/automation-settings";
 import { normalizeEvidenceArtifacts } from "../services/evidence-artifacts";
 import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
 import {
@@ -106,6 +107,7 @@ export class AgentWorker {
       return;
     }
     await markObjectiveJobStarted(this.repos, runningJob);
+    const timing = await this.getAgentExecutionTiming(runningJob);
 
     const activityTarget = normalizeActivityTarget(runningJob);
     await this.repos.loopSteps.updateForAgentJob(runningJob.projectId, runningJob.id, { status: "running" });
@@ -117,7 +119,14 @@ export class AgentWorker {
         targetId: activityTarget.targetId,
         activityType: "progress",
         title: `${runningJob.agentType} agent started`,
-        body: `Job #${runningJob.id} started.`
+        body: timing.deadlineAt
+          ? `Job #${runningJob.id} started. Deadline: ${timing.deadlineAt}.`
+          : `Job #${runningJob.id} started.`,
+        payload: {
+          deadlineAt: timing.deadlineAt,
+          agentTimeBudgetMinutes: timing.agentTimeBudgetMinutes,
+          verificationCommandTimeoutMinutes: timing.verificationCommandTimeoutMinutes
+        }
       });
     }
 
@@ -132,9 +141,10 @@ export class AgentWorker {
         job: runningJob,
         repoPath: executionRepoPath,
         prompt,
+        deadlineAt: timing.deadlineAt,
         isCanceled: async () => {
           const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
-          return current?.status === "canceled" || current?.status === "paused";
+          return current?.status === "canceled" || current?.status === "paused" || agentDeadlineReached(timing);
         },
         onActivity: async (activity) => {
           const target = normalizeActivityTarget(runningJob);
@@ -174,13 +184,28 @@ export class AgentWorker {
         return;
       }
 
+      if (agentDeadlineReached(timing)) {
+        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, result));
+        return;
+      }
+
       const providerWait = classifyProviderWait(runningJob, result);
       if (providerWait) {
         await enterProviderWait(this.repos, runningJob, providerWait);
         return;
       }
 
-      let finalizedResult = await this.finalizeImplementationResult(runningJob, project, executionRepoPath, result);
+      let finalizedResult = await this.finalizeImplementationResult(
+        runningJob,
+        project,
+        executionRepoPath,
+        result,
+        timing
+      );
+      if (agentDeadlineReached(timing)) {
+        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, finalizedResult));
+        return;
+      }
       finalizedResult = await this.finalizePullRequestWorkflowResult(runningJob, project, executionRepoPath, finalizedResult);
       finalizedResult = {
         ...finalizedResult,
@@ -192,12 +217,19 @@ export class AgentWorker {
         })
       };
       finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
+      if (agentDeadlineReached(timing)) {
+        finalizedResult = agentTimeoutResult(runningJob, timing, finalizedResult);
+      }
       await this.applyResult(runningJob, finalizedResult);
       if (worktree && ["succeeded", "canceled"].includes(finalizedResult.status)) {
         await cleanupWorktree(project, worktree.worktreePath);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent job failed.";
+      if (agentDeadlineReached(timing)) {
+        await this.applyResult(runningJob, agentTimeoutResult(runningJob, timing, null, message));
+        return;
+      }
       const providerWait = classifyProviderWait(runningJob, { status: "failed", message });
       if (providerWait) {
         await enterProviderWait(this.repos, runningJob, providerWait);
@@ -344,11 +376,31 @@ export class AgentWorker {
     return loop ? { loop } : null;
   }
 
+  private async getAgentExecutionTiming(job: AgentJobDto): Promise<AgentExecutionTiming> {
+    const [loopContext, automation] = await Promise.all([
+      this.getLoopContextForJob(job),
+      readAutomationSettings(this.repos)
+    ]);
+    const agentTimeBudgetMinutes = loopContext?.loop.timeBudgetMinutes ?? automation.agentTimeBudgetMinutes;
+    const startedAtMs = job.startedAt ? Date.parse(job.startedAt) : Date.now();
+    const deadlineAtMs = agentTimeBudgetMinutes === null
+      ? null
+      : startedAtMs + agentTimeBudgetMinutes * 60 * 1000;
+    return {
+      agentTimeBudgetMinutes,
+      verificationCommandTimeoutMinutes: automation.verificationCommandTimeoutMinutes,
+      commandTimeoutMs: automation.verificationCommandTimeoutMinutes * 60 * 1000,
+      deadlineAtMs,
+      deadlineAt: deadlineAtMs === null ? null : new Date(deadlineAtMs).toISOString()
+    };
+  }
+
   private async finalizeImplementationResult(
     job: AgentJobDto,
     project: ProjectDto,
     repoPath: string,
-    result: AgentRunResult
+    result: AgentRunResult,
+    timing: AgentExecutionTiming
   ): Promise<AgentRunResult> {
     if (job.agentType !== "implementation" || job.targetType !== "issue" || result.status !== "succeeded") {
       return result;
@@ -358,10 +410,12 @@ export class AgentWorker {
     const riskPolicy = normalizeRiskPolicy(loopContext?.loop.riskPolicy);
     const commands = await this.repos.commands.list(project.id);
     const commandPolicy = applyVerificationCommandPolicy(commands, riskPolicy);
-    const commandTimeoutMs = loopContext?.loop.timeBudgetMinutes
-      ? Math.max(loopContext.loop.timeBudgetMinutes * 60 * 1000, 1)
-      : undefined;
-    const commandResults = await runVerificationCommands(repoPath, commandPolicy.commands, commandTimeoutMs);
+    const commandResults = await runVerificationCommands(
+      repoPath,
+      commandPolicy.commands,
+      timing.commandTimeoutMs,
+      timing.deadlineAtMs
+    );
     const changedFiles = uniqueStrings([
       ...(result.changedFiles ?? []),
       ...(await getChangedFilesSince(repoPath, project.defaultBranch))
@@ -966,6 +1020,80 @@ export class AgentWorker {
       body
     });
   }
+}
+
+type AgentExecutionTiming = {
+  agentTimeBudgetMinutes: number | null;
+  verificationCommandTimeoutMinutes: number;
+  commandTimeoutMs: number;
+  deadlineAtMs: number | null;
+  deadlineAt: string | null;
+};
+
+function agentDeadlineReached(timing: AgentExecutionTiming): boolean {
+  return timing.deadlineAtMs !== null && Date.now() >= timing.deadlineAtMs;
+}
+
+function agentTimeoutResult(
+  job: AgentJobDto,
+  timing: AgentExecutionTiming,
+  previous: AgentRunResult | null,
+  errorMessage?: string
+): AgentRunResult {
+  const startedAtMs = job.startedAt ? Date.parse(job.startedAt) : Date.now();
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+  const budgetLabel = timing.agentTimeBudgetMinutes === null
+    ? "configured"
+    : `${timing.agentTimeBudgetMinutes} minute`;
+  const message = `Agent job #${job.id} reached its ${budgetLabel} execution deadline.`;
+  return {
+    ...(previous ?? {}),
+    status: "waiting_human",
+    message,
+    comment: null,
+    questions: ["Review the partial result and raise the Agent time budget before resuming if more work is required."],
+    activities: [
+      ...(previous?.activities ?? []),
+      {
+        type: "error",
+        title: "Agent execution deadline reached",
+        body: message,
+        payload: {
+          elapsedMs,
+          deadlineAt: timing.deadlineAt,
+          agentTimeBudgetMinutes: timing.agentTimeBudgetMinutes,
+          errorMessage: errorMessage ?? null
+        }
+      }
+    ],
+    stopReason: "timeout",
+    evidence: [
+      ...(previous?.evidence ?? []),
+      {
+        type: "time_budget",
+        title: "Agent execution deadline reached",
+        summary: message,
+        payload: {
+          elapsedMs,
+          deadlineAt: timing.deadlineAt,
+          agentTimeBudgetMinutes: timing.agentTimeBudgetMinutes,
+          verificationCommandTimeoutMinutes: timing.verificationCommandTimeoutMinutes,
+          errorMessage: errorMessage ?? null
+        }
+      }
+    ],
+    metadata: {
+      ...(previous?.metadata ?? {}),
+      nextLabel: null,
+      pullRequest: null,
+      agentDeadline: {
+        elapsedMs,
+        deadlineAt: timing.deadlineAt,
+        agentTimeBudgetMinutes: timing.agentTimeBudgetMinutes,
+        verificationCommandTimeoutMinutes: timing.verificationCommandTimeoutMinutes
+      }
+    }
+  };
 }
 
 type RuntimeRecovery = {

@@ -77,7 +77,7 @@ export class LmStudioAdapter implements AgentAdapter {
         messages,
         tools: toolDefinitions,
         temperature: options.temperature
-      });
+      }, input.deadlineAt);
       usage = addProviderUsage(usage, normalizeProviderUsage(completion.usage));
       const message = completion.message;
       messages.push(message);
@@ -94,7 +94,7 @@ export class LmStudioAdapter implements AgentAdapter {
         if (await input.isCanceled?.()) {
           return canceledResult(model, usage);
         }
-        const toolResult = await executeToolCall(input.repoPath, toolCall);
+        const toolResult = await executeToolCall(input.repoPath, toolCall, input.deadlineAt);
         await input.onActivity?.({
           type: toolResult.activityType,
           title: toolResult.title,
@@ -130,7 +130,7 @@ export class LmStudioAdapter implements AgentAdapter {
         }
       },
       temperature: options.temperature
-    });
+    }, input.deadlineAt);
     usage = addProviderUsage(usage, normalizeProviderUsage(finalCompletion.usage));
 
     return withProviderExecution(
@@ -228,8 +228,10 @@ async function chatCompletion(
     tools?: typeof toolDefinitions;
     responseFormat?: Record<string, unknown>;
     temperature?: number | null;
-  }
+  },
+  deadlineAt?: string | null
 ): Promise<{ message: ChatMessage; usage: Record<string, unknown> | null }> {
+  const remainingMs = remainingDeadlineMs(deadlineAt);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -241,7 +243,8 @@ async function chatCompletion(
       tools: body.tools,
       response_format: body.responseFormat,
       temperature: body.temperature ?? undefined
-    })
+    }),
+    signal: remainingMs === null ? undefined : AbortSignal.timeout(remainingMs)
   });
   const payload = (await response.json().catch(() => null)) as LmStudioResponse | null;
   if (!response.ok) {
@@ -263,7 +266,7 @@ async function resolveLmStudioModel(baseUrl: string): Promise<string> {
   return payload?.data?.find((model) => typeof model.id === "string" && model.id)?.id ?? "local-model";
 }
 
-async function executeToolCall(repoPath: string, toolCall: ToolCall): Promise<{
+async function executeToolCall(repoPath: string, toolCall: ToolCall, deadlineAt?: string | null): Promise<{
   activityType: "command" | "file_change" | "progress" | "error";
   title: string;
   summary: string;
@@ -309,7 +312,8 @@ async function executeToolCall(repoPath: string, toolCall: ToolCall): Promise<{
       const command = stringArg(args.command, "command");
       const timeoutMs =
         typeof args.timeoutMs === "number" ? Math.max(1000, Math.min(args.timeoutMs, 300_000)) : 120_000;
-      const result = await runShellCommand(command, repoPath, timeoutMs);
+      const remainingMs = remainingDeadlineMs(deadlineAt);
+      const result = await runShellCommand(command, repoPath, remainingMs === null ? timeoutMs : Math.min(timeoutMs, remainingMs));
       return toolSuccess(result.exitCode === 0 ? "command" : "error", `LM Studio command ${result.exitCode === 0 ? "completed" : "failed"}`, command, {
         command,
         ...result
@@ -487,6 +491,11 @@ function providerExecutionMetadata(model: string, usage: ReturnType<typeof norma
 
 function normalizeBaseUrl(value: string): string {
   return value.replace(/\/$/, "");
+}
+
+function remainingDeadlineMs(deadlineAt: string | null | undefined): number | null {
+  if (!deadlineAt) return null;
+  return Math.max(1, Date.parse(deadlineAt) - Date.now());
 }
 
 function truncate(value: string, maxLength: number): string {

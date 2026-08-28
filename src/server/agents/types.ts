@@ -88,6 +88,7 @@ export type AgentAdapter = {
     job: AgentJobDto;
     repoPath: string;
     prompt: string;
+    deadlineAt?: string | null;
     onActivity?: (activity: AgentActivityResult) => Promise<void> | void;
     isCanceled?: () => Promise<boolean> | boolean;
   }): Promise<AgentRunResult>;
