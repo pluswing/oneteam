@@ -60,10 +60,17 @@ describe("pull request git API", () => {
     const diffResponse = await app.request(
       `/api/projects/${project.id}/pull-requests/${pullRequest.id}/diff-file?path=${encodeURIComponent("README.md")}`
     );
+    const staleDiffResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/diff-file?path=${encodeURIComponent("README.md")}&sourceCommit=stale`
+    );
     const detail = (await detailResponse.json()) as { pullRequest: PullRequestDto };
     const list = (await listResponse.json()) as { items: PullRequestDto[] };
     const commits = (await commitsResponse.json()) as { items: RepositoryCommitDto[] };
-    const files = (await filesResponse.json()) as { files: RepositoryFileChangeDto[] };
+    const files = (await filesResponse.json()) as {
+      files: RepositoryFileChangeDto[];
+      sourceCommit: string;
+      targetCommit: string;
+    };
     const diff = (await diffResponse.json()) as { file: RepositoryFileChangeDto };
 
     expect(detail.pullRequest.changedFileCount).toBe(1);
@@ -73,7 +80,10 @@ describe("pull request git API", () => {
     expect(commits.items[0].subject).toBe("change readme");
     expect(files.files[0]).toMatchObject({ path: "README.md", status: "M" });
     expect(files.files[0].patch).toBeUndefined();
+    expect(files.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(files.targetCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(diff.file.patch).toContain("+Feature");
+    expect(staleDiffResponse.status).toBe(409);
 
     context.client.close();
   });

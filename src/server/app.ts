@@ -34,7 +34,8 @@ import {
   getDiffFilePatch,
   getDiffFiles,
   getDiffWithPatches,
-  getRepositoryStatus
+  getRepositoryStatus,
+  getRevisionHash
 } from "./services/git-service";
 import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
 import { runLabelAutomation } from "./services/label-automation";
@@ -917,8 +918,12 @@ export function createApp({
     if (!pullRequest) {
       notFound("Pull request was not found.");
     }
-    const files = await getDiffFiles(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
-    return c.json({ files });
+    const [sourceCommit, targetCommit] = await Promise.all([
+      getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+      getRevisionHash(project.repoPath, pullRequest.targetBranch)
+    ]);
+    const files = await getDiffFiles(project.repoPath, sourceCommit, targetCommit);
+    return c.json({ files, sourceCommit, targetCommit });
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId/diff", async (c) => {
@@ -941,16 +946,33 @@ export function createApp({
     if (!path) {
       throw new HTTPException(400, { message: "A file path is required." });
     }
-    const files = await getDiffFiles(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+    const [sourceCommit, targetCommit] = await Promise.all([
+      getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+      getRevisionHash(project.repoPath, pullRequest.targetBranch)
+    ]);
+    const expectedSourceCommit = c.req.query("sourceCommit");
+    const expectedTargetCommit = c.req.query("targetCommit");
+    if (
+      (expectedSourceCommit && expectedSourceCommit !== sourceCommit) ||
+      (expectedTargetCommit && expectedTargetCommit !== targetCommit)
+    ) {
+      throw new HTTPException(409, { message: "Pull request branches changed. Refresh the file list before loading this diff." });
+    }
+    const files = await getDiffFiles(project.repoPath, sourceCommit, targetCommit);
     const file = files.find((candidate) => candidate.path === path);
     if (!file) {
       notFound("Changed file was not found.");
     }
-    const patch = await getDiffFilePatch(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch, path, {
+    const context = c.req.query("context");
+    if (context && !["default", "wide", "full"].includes(context)) {
+      throw new HTTPException(400, { message: "Diff context must be default, wide, or full." });
+    }
+    const patch = await getDiffFilePatch(project.repoPath, sourceCommit, targetCommit, path, {
+      contextLines: context === "wide" ? 20 : context === "full" ? 100_000 : undefined,
       ignoreWhitespace: c.req.query("whitespace") === "ignore",
       previousPath: file.previousPath
     });
-    return c.json({ file: { ...file, patch } });
+    return c.json({ file: { ...file, patch }, sourceCommit, targetCommit });
   });
 
   app.get("/api/projects/:projectId/pull-requests/:pullRequestId/conflicts", async (c) => {

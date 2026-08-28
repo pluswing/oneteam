@@ -17,6 +17,7 @@ import type {
   ProjectSettingsDto,
   PullRequestDto,
   RepositoryCommitDto,
+  RepositoryDiffSummaryDto,
   RepositoryFileChangeDto,
   RepositoryStatusDto,
   SkillFileDto,
@@ -326,22 +327,36 @@ export const api = {
     return response.items;
   },
 
-  async listPullRequestFiles(projectId: string, pullRequestId: number): Promise<RepositoryFileChangeDto[]> {
-    const response = await request<{ files: RepositoryFileChangeDto[] }>(
+  async listPullRequestFiles(projectId: string, pullRequestId: number): Promise<RepositoryDiffSummaryDto> {
+    return request<RepositoryDiffSummaryDto>(
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/files`
     );
-    return response.files;
   },
 
   async getPullRequestFileDiff(
     projectId: string,
     pullRequestId: number,
     path: string,
-    options: { ignoreWhitespace?: boolean; signal?: AbortSignal } = {}
+    options: {
+      context?: "default" | "wide" | "full";
+      ignoreWhitespace?: boolean;
+      signal?: AbortSignal;
+      sourceCommit?: string;
+      targetCommit?: string;
+    } = {}
   ): Promise<RepositoryFileChangeDto> {
     const params = new URLSearchParams({ path });
     if (options.ignoreWhitespace) {
       params.set("whitespace", "ignore");
+    }
+    if (options.context && options.context !== "default") {
+      params.set("context", options.context);
+    }
+    if (options.sourceCommit) {
+      params.set("sourceCommit", options.sourceCommit);
+    }
+    if (options.targetCommit) {
+      params.set("targetCommit", options.targetCommit);
     }
     const response = await request<{ file: RepositoryFileChangeDto }>(
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/diff-file?${params.toString()}`,

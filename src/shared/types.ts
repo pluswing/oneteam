@@ -340,6 +340,12 @@ export type RepositoryFileChangeDto = {
   patch?: string;
 };
 
+export type RepositoryDiffSummaryDto = {
+  files: RepositoryFileChangeDto[];
+  sourceCommit: string;
+  targetCommit: string;
+};
+
 export type MergeConflictDto = {
   hasConflicts: boolean;
   files: Array<{

@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronUp, FileCode2, Search } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { RepositoryFileChangeDto } from "../../shared/types";
 import { api } from "../api";
 import {
@@ -178,16 +178,20 @@ export function DiffViewer(props: {
   projectId: string;
   pullRequestId: number;
   files: RepositoryFileChangeDto[];
+  sourceCommit: string | null;
+  targetCommit: string | null;
 }) {
   const viewedStorageKey = storageKey(props.projectId, props.pullRequestId);
   const [selectedPath, setSelectedPath] = useState<string | null>(props.files[0]?.path ?? null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<DiffView>("unified");
+  const [context, setContext] = useState<"default" | "wide" | "full">("default");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readViewedPaths(viewedStorageKey));
   const [selectedFile, setSelectedFile] = useState<RepositoryFileChangeDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const diffCache = useRef(new Map<string, RepositoryFileChangeDto>());
 
   useEffect(() => {
     setViewedPaths(readViewedPaths(viewedStorageKey));
@@ -222,8 +226,16 @@ export function DiffViewer(props: {
   }, [selectedFile]);
 
   useEffect(() => {
-    if (!selectedPath) {
+    if (!selectedPath || !props.sourceCommit || !props.targetCommit) {
       setSelectedFile(null);
+      return;
+    }
+    const cacheKey = [props.sourceCommit, props.targetCommit, selectedPath, context, ignoreWhitespace].join(":");
+    const cached = diffCache.current.get(cacheKey);
+    if (cached) {
+      setSelectedFile(cached);
+      setError(null);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -232,11 +244,21 @@ export function DiffViewer(props: {
     setSelectedFile(null);
     void api
       .getPullRequestFileDiff(props.projectId, props.pullRequestId, selectedPath, {
+        context,
         ignoreWhitespace,
-        signal: controller.signal
+        signal: controller.signal,
+        sourceCommit: props.sourceCommit,
+        targetCommit: props.targetCommit
       })
       .then((file) => {
         if (!controller.signal.aborted) {
+          if (diffCache.current.size >= 30) {
+            const oldestKey = diffCache.current.keys().next().value;
+            if (oldestKey) {
+              diffCache.current.delete(oldestKey);
+            }
+          }
+          diffCache.current.set(cacheKey, file);
           setSelectedFile(file);
         }
       })
@@ -251,7 +273,7 @@ export function DiffViewer(props: {
         }
       });
     return () => controller.abort();
-  }, [ignoreWhitespace, props.projectId, props.pullRequestId, selectedPath]);
+  }, [context, ignoreWhitespace, props.projectId, props.pullRequestId, props.sourceCommit, props.targetCommit, selectedPath]);
 
   const filteredFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -320,6 +342,14 @@ export function DiffViewer(props: {
             <button className={view === "unified" ? "active" : ""} onClick={() => setView("unified")} type="button">{t("pullRequests.unified")}</button>
             <button className={view === "split" ? "active" : ""} onClick={() => setView("split")} type="button">{t("pullRequests.split")}</button>
           </div>
+          <label className="diff-context-control">
+            <span>{t("pullRequests.context")}</span>
+            <select onChange={(event) => setContext(event.target.value as "default" | "wide" | "full")} value={context}>
+              <option value="default">{t("pullRequests.contextDefault")}</option>
+              <option value="wide">{t("pullRequests.contextWide")}</option>
+              <option value="full">{t("pullRequests.contextFull")}</option>
+            </select>
+          </label>
           <label className="diff-checkbox"><input checked={ignoreWhitespace} onChange={(event) => setIgnoreWhitespace(event.target.checked)} type="checkbox" />{t("pullRequests.ignoreWhitespace")}</label>
         </div>
       </div>

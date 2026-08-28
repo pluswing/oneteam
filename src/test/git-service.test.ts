@@ -55,11 +55,16 @@ describe("git service", () => {
     await git(repo, ["config", "user.email", "test@example.com"]);
     await writeFile(join(repo, "old-name.txt"), "same content\n");
     await writeFile(join(repo, "image.bin"), Buffer.from([0, 1, 2, 3]));
+    await writeFile(join(repo, "context.txt"), Array.from({ length: 50 }, (_, index) => `line ${index + 1}`).join("\n"));
     await git(repo, ["add", "."]);
     await git(repo, ["commit", "-m", "initial"]);
     await git(repo, ["checkout", "-b", "feature"]);
     await git(repo, ["mv", "old-name.txt", "new-name.txt"]);
     await writeFile(join(repo, "image.bin"), Buffer.from([0, 4, 5, 6]));
+    await writeFile(
+      join(repo, "context.txt"),
+      Array.from({ length: 50 }, (_, index) => (index === 24 ? "line 25 changed" : `line ${index + 1}`)).join("\n")
+    );
     await git(repo, ["add", "."]);
     await git(repo, ["commit", "-m", "rename and binary"]);
 
@@ -69,11 +74,16 @@ describe("git service", () => {
     const renamePatch = await getDiffFilePatch(repo, "feature", "main", "new-name.txt", {
       previousPath: "old-name.txt"
     });
+    const defaultContextPatch = await getDiffFilePatch(repo, "feature", "main", "context.txt");
+    const fullContextPatch = await getDiffFilePatch(repo, "feature", "main", "context.txt", { contextLines: 100_000 });
 
     expect(renamed).toMatchObject({ previousPath: "old-name.txt", status: "R100" });
     expect(binary).toMatchObject({ binary: true, additions: 0, deletions: 0 });
     expect(renamePatch).toContain("rename from old-name.txt");
     expect(renamePatch).toContain("rename to new-name.txt");
+    expect(defaultContextPatch).not.toContain(" line 1\n");
+    expect(fullContextPatch).toContain(" line 1\n");
+    expect(fullContextPatch).toContain(" line 50");
   });
 
   it("commits dirty worktrees and reads merge conflict contents", async () => {

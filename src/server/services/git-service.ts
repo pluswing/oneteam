@@ -261,11 +261,14 @@ export async function getDiffFilePatch(
   sourceBranch: string,
   targetBranch: string,
   path: string,
-  options: { ignoreWhitespace?: boolean; previousPath?: string } = {}
+  options: { contextLines?: number; ignoreWhitespace?: boolean; previousPath?: string } = {}
 ): Promise<string> {
   const args = ["diff", `${targetBranch}...${sourceBranch}`];
   if (options.ignoreWhitespace) {
     args.push("--ignore-all-space");
+  }
+  if (typeof options.contextLines === "number") {
+    args.push(`--unified=${Math.max(0, Math.min(Math.floor(options.contextLines), 100_000))}`);
   }
   args.push("--", ...(options.previousPath ? [options.previousPath, path] : [path]));
   return git(repoPath, args);

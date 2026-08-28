@@ -1138,6 +1138,7 @@ function PullRequestDetailScreen(props: {
   const [comments, setComments] = useState<CommentDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
+  const [diffRevision, setDiffRevision] = useState<{ sourceCommit: string; targetCommit: string } | null>(null);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
   const [tab, setTab] = useState<"conversation" | "files" | "commits">("conversation");
@@ -1167,7 +1168,8 @@ function PullRequestDetailScreen(props: {
     setRelatedAgentJobs(agentJobResponse);
     setComments(commentsResponse);
     setObjective(objectiveResponse);
-    setFiles(filesResponse);
+    setFiles(filesResponse.files);
+    setDiffRevision({ sourceCommit: filesResponse.sourceCommit, targetCommit: filesResponse.targetCommit });
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
   }
@@ -1324,7 +1326,13 @@ function PullRequestDetailScreen(props: {
             </>
           ) : null}
           {tab === "files" ? (
-            <DiffViewer files={files} projectId={props.project.id} pullRequestId={props.pullRequestId} />
+            <DiffViewer
+              files={files}
+              projectId={props.project.id}
+              pullRequestId={props.pullRequestId}
+              sourceCommit={diffRevision?.sourceCommit ?? null}
+              targetCommit={diffRevision?.targetCommit ?? null}
+            />
           ) : null}
           {tab === "commits" ? (
             <div className="commit-list">
