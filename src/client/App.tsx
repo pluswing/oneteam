@@ -153,6 +153,15 @@ function AutomationChecksSummary(props: {
     (job, index, jobs) => jobs.findIndex((candidate) => candidate.agentType === job.agentType) === index
   );
 
+  function openJobSection(jobId: number, anchor: string): void {
+    props.onOpenAgentJob(jobId);
+    window.history.replaceState(null, "", `/jobs/${jobId}#${anchor}`);
+  }
+
+  function hasOutputItems(job: AgentJobDto, key: "evidence" | "testResults" | "changedFiles"): boolean {
+    return Array.isArray(job.output?.[key]) && job.output[key].length > 0;
+  }
+
   return (
     <div className="automation-checks">
       {props.objective ? (
@@ -165,17 +174,31 @@ function AutomationChecksSummary(props: {
       {latestJobs.length ? (
         <div className="automation-check-list">
           {latestJobs.map((job) => (
-            <button className="automation-check-row" key={job.id} onClick={() => props.onOpenAgentJob(job.id)} type="button">
-              {job.status === "succeeded" ? (
-                <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
-              ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
-                <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
-              ) : (
-                <Bot aria-hidden="true" size={16} />
-              )}
-              <strong>{job.agentType}</strong>
-              <span className={`status-pill status-${job.status}`}>{job.status}</span>
-            </button>
+            <div className="automation-check-row" key={job.id}>
+              <button className="automation-check-main" onClick={() => props.onOpenAgentJob(job.id)} type="button">
+                {job.status === "succeeded" ? (
+                  <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
+                ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
+                  <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
+                ) : (
+                  <Bot aria-hidden="true" size={16} />
+                )}
+                <strong>{job.agentType}</strong>
+                <span className={`status-pill status-${job.status}`}>{job.status}</span>
+              </button>
+              <span className="automation-check-links">
+                {hasOutputItems(job, "evidence") ? (
+                  <button onClick={() => openJobSection(job.id, "job-evidence")} type="button">{t("agents.evidence")}</button>
+                ) : null}
+                {hasOutputItems(job, "testResults") ? (
+                  <button onClick={() => openJobSection(job.id, "job-checks")} type="button">{t("agents.tests")}</button>
+                ) : null}
+                {hasOutputItems(job, "changedFiles") ? (
+                  <button onClick={() => openJobSection(job.id, "job-changed-files")} type="button">{t("agents.changedFiles")}</button>
+                ) : null}
+                <button onClick={() => openJobSection(job.id, "job-activities")} type="button">{t("agents.activities")}</button>
+              </span>
+            </div>
           ))}
         </div>
       ) : (

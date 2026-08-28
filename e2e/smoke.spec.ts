@@ -43,6 +43,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
   await expect(page.locator(".automation-checks")).toContainText("requirements");
   await expect(page.locator(".automation-checks")).toContainText("queued");
+  await expect(page.locator(".automation-check-links")).toContainText("Activities");
   await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
   await page.getByRole("button", { name: "Pause automation" }).click();
   await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
@@ -76,6 +77,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(requirementsJob).toContainText("queued");
   await requirementsJob.click();
   await expect(page.getByRole("heading", { name: /#\d+ requirements/ })).toBeVisible();
+  await expect(page.locator("#job-activities")).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".page-title-block")).toContainText("canceled");
   await page.getByRole("button", { name: "Retry" }).click();

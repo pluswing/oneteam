@@ -11,6 +11,7 @@ import { formatDateTime } from "../formatters";
 import { t } from "../i18n";
 import { numberValue, recordArrayValue, recordValue, stringArrayValue, stringValue } from "../value-parsers";
 import { providerWaitDurationParts, providerWaitRemainingSeconds } from "../provider-wait-countdown";
+import { diffFileAnchor } from "../../shared/diff-anchors";
 
 type AgentJobScreen = { name: "list" } | { name: "detail"; jobId: number };
 
@@ -203,17 +204,21 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
         </div>
       ) : null}
       {changedFiles.length ? (
-        <div className="result-block">
+        <div className="result-block" id="job-changed-files">
           <h3>{t("agents.changedFiles")}</h3>
           <ul className="result-list">
             {changedFiles.map((file) => (
-              <li key={file}>{file}</li>
+              <li key={file}>
+                {props.job.targetType === "pull_request" ? (
+                  <a href={`/pulls/${props.job.targetId}#${diffFileAnchor(file)}`}>{file}</a>
+                ) : file}
+              </li>
             ))}
           </ul>
         </div>
       ) : null}
       {testResults.length ? (
-        <div className="result-block">
+        <div className="result-block" id="job-checks">
           <h3>{t("agents.tests")}</h3>
           <div className="test-result-list">
             {testResults.map((result, index) => {
@@ -236,7 +241,7 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
         </div>
       ) : null}
       {evidence.length ? (
-        <div className="result-block">
+        <div className="result-block" id="job-evidence">
           <h3>{t("agents.evidence")}</h3>
           <div className="test-result-list">
             {evidence.map((item, index) => {
@@ -393,6 +398,25 @@ function AgentJobDetailScreen(props: {
     [activities, job]
   );
 
+  useEffect(() => {
+    if (!job) return;
+    const anchor = window.location.hash.slice(1);
+    if (!/^job-(?:result|changed-files|checks|evidence|activities)$/.test(anchor)) return;
+    let animationFrame = 0;
+    let attempts = 0;
+    function reveal(): void {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 4) animationFrame = window.requestAnimationFrame(reveal);
+    }
+    animationFrame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [job, visibleActivities.length]);
+
   return (
     <div className="detail-page">
       <div className="page-toolbar">
@@ -462,9 +486,9 @@ function AgentJobDetailScreen(props: {
               </dl>
             </div>
             <div className="agent-job-main-content">
-              <h2>{t("agents.result")}</h2>
+              <h2 id="job-result">{t("agents.result")}</h2>
               <AgentJobResultSummary job={job} activities={activities} />
-              <h2>{t("agents.activities")}</h2>
+              <h2 id="job-activities">{t("agents.activities")}</h2>
               <ActivityLog activities={visibleActivities} />
             </div>
           </>

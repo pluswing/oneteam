@@ -1116,6 +1116,14 @@ textarea {
   gap: 10px;
 }
 
+.result-block:target,
+.agent-job-main-content > h2:target {
+  scroll-margin-top: 16px;
+  outline: 2px solid rgba(9, 105, 218, 0.32);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
 .result-block h3 {
   margin: 0;
   color: #24292f;
@@ -1507,17 +1515,8 @@ textarea {
 }
 
 .automation-check-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) max-content;
-  align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 6px 8px;
-  border: 0;
   border-top: 1px solid #d8dee4;
-  color: #57606a;
   background: #ffffff;
-  text-align: left;
 }
 
 .automation-check-row:first-child {
@@ -1528,10 +1527,41 @@ textarea {
   background: #f6f8fa;
 }
 
-.automation-check-row strong {
+.automation-check-main {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 0;
+  color: #57606a;
+  background: transparent;
+  text-align: left;
+}
+
+.automation-check-main strong {
   min-width: 0;
   color: #24292f;
   overflow-wrap: anywhere;
+}
+
+.automation-check-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0 8px 7px 32px;
+}
+
+.automation-check-links button {
+  padding: 1px 4px;
+  border: 0;
+  color: #0969da;
+  background: transparent;
+  font-size: 11px;
+  text-decoration: underline;
 }
 
 .detail-sidebar .label-row,
