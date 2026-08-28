@@ -104,7 +104,7 @@
 
 - [x] reset timeがある場合は直後、ない場合はjitter付き・上限付きexponential backoffで再開する
 - [ ] quota確認用の軽量probeと、実Job再開を分離して無駄なtoken消費とerror spamを避ける
-- [ ] **Partial**: worktree、branch、job input、Objective、Evidence、Codex thread IDを保持する。Codex CLIを同じthreadで継続する実行方式は未実装
+- [x] worktree、branch、job input、Objective、Evidence、Codex thread IDを保持し、Codex providerでの再開時は`codex exec resume`により同じthreadと元worktreeで継続する
 - [x] quota回復時に同じJob / Objective stepを自動queueし、通常の完了処理でEvidenceを再取得する
 - [x] アプリ再起動時に`waiting_provider`と`nextRetryAt`をDBから復元する
 - [x] 状態条件付きupdateにより、同一Jobの二重再開を防止する

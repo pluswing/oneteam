@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -121,6 +121,7 @@ writeFileSync(outputPath, JSON.stringify({
     expect(result.metadata?.providerExecution).toEqual({
       model: "gpt-test",
       sessionId: "thread-1",
+      resumedSession: false,
       usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3, reasoning_output_tokens: 1 }
     });
     expect(activities.map((activity) => activity.title)).toEqual(
@@ -135,6 +136,64 @@ writeFileSync(outputPath, JSON.stringify({
     );
     expect(activities.find((activity) => activity.title === "Codex command completed")?.body).toContain("npm test");
     expect(activities.find((activity) => activity.title === "Codex CLI completed")?.body).toContain("Non-fatal CLI warnings");
+  });
+
+  it("resumes the saved Codex thread after a provider quota wait", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-resume-"));
+    const argsPath = join(dir, "args.json");
+    const cwdPath = join(dir, "cwd.txt");
+    const stdinPath = join(dir, "stdin.txt");
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+let stdin = "";
+for await (const chunk of process.stdin) stdin += chunk;
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));
+writeFileSync(${JSON.stringify(cwdPath)}, process.cwd());
+writeFileSync(${JSON.stringify(stdinPath)}, stdin);
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-wait" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 2 } }) + "\\n");
+const outputPath = args[args.indexOf("--output-last-message") + 1];
+writeFileSync(outputPath, JSON.stringify({ status: "succeeded", message: "Resumed the implementation." }));
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+    const adapter = new CodexAdapter({ command: fakeCodexPath, model: "gpt-resume" });
+    const result = await adapter.run({
+      job: {
+        ...fakeJob,
+        attempt: 2,
+        waitReason: "provider_quota_exhausted",
+        waitMetadata: { sessionId: "thread-wait", retryCount: 1 }
+      },
+      repoPath: dir,
+      prompt: "Continue the preserved implementation."
+    });
+    const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+
+    expect(args.slice(0, 2)).toEqual(["exec", "resume"]);
+    expect(args).toContain("thread-wait");
+    expect(args).not.toContain("--cd");
+    expect(args.at(-1)).toBe("-");
+    expect(await readFile(cwdPath, "utf8")).toBe(await realpath(dir));
+    expect(await readFile(stdinPath, "utf8")).toBe("Continue the preserved implementation.");
+    expect(result).toMatchObject({
+      status: "succeeded",
+      message: "Resumed the implementation.",
+      metadata: {
+        providerExecution: {
+          model: "gpt-resume",
+          sessionId: "thread-wait",
+          resumedSession: true,
+          usage: { input_tokens: 4, output_tokens: 2 }
+        }
+      }
+    });
   });
 
   it("terminates the Codex CLI when cancellation is requested", async () => {

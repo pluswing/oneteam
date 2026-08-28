@@ -62,12 +62,13 @@ export class CodexAdapter implements AgentAdapter {
     const outputSchemaPath = join(tempDir, "agent-output.schema.json");
     await writeFile(outputSchemaPath, JSON.stringify(agentOutputSchema, null, 2), "utf8");
 
+    const resumeSessionId = resumableCodexSessionId(input.job);
     const args = [
       "exec",
+      ...(resumeSessionId ? ["resume"] : []),
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
-      "--cd",
-      input.repoPath,
+      ...(!resumeSessionId ? ["--cd", input.repoPath] : []),
       "--output-schema",
       outputSchemaPath,
       "--output-last-message",
@@ -78,6 +79,7 @@ export class CodexAdapter implements AgentAdapter {
       args.push("--model", options.model);
     }
 
+    if (resumeSessionId) args.push(resumeSessionId);
     args.push("-");
 
     await input.onActivity?.({
@@ -87,14 +89,15 @@ export class CodexAdapter implements AgentAdapter {
       payload: {
         command,
         args,
-        cwd: input.repoPath
+        cwd: input.repoPath,
+        resumeSessionId
       }
     });
 
     try {
       let activityQueue = Promise.resolve();
       let activityError: unknown = null;
-      const telemetry: CodexTelemetry = { sessionId: null, usage: null };
+      const telemetry: CodexTelemetry = { sessionId: resumeSessionId, resumedSession: Boolean(resumeSessionId), usage: null };
       const enqueueActivity = (activity: AgentActivityResult) => {
         activityQueue = activityQueue.then(async () => {
           try {
@@ -106,6 +109,7 @@ export class CodexAdapter implements AgentAdapter {
       };
 
       const { stdout, stderr, exitCode, canceled } = await runProcess(command, args, input.prompt, {
+        cwd: input.repoPath,
         onStdoutLine: (line) => {
           captureCodexTelemetry(line, telemetry);
           const activity = parseCodexJsonLine(line);
@@ -206,8 +210,15 @@ export class CodexAdapter implements AgentAdapter {
 
 type CodexTelemetry = {
   sessionId: string | null;
+  resumedSession: boolean;
   usage: Record<string, unknown> | null;
 };
+
+function resumableCodexSessionId(job: Parameters<AgentAdapter["run"]>[0]["job"]): string | null {
+  if (job.aiProvider !== "codex" || job.waitReason !== "provider_quota_exhausted") return null;
+  const sessionId = job.waitMetadata?.sessionId;
+  return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+}
 
 function captureCodexTelemetry(line: string, telemetry: CodexTelemetry): void {
   try {
@@ -230,6 +241,7 @@ function providerExecutionMetadata(model: string | null, telemetry: CodexTelemet
   return {
     model,
     sessionId: telemetry.sessionId,
+    resumedSession: telemetry.resumedSession,
     usage: telemetry.usage
   };
 }
@@ -939,6 +951,7 @@ async function runProcess(
   args: string[],
   stdin: string,
   callbacks: {
+    cwd?: string;
     onStdoutLine?: (line: string) => void;
     isCanceled?: () => Promise<boolean> | boolean;
   } = {}
@@ -950,6 +963,7 @@ async function runProcess(
 }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
+      cwd: callbacks.cwd,
       stdio: ["pipe", "pipe", "pipe"]
     });
     let stdout = "";
