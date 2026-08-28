@@ -33,7 +33,12 @@ process.stdin.on("end", () => {
   writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));
   writeFileSync(${JSON.stringify(promptPath)}, Buffer.concat(chunks).toString("utf8"));
   process.stdout.write(JSON.stringify({ type: "system", subtype: "init", message: "started" }) + "\\n");
-  process.stdout.write(JSON.stringify({ type: "result", result: JSON.stringify({
+  process.stdout.write(JSON.stringify({
+    type: "result",
+    session_id: "claude-session-1",
+    usage: { input_tokens: 120, cache_read_input_tokens: 30, cache_creation_input_tokens: 10, output_tokens: 45 },
+    total_cost_usd: 0.0125,
+    result: JSON.stringify({
     status: "succeeded",
     message: "Claude completed.",
     comment: null,
@@ -68,6 +73,18 @@ process.stdin.on("end", () => {
     await expect(readFile(promptPath, "utf8")).resolves.toBe("Review the pull request.");
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Claude completed.");
+    expect(result.metadata?.providerExecution).toEqual({
+      model: "claude-test",
+      sessionId: "claude-session-1",
+      resumedSession: false,
+      usage: {
+        input_tokens: 120,
+        cache_read_input_tokens: 30,
+        cache_creation_input_tokens: 10,
+        output_tokens: 45,
+        total_cost_usd: 0.0125
+      }
+    });
     expect(activities).toContain("Started Claude Code");
     expect(activities).toContain("Claude Code completed");
   });
@@ -89,6 +106,7 @@ process.stdin.on("end", () => {
         if (chatRequests === 1) {
           response.end(
             JSON.stringify({
+              usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
               choices: [
                 {
                   message: {
@@ -114,6 +132,7 @@ process.stdin.on("end", () => {
 
         response.end(
           JSON.stringify({
+            usage: { prompt_tokens: 150, completion_tokens: 30, total_tokens: 180 },
             choices: [
               {
                 message: {
@@ -163,6 +182,20 @@ process.stdin.on("end", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("LM Studio completed.");
+    expect(result.metadata?.providerExecution).toEqual({
+      model: "local-test-model",
+      sessionId: null,
+      resumedSession: false,
+      usage: {
+        inputTokens: 250,
+        cachedInputTokens: 0,
+        outputTokens: 50,
+        reasoningTokens: 0,
+        totalTokens: 300,
+        costUsd: 0,
+        requestCount: 2
+      }
+    });
     expect(activities).toContain("Started LM Studio");
     expect(activities).toContain("LM Studio read README.md");
   });

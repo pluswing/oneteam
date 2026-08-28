@@ -50,6 +50,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
 
     let activityQueue = Promise.resolve();
     let activityError: unknown = null;
+    const telemetry: ClaudeTelemetry = { sessionId: null, usage: null };
     const enqueueActivity = (activity: AgentActivityResult) => {
       activityQueue = activityQueue.then(async () => {
         try {
@@ -64,6 +65,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       cwd: input.repoPath,
       isCanceled: input.isCanceled,
       onStdoutLine: (line) => {
+        captureClaudeTelemetry(line, telemetry);
         const activity = parseClaudeJsonLine(line);
         if (activity) {
           enqueueActivity(activity);
@@ -94,7 +96,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
             title: "Claude Code canceled",
             body: "The running Claude Code process was terminated after the job was canceled."
           }
-        ]
+        ],
+        metadata: {
+          providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+        }
       };
     }
 
@@ -123,11 +128,21 @@ export class ClaudeCodeAdapter implements AgentAdapter {
             payload: { exitCode }
           }
         ],
-        activities: []
+        activities: [],
+        metadata: {
+          providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+        }
       };
     }
 
-    return extractAgentRunResult(finalClaudeText(stdout), "Claude Code");
+    const result = extractAgentRunResult(finalClaudeText(stdout), "Claude Code");
+    return {
+      ...result,
+      metadata: {
+        ...(result.metadata ?? {}),
+        providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+      }
+    };
   }
 
   private async resolveOptions(): Promise<Pick<ClaudeCodeAdapterOptions, "command" | "model" | "permissionMode" | "maxTurns">> {
@@ -139,6 +154,39 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       maxTurns: loaded?.maxTurns ?? this.options.maxTurns
     };
   }
+}
+
+type ClaudeTelemetry = {
+  sessionId: string | null;
+  usage: Record<string, unknown> | null;
+};
+
+function captureClaudeTelemetry(line: string, telemetry: ClaudeTelemetry): void {
+  try {
+    const event = JSON.parse(line) as unknown;
+    if (!isRecord(event)) return;
+    telemetry.sessionId = stringValue(event.session_id) ?? stringValue(event.sessionId) ?? telemetry.sessionId;
+    const usage = isRecord(event.usage) ? event.usage : null;
+    const totalCostUsd = typeof event.total_cost_usd === "number" ? event.total_cost_usd : null;
+    if (usage || totalCostUsd !== null) {
+      telemetry.usage = {
+        ...(telemetry.usage ?? {}),
+        ...(usage ?? {}),
+        ...(totalCostUsd === null ? {} : { total_cost_usd: totalCostUsd })
+      };
+    }
+  } catch {
+    // Non-JSON stdout is still handled by the result parser.
+  }
+}
+
+function providerExecutionMetadata(model: string | null, telemetry: ClaudeTelemetry) {
+  return {
+    model,
+    sessionId: telemetry.sessionId,
+    resumedSession: false,
+    usage: telemetry.usage
+  };
 }
 
 function parseClaudeJsonLine(line: string): AgentActivityResult | null {

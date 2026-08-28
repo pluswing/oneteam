@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { LmStudioProviderSettings } from "../../shared/ai-providers";
+import { addProviderUsage, emptyProviderUsage, normalizeProviderUsage } from "../../shared/provider-usage";
 import type { AgentAdapter, AgentRunResult } from "./types";
 import { agentOutputSchema, extractAgentRunResult } from "./codex-adapter";
 
@@ -28,6 +29,7 @@ type LmStudioResponse = {
   error?: {
     message?: string;
   };
+  usage?: Record<string, unknown>;
 };
 
 export type LmStudioAdapterOptions = LmStudioProviderSettings & {
@@ -52,6 +54,7 @@ export class LmStudioAdapter implements AgentAdapter {
         content: input.prompt
       }
     ];
+    let usage = { ...emptyProviderUsage };
 
     await input.onActivity?.({
       type: "system",
@@ -66,28 +69,30 @@ export class LmStudioAdapter implements AgentAdapter {
 
     for (let round = 0; round < options.maxToolRounds; round += 1) {
       if (await input.isCanceled?.()) {
-        return canceledResult();
+        return canceledResult(model, usage);
       }
 
-      const message = await chatCompletion(baseUrl, {
+      const completion = await chatCompletion(baseUrl, {
         model,
         messages,
         tools: toolDefinitions,
         temperature: options.temperature
       });
+      usage = addProviderUsage(usage, normalizeProviderUsage(completion.usage));
+      const message = completion.message;
       messages.push(message);
 
       if (!message.tool_calls?.length) {
         const content = message.content ?? "";
         if (content.trim()) {
-          return extractAgentRunResult(content, "LM Studio");
+          return withProviderExecution(extractAgentRunResult(content, "LM Studio"), model, usage);
         }
         break;
       }
 
       for (const toolCall of message.tool_calls) {
         if (await input.isCanceled?.()) {
-          return canceledResult();
+          return canceledResult(model, usage);
         }
         const toolResult = await executeToolCall(input.repoPath, toolCall);
         await input.onActivity?.({
@@ -105,7 +110,7 @@ export class LmStudioAdapter implements AgentAdapter {
     }
 
     if (await input.isCanceled?.()) {
-      return canceledResult();
+      return canceledResult(model, usage);
     }
 
     messages.push({
@@ -113,7 +118,7 @@ export class LmStudioAdapter implements AgentAdapter {
       content:
         "Stop using tools and return the final AgentRunResult JSON now. Use null or empty arrays for fields that are not relevant."
     });
-    const finalMessage = await chatCompletion(baseUrl, {
+    const finalCompletion = await chatCompletion(baseUrl, {
       model,
       messages,
       responseFormat: {
@@ -126,8 +131,13 @@ export class LmStudioAdapter implements AgentAdapter {
       },
       temperature: options.temperature
     });
+    usage = addProviderUsage(usage, normalizeProviderUsage(finalCompletion.usage));
 
-    return extractAgentRunResult(finalMessage.content ?? "", "LM Studio");
+    return withProviderExecution(
+      extractAgentRunResult(finalCompletion.message.content ?? "", "LM Studio"),
+      model,
+      usage
+    );
   }
 
   private async resolveOptions(): Promise<LmStudioProviderSettings> {
@@ -219,7 +229,7 @@ async function chatCompletion(
     responseFormat?: Record<string, unknown>;
     temperature?: number | null;
   }
-): Promise<ChatMessage> {
+): Promise<{ message: ChatMessage; usage: Record<string, unknown> | null }> {
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -241,7 +251,7 @@ async function chatCompletion(
   if (!message) {
     throw new Error("LM Studio did not return a message.");
   }
-  return message;
+  return { message, usage: payload?.usage ?? null };
 }
 
 async function resolveLmStudioModel(baseUrl: string): Promise<string> {
@@ -430,7 +440,10 @@ async function runShellCommand(command: string, cwd: string, timeoutMs: number):
   });
 }
 
-function canceledResult(): AgentRunResult {
+function canceledResult(
+  model: string,
+  usage: ReturnType<typeof normalizeProviderUsage>
+): AgentRunResult {
   return {
     status: "canceled",
     message: "LM Studio execution was canceled.",
@@ -442,7 +455,33 @@ function canceledResult(): AgentRunResult {
         summary: "The running LM Studio job was canceled.",
         payload: null
       }
-    ]
+    ],
+    metadata: {
+      providerExecution: providerExecutionMetadata(model, usage)
+    }
+  };
+}
+
+function withProviderExecution(
+  result: AgentRunResult,
+  model: string,
+  usage: ReturnType<typeof normalizeProviderUsage>
+): AgentRunResult {
+  return {
+    ...result,
+    metadata: {
+      ...(result.metadata ?? {}),
+      providerExecution: providerExecutionMetadata(model, usage)
+    }
+  };
+}
+
+function providerExecutionMetadata(model: string, usage: ReturnType<typeof normalizeProviderUsage>) {
+  return {
+    model,
+    sessionId: null,
+    resumedSession: false,
+    usage: { ...usage }
   };
 }
 

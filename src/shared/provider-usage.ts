@@ -42,6 +42,7 @@ export function normalizeProviderUsage(value: unknown): ProviderUsageTotals {
   const reasoningTokens = nonnegativeMetric(record, aliases.reasoningTokens);
   const reportedTotal = nonnegativeMetric(record, aliases.totalTokens);
   const costUsd = nonnegativeMetric(record, aliases.costUsd);
+  const reportedRequestCount = directNonnegative(record.requestCount);
   const hasUsage = [inputTokens, cachedInputTokens, outputTokens, reasoningTokens, reportedTotal, costUsd]
     .some((metric) => metric > 0);
   return {
@@ -51,7 +52,7 @@ export function normalizeProviderUsage(value: unknown): ProviderUsageTotals {
     reasoningTokens,
     totalTokens: reportedTotal || inputTokens + outputTokens,
     costUsd: roundCost(costUsd),
-    requestCount: hasUsage ? 1 : 0
+    requestCount: Math.floor(reportedRequestCount || (hasUsage ? 1 : 0))
   };
 }
 
