@@ -71,7 +71,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
       targetBranch: "main"
     }
   });
-  const pullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
+  expect(pullRequestResponse.ok()).toBe(true);
 
   await page.getByRole("button", { name: "Pull Requests" }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();

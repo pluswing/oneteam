@@ -49,7 +49,7 @@
 - [ ] **Internal / Hidden**: Loops、Loop Run detail、Triage Inbox、Skills管理UIは実装されているがroute / navigationから非表示
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
-- [ ] **Partial**: internal system commentはOutcome / Record / Evidence or Decision / Next step / timestampの共通Markdown contractへ統一済み。Agent出力のserver-side再構成とdiff deep link生成は未実装
+- [ ] **Partial**: internal system commentと通常Markdown Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成済み。明示的なsanitized HTML reportは原文を保持
 - [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、syntax highlight、word-level diff、Viewed、空白無視、context / 全文切り替え、line anchorまで対応。inline review、hunk folding、virtualizationは未実装
 
 ### Provider / Connector
@@ -160,12 +160,12 @@
   - diff / file / line / commit / PR references
   - next step / stop or wait reason / resume condition
   - Agent role / provider / model / timestamp
-- [ ] **Partial**: Provider Gate、ready-to-merge、automatic merge block / failure、merge completion、Issue completionのtemplateは実装済み。requirements、implementation、review、fix、QA、verifierはAgent output依存
-- [ ] structured Agent outputからserver側で安定したMarkdown / HTML summaryを生成できるようにする
+- [x] **Done**: requirements、implementation、review、fix、QA、verifier、Provider Gate、ready-to-merge、automatic merge、Issue completionのMarkdown milestone templateを実装
+- [x] **Done**: structured Agent outputからserver側で安定したMarkdown summaryを生成し、provider / model / session、Evidence、review / QA finding、next workflow stateを記録する
 - [x] **Done**: internal system commentはMarkdownを標準とし、表とcalloutを共通builderで生成する
 - [ ] sanitizerのallowlist、URL、CSS、image、data attribute policyとsecurity testを強化する
 - [ ] Activityの逐次ログをcommentへ連投せず、節目単位で圧縮・重複排除する
-- [ ] **Partial**: merge / Issue完了commentのPR / changed file参照はdeep link化済み。Agent commentの参照検証とline / commit link生成は未実装
+- [ ] **Partial**: merge / Issue完了 / Agent review・QA commentのPR / changed file / finding line参照はdeep link化済み。自由文中の参照検証とcommit link生成は未実装
 - [ ] merge後のfinal summaryをIssueとPRの両方から参照できるようにする
 - [ ] 日本語 / 英語で情報階層と表の読みやすさが崩れないsnapshot / browser testを追加する
 

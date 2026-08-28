@@ -24,6 +24,7 @@ import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult
 import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../services/provider-wait";
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
+import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -620,7 +621,10 @@ export class AgentWorker {
         targetId: output.comment.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: output.comment.body,
+        body:
+          output.comment.bodyFormat === "html"
+            ? output.comment.body
+            : buildAgentMilestoneComment(job, output),
         bodyFormat: output.comment.bodyFormat === "html" ? "html" : "markdown",
         metadata: commentMetadata
       });
@@ -631,7 +635,7 @@ export class AgentWorker {
         targetId: target.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: output.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
+        body: buildAgentMilestoneComment(job, output),
         metadata: commentMetadata
       });
     } else if (output.message && target) {
@@ -641,7 +645,7 @@ export class AgentWorker {
         targetId: target.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body: output.message,
+        body: buildAgentMilestoneComment(job, output),
         metadata: commentMetadata
       });
     }

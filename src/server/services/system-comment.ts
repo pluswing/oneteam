@@ -20,6 +20,7 @@ export type SystemCommentInput = {
   sections?: Array<SystemCommentSection | null>;
   nextStep?: string;
   recordedAt?: Date;
+  recordedBy?: string;
 };
 
 const outcomeLabels: Record<SystemCommentOutcome, string> = {
@@ -77,6 +78,11 @@ export function buildSystemComment(input: SystemCommentInput): string {
     lines.push("", "### Next step", "", input.nextStep.trim());
   }
 
-  lines.push("", "---", "", `_Recorded by OneTeam at ${markdownCode((input.recordedAt ?? new Date()).toISOString())}._`);
+  lines.push(
+    "",
+    "---",
+    "",
+    `_Recorded by ${input.recordedBy ?? "OneTeam"} at ${markdownCode((input.recordedAt ?? new Date()).toISOString())}._`
+  );
   return lines.join("\n");
 }
