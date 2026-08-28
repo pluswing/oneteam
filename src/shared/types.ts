@@ -93,6 +93,9 @@ export type ProjectSettingsDto = {
   ai: AiSettingsDto;
   automation: {
     autoMergeEnabled: boolean;
+    autoMergeTargetBranches: string[];
+    autoMergeStrategy: "merge" | "squash";
+    autoMergeRiskThreshold: "medium" | "high" | "none";
   };
   runtime: {
     server: {

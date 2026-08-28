@@ -1900,6 +1900,10 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [lmStudioMaxToolRounds, setLmStudioMaxToolRounds] = useState("8");
   const [lmStudioTemperature, setLmStudioTemperature] = useState("");
   const [autoMergeEnabled, setAutoMergeEnabled] = useState(true);
+  const [autoMergeTargetBranches, setAutoMergeTargetBranches] = useState("");
+  const [autoMergeStrategy, setAutoMergeStrategy] = useState<ProjectSettingsDto["automation"]["autoMergeStrategy"]>("merge");
+  const [autoMergeRiskThreshold, setAutoMergeRiskThreshold] =
+    useState<ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]>("medium");
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
@@ -1918,6 +1922,9 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     setLmStudioMaxToolRounds(String(response.ai.lmStudio.maxToolRounds));
     setLmStudioTemperature(response.ai.lmStudio.temperature === null ? "" : String(response.ai.lmStudio.temperature));
     setAutoMergeEnabled(response.automation.autoMergeEnabled);
+    setAutoMergeTargetBranches(response.automation.autoMergeTargetBranches.join(", "));
+    setAutoMergeStrategy(response.automation.autoMergeStrategy);
+    setAutoMergeRiskThreshold(response.automation.autoMergeRiskThreshold);
   }
 
   useEffect(() => {
@@ -1948,7 +1955,10 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
           }
         },
         automation: {
-          autoMergeEnabled
+          autoMergeEnabled,
+          autoMergeTargetBranches: autoMergeTargetBranches.split(",").map((branch) => branch.trim()).filter(Boolean),
+          autoMergeStrategy,
+          autoMergeRiskThreshold
         }
       });
       setSettings(response);
@@ -2004,6 +2014,43 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
               {t("settings.autoMerge")}
               <small>{t("settings.autoMergeDescription")}</small>
             </span>
+          </label>
+          <label>
+            {t("settings.autoMergeTargetBranches")}
+            <input
+              onChange={(event) => setAutoMergeTargetBranches(event.target.value)}
+              placeholder={t("settings.autoMergeTargetBranchesPlaceholder")}
+              value={autoMergeTargetBranches}
+            />
+            <small>{t("settings.autoMergeTargetBranchesDescription")}</small>
+          </label>
+          <label>
+            {t("settings.autoMergeStrategy")}
+            <select
+              onChange={(event) =>
+                setAutoMergeStrategy(event.target.value as ProjectSettingsDto["automation"]["autoMergeStrategy"])
+              }
+              value={autoMergeStrategy}
+            >
+              <option value="merge">{t("settings.autoMergeStrategyMerge")}</option>
+              <option value="squash">{t("settings.autoMergeStrategySquash")}</option>
+            </select>
+          </label>
+          <label>
+            {t("settings.autoMergeRiskThreshold")}
+            <select
+              onChange={(event) =>
+                setAutoMergeRiskThreshold(
+                  event.target.value as ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]
+                )
+              }
+              value={autoMergeRiskThreshold}
+            >
+              <option value="medium">{t("settings.riskThresholdMedium")}</option>
+              <option value="high">{t("settings.riskThresholdHigh")}</option>
+              <option value="none">{t("settings.riskThresholdNone")}</option>
+            </select>
+            <small>{t("settings.autoMergeRiskThresholdDescription")}</small>
           </label>
         </fieldset>
         <fieldset>

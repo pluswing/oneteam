@@ -163,7 +163,10 @@ const updateProjectSettingsSchema = z
       .optional(),
     automation: z
       .object({
-        autoMergeEnabled: z.boolean()
+        autoMergeEnabled: z.boolean().optional(),
+        autoMergeTargetBranches: z.array(z.string().min(1)).optional(),
+        autoMergeStrategy: z.enum(["merge", "squash"]).optional(),
+        autoMergeRiskThreshold: z.enum(["medium", "high", "none"]).optional()
       })
       .strict()
       .optional()
@@ -598,7 +601,13 @@ export function createApp({
     }
     const currentSettings = await readProjectSettings(repos, updatedProject, runtime, ai);
     const nextAiSettings = patchAiSettings(currentSettings.ai, input.ai);
-    const nextAutomationSettings = input.automation ?? currentSettings.automation;
+    const nextAutomationSettings: ProjectSettingsDto["automation"] = {
+      ...currentSettings.automation,
+      ...input.automation,
+      autoMergeTargetBranches: input.automation?.autoMergeTargetBranches
+        ? Array.from(new Set(input.automation.autoMergeTargetBranches.map((branch) => branch.trim()).filter(Boolean)))
+        : currentSettings.automation.autoMergeTargetBranches
+    };
     await Promise.all([
       saveAiSettings(repos, nextAiSettings),
       saveAutomationSettings(repos, nextAutomationSettings)

@@ -1,4 +1,4 @@
-import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import type { AgentJobDto, ObjectiveRunDto, ProjectDto, ProjectSettingsDto, PullRequestDto } from "../../shared/types";
 import { diffFileAnchor } from "../../shared/diff-anchors";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
@@ -13,7 +13,7 @@ import {
   getRevisionHash,
   mergeBranch
 } from "./git-service";
-import { scanScoreManipulationRisks } from "./diff-risk-scanner";
+import { riskSignalsAtOrAbove, scanScoreManipulationRisks } from "./diff-risk-scanner";
 import { runLabelAutomation } from "./label-automation";
 import { appendObjectiveEvidence, markObjectiveMerged } from "./objective-runs";
 import { readAutomationSettings } from "./automation-settings";
@@ -36,8 +36,9 @@ export async function mergePullRequest(
   }
 ): Promise<PullRequestMergeResult> {
   const { project, pullRequest, mode } = input;
+  const automation = await readAutomationSettings(repos);
   if (mode === "automatic") {
-    const gate = await checkAutomaticMergeGate(repos, project, pullRequest, input.verifierJob);
+    const gate = await checkAutomaticMergeGate(repos, project, pullRequest, automation, input.verifierJob);
     if (gate) {
       if (gate.state === "blocked") {
         await recordAutomaticMergeBlock(repos, project, pullRequest, input.verifierJob ?? null, gate.reason, gate.conflicts);
@@ -75,7 +76,8 @@ export async function mergePullRequest(
       input.verifierJob,
       sourceHead,
       targetHead,
-      mergeBase
+      mergeBase,
+      automation.autoMergeRiskThreshold
     );
     automaticGateEvidence = verification.evidence;
     if (verification.blockedReason) {
@@ -111,7 +113,12 @@ export async function mergePullRequest(
     return { state: "blocked", reason };
   }
 
-  const mergeResult = await mergeBranch(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
+  const mergeResult = await mergeBranch(
+    project.repoPath,
+    pullRequest.sourceBranch,
+    pullRequest.targetBranch,
+    automation.autoMergeStrategy
+  );
   const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
   const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, {
     status: "merged",
@@ -128,6 +135,7 @@ export async function mergePullRequest(
     fields: [
       { label: "Pull request", value: `#${pullRequest.id}`, code: true },
       { label: "Merge mode", value: mode, code: true },
+      { label: "Merge strategy", value: automation.autoMergeStrategy, code: true },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
       { label: "Merge commit", value: mergeResult.mergeCommit, code: true },
@@ -150,6 +158,7 @@ export async function mergePullRequest(
     bodyFormat: "markdown",
     metadata: {
       mergeMode: mode,
+      mergeStrategy: automation.autoMergeStrategy,
       mergeCommit: mergeResult.mergeCommit,
       sourceHead,
       targetHead,
@@ -168,6 +177,7 @@ export async function mergePullRequest(
     body: mergeBody,
     payload: {
       mergeMode: mode,
+      mergeStrategy: automation.autoMergeStrategy,
       mergeCommit: mergeResult.mergeCommit,
       sourceHead,
       targetHead,
@@ -199,7 +209,8 @@ type AutomaticGateEvidence = {
   changedFiles: string[];
   diffLineCount: number;
   commandResults: Array<Omit<VerificationCommandResult, "output"> & { outputExcerpt: string }>;
-  riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown> }>;
+  riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown>; blocking: boolean }>;
+  riskThreshold: ProjectSettingsDto["automation"]["autoMergeRiskThreshold"];
   verifierEvidenceCapturedAt: string;
 };
 
@@ -225,8 +236,11 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullReq
     {
       title: "Risk decision",
       items: evidence.riskSignals.length
-        ? evidence.riskSignals.map((signal) => `[BLOCK] **${signal.title}** — ${signal.summary}`)
-        : ["[PASS] No score-manipulation risk signal was detected in the verified diff."]
+        ? evidence.riskSignals.map(
+            (signal) =>
+              `[${signal.blocking ? "BLOCK" : "OBSERVE"} · ${String(signal.payload.severity ?? "unknown").toUpperCase()}] **${signal.title}** — ${signal.summary}`
+          )
+        : [`[PASS] No diff risk signal met the ${markdownCode(evidence.riskThreshold)} automatic-merge threshold.`]
     }
   ];
 }
@@ -250,7 +264,8 @@ async function verifyAutomaticMergeCandidate(
   verifierJob: AgentJobDto,
   sourceHead: string,
   targetHead: string,
-  mergeBase: string
+  mergeBase: string,
+  riskThreshold: ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]
 ): Promise<{ blockedReason: string | null; evidence: AutomaticGateEvidence }> {
   const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
   const verifierEvidence = objective ? currentVerifierEvidence(objective, verifierJob, sourceHead) : null;
@@ -268,6 +283,7 @@ async function verifyAutomaticMergeCandidate(
     diffLineCount: 0,
     commandResults: [],
     riskSignals: [],
+    riskThreshold,
     verifierEvidenceCapturedAt: verifierEvidence?.capturedAt ?? ""
   };
 
@@ -300,6 +316,7 @@ async function verifyAutomaticMergeCandidate(
       getDiffPatchSince(worktree.repoPath, pullRequest.targetBranch)
     ]);
     const riskSignals = scanScoreManipulationRisks(diffPatch);
+    const blockingRiskSignals = riskSignalsAtOrAbove(riskSignals, riskThreshold);
     const evidence: AutomaticGateEvidence = {
       ...emptyEvidence,
       capturedAt: new Date().toISOString(),
@@ -312,7 +329,8 @@ async function verifyAutomaticMergeCandidate(
       riskSignals: riskSignals.map((signal) => ({
         title: signal.title,
         summary: signal.summary,
-        payload: signal.payload
+        payload: signal.payload,
+        blocking: blockingRiskSignals.includes(signal)
       }))
     };
     const failedCommands = commandResults.filter((result) => result.status === "failed");
@@ -321,8 +339,10 @@ async function verifyAutomaticMergeCandidate(
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
       return { blockedReason: reason, evidence };
     }
-    if (riskSignals.length) {
-      const reason = `Risk signals block automatic merge: ${riskSignals.map((signal) => signal.title).join(", ")}.`;
+    if (blockingRiskSignals.length) {
+      const reason = `Risk signals block automatic merge at ${riskThreshold} threshold: ${blockingRiskSignals
+        .map((signal) => signal.title)
+        .join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
       return { blockedReason: reason, evidence };
     }
@@ -408,11 +428,21 @@ async function checkAutomaticMergeGate(
   repos: Repositories,
   project: ProjectDto,
   pullRequest: PullRequestDto,
+  automation: ProjectSettingsDto["automation"],
   verifierJob?: AgentJobDto
 ): Promise<{ state: "blocked" | "skipped"; reason: string; conflicts: boolean } | null> {
-  const automation = await readAutomationSettings(repos);
   if (!automation.autoMergeEnabled) {
     return { state: "skipped", reason: "Automatic merge is disabled in project settings.", conflicts: false };
+  }
+  if (
+    automation.autoMergeTargetBranches.length > 0 &&
+    !automation.autoMergeTargetBranches.includes(pullRequest.targetBranch)
+  ) {
+    return {
+      state: "skipped",
+      reason: `Target branch ${pullRequest.targetBranch} is outside the automatic merge policy.`,
+      conflicts: false
+    };
   }
   if (!verifierJob || verifierJob.agentType !== "verifier") {
     return { state: "skipped", reason: "A successful verifier job is required for automatic merge.", conflicts: false };

@@ -121,6 +121,9 @@ describe("settings API", () => {
     expect(settings.ai.codex.command).toBe("managed-codex");
     expect(settings.ai.codex.model).toBe("gpt-managed");
     expect(settings.automation.autoMergeEnabled).toBe(true);
+    expect(settings.automation.autoMergeTargetBranches).toEqual([]);
+    expect(settings.automation.autoMergeStrategy).toBe("merge");
+    expect(settings.automation.autoMergeRiskThreshold).toBe("medium");
     expect(settings.runtime.database.url).toContain("test.db");
     expect(codexUpdateResponse.status).toBe(400);
 
@@ -170,7 +173,10 @@ describe("settings API", () => {
           }
         },
         automation: {
-          autoMergeEnabled: false
+          autoMergeEnabled: false,
+          autoMergeTargetBranches: ["main", "release", "main"],
+          autoMergeStrategy: "squash",
+          autoMergeRiskThreshold: "high"
         }
       })
     });
@@ -198,6 +204,9 @@ describe("settings API", () => {
     expect(settings.ai.lmStudio.model).toBe("qwen-coder");
     expect(settings.ai.lmStudio.maxToolRounds).toBe(12);
     expect(settings.automation.autoMergeEnabled).toBe(false);
+    expect(settings.automation.autoMergeTargetBranches).toEqual(["main", "release"]);
+    expect(settings.automation.autoMergeStrategy).toBe("squash");
+    expect(settings.automation.autoMergeRiskThreshold).toBe("high");
     expect(jobPayload.job.aiProvider).toBe("lm_studio");
 
     context.client.close();

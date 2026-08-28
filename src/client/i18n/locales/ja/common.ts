@@ -197,6 +197,17 @@ export const ja = {
     automation: "自動化",
     autoMerge: "検証済み Pull Request を自動マージする",
     autoMergeDescription: "リポジトリがクリーンで、コンフリクトがなく、Objective の証拠と Verifier 成功が揃った場合のみ実行します。",
+    autoMergeTargetBranches: "自動マージ対象ブランチ",
+    autoMergeTargetBranchesPlaceholder: "main, release",
+    autoMergeTargetBranchesDescription: "カンマ区切りで指定します。空欄の場合はすべての対象ブランチを許可します。",
+    autoMergeStrategy: "マージ方式",
+    autoMergeStrategyMerge: "マージコミットを作成",
+    autoMergeStrategySquash: "1コミットにsquash",
+    autoMergeRiskThreshold: "diffリスク閾値",
+    autoMergeRiskThresholdDescription: "指定severity以上のsignalで自動マージを停止します。停止しない場合もsignalは記録します。",
+    riskThresholdMedium: "Medium以上",
+    riskThresholdHigh: "Highのみ",
+    riskThresholdNone: "停止しない",
     saved: "設定を保存しました"
   },
   agents: {

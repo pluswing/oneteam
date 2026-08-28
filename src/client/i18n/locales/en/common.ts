@@ -195,6 +195,17 @@ export const en = {
     automation: "Automation",
     autoMerge: "Automatically merge verified pull requests",
     autoMergeDescription: "Requires a clean repository, no conflicts, Objective evidence, and a successful verifier.",
+    autoMergeTargetBranches: "Automatic merge target branches",
+    autoMergeTargetBranchesPlaceholder: "main, release",
+    autoMergeTargetBranchesDescription: "Comma-separated branch names. Leave empty to allow every target branch.",
+    autoMergeStrategy: "Merge strategy",
+    autoMergeStrategyMerge: "Create a merge commit",
+    autoMergeStrategySquash: "Squash into one commit",
+    autoMergeRiskThreshold: "Diff risk threshold",
+    autoMergeRiskThresholdDescription: "Signals at or above this severity stop automatic merge. None records signals without blocking.",
+    riskThresholdMedium: "Medium and high",
+    riskThresholdHigh: "High only",
+    riskThresholdNone: "Do not block",
     saved: "Settings saved"
   },
   agents: {

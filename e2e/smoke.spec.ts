@@ -59,6 +59,22 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByText("npm run test")).toBeVisible();
   await expect(page.getByText("npm run lint")).toBeVisible();
 
+  await page.getByRole("button", { name: "Repository and settings" }).click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByLabel("Automatic merge target branches").fill("main, release");
+  await page.getByLabel("Merge strategy").selectOption("squash");
+  await page.getByLabel("Diff risk threshold").selectOption("high");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved")).toBeVisible();
+  await page.getByRole("button", { name: "Repository and settings" }).click();
+  await page.getByRole("menuitem", { name: "Repository" }).click();
+  await page.getByRole("button", { name: "Repository and settings" }).click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  await expect(page.getByLabel("Automatic merge target branches")).toHaveValue("main, release");
+  await expect(page.getByLabel("Merge strategy")).toHaveValue("squash");
+  await expect(page.getByLabel("Diff risk threshold")).toHaveValue("high");
+
   execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
   writeFileSync(
     resolve(repoPath, "large.ts"),

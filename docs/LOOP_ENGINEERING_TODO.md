@@ -72,7 +72,7 @@
 
 ### Automatic merge gate
 
-- [ ] **Partial**: project settingsに`autoMergeEnabled`を追加済み。対象branch、merge strategy、risk thresholdは未実装
+- [x] project settingsで`autoMergeEnabled`、対象branch、merge / squash strategy、diff risk thresholdを管理する
 - [x] Verifier pass後に`ready-to-merge`をautomatic merge gateへ接続する
 - [ ] **Partial**: merge直前のsource HEAD、target HEAD、merge-base、conflict、Objective Evidence、required commands、score-manipulation Risk Signalを再確認する。LoopごとのRisk Policy再評価は未実装
 - [x] Evidenceに対象commit hashと取得時刻を保存し、stale Verifier Evidenceを検出する

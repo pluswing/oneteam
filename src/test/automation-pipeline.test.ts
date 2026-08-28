@@ -14,6 +14,7 @@ import { getRevisionHash } from "../server/services/git-service";
 import { ensureObjectiveForTarget } from "../server/services/objective-runs";
 import { mergePullRequest } from "../server/services/pull-request-merge";
 import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../server/services/provider-wait";
+import { saveAutomationSettings } from "../server/services/automation-settings";
 import { workflowLabelNames } from "../shared/workflow-labels";
 import { diffFileAnchor } from "../shared/diff-anchors";
 
@@ -260,6 +261,12 @@ describe("automatic delivery pipeline", () => {
     await runMigrations(context.client);
     const repos = createRepositories(context.db);
     const project = await repos.projects.create({ name: "Auto merge", repoPath, defaultBranch: "main" });
+    await saveAutomationSettings(repos, {
+      autoMergeEnabled: true,
+      autoMergeTargetBranches: ["main"],
+      autoMergeStrategy: "squash",
+      autoMergeRiskThreshold: "high"
+    });
     await repos.commands.upsertMany(project.id, [
       {
         commandType: "test",
@@ -321,6 +328,7 @@ describe("automatic delivery pipeline", () => {
     ]);
     const prComments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
     const issueComments = await repos.comments.list(project.id, "issue", issue.id);
+    const mergeParents = (await git(repoPath, ["rev-list", "--parents", "-n", "1", "main"])).split(" ");
 
     expect(updatedJob?.status).toBe("succeeded");
     expect(updatedPullRequest).toMatchObject({ status: "merged" });
@@ -344,7 +352,9 @@ describe("automatic delivery pipeline", () => {
       )
     ).toBe(true);
     expect(mergedFile).toBe("verified\n");
+    expect(mergeParents).toHaveLength(2);
     expect(prComments.some((comment) => comment.body.includes("## Automatically merged"))).toBe(true);
+    expect(prComments.some((comment) => comment.body.includes("| Merge strategy | `squash` |"))).toBe(true);
     expect(
       prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
     ).toBe(true);
@@ -431,6 +441,62 @@ describe("automatic delivery pipeline", () => {
     expect(updatedPullRequest?.status).toBe("open");
     expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
     expect(updatedObjective?.status).toBe("waiting_human");
+
+    context.client.close();
+  });
+
+  it("leaves a verified PR for manual merge when its target branch is outside policy", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-target-policy-db-"));
+    const repoPath = await createGitRepo("oneteam-target-policy-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/policy"]);
+    await writeFile(join(repoPath, "policy.txt"), "candidate\n");
+    await git(repoPath, ["add", "policy.txt"]);
+    await git(repoPath, ["commit", "-m", "policy candidate"]);
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Target policy", repoPath, defaultBranch: "main" });
+    await saveAutomationSettings(repos, {
+      autoMergeEnabled: true,
+      autoMergeTargetBranches: ["release"],
+      autoMergeStrategy: "merge",
+      autoMergeRiskThreshold: "medium"
+    });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Policy candidate",
+      sourceBranch: "feature/policy",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const verifierJob = await repos.agentJobs.create({
+      projectId: project.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob
+    });
+    const [updatedPullRequest, mainHead, sourceHead] = await Promise.all([
+      repos.pullRequests.get(project.id, pullRequest.id),
+      getRevisionHash(repoPath, "main"),
+      getRevisionHash(repoPath, "feature/policy")
+    ]);
+
+    expect(result).toEqual({
+      state: "skipped",
+      reason: "Target branch main is outside the automatic merge policy."
+    });
+    expect(updatedPullRequest?.status).toBe("open");
+    expect(mainHead).not.toBe(sourceHead);
 
     context.client.close();
   });
@@ -713,6 +779,7 @@ async function createGitRepo(prefix: string): Promise<string> {
   return repoPath;
 }
 
-async function git(repoPath: string, args: string[]): Promise<void> {
-  await execFileAsync("git", args, { cwd: repoPath });
+async function git(repoPath: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd: repoPath });
+  return stdout.trim();
 }

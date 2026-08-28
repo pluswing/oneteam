@@ -100,10 +100,16 @@ export async function createAndCheckoutBranch(repoPath: string, branchName: stri
 export async function mergeBranch(
   repoPath: string,
   sourceBranch: string,
-  targetBranch: string
+  targetBranch: string,
+  strategy: "merge" | "squash" = "merge"
 ): Promise<{ mergeCommit: string; output: string }> {
   await checkoutBranch(repoPath, targetBranch);
-  const output = await git(repoPath, ["merge", "--no-ff", "--no-edit", sourceBranch]);
+  const output = strategy === "squash"
+    ? [
+        await git(repoPath, ["merge", "--squash", sourceBranch]),
+        await git(repoPath, ["commit", "-m", `Squash merge ${sourceBranch} into ${targetBranch}`])
+      ].filter(Boolean).join("\n")
+    : await git(repoPath, ["merge", "--no-ff", "--no-edit", sourceBranch]);
   const mergeCommit = await git(repoPath, ["rev-parse", "HEAD"]);
   return { mergeCommit, output };
 }
