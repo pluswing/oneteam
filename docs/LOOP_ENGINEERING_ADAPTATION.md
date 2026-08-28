@@ -338,6 +338,8 @@ Provider usageのbudget制御では、providerごとに異なるtelemetryを共�
 - budget gate自体はObjectiveのroundを消費しない
 - 使用量、適用上限、provider / modelをEvidenceへ残し、Issue / PRを後から見返した際に根拠を追跡できるようにする
 
+時間制御はAgent Job全体と検証commandを分離する。Loop固有の`time_budget_minutes`を優先し、未指定時はProject既定のAgent time budgetを使用する。deadlineはprovider adapterへ渡し、CLI process、LM Studio request、tool commandを中断可能にする。lint / test / buildには別のcommand timeoutを適用し、Agentの残り時間がそれより短い場合だけ残り時間を上限にする。Agent deadline到達時はpartial resultとprovider telemetryを破棄せず、`timeout` EvidenceとしてHuman Gateへ残す。
+
 ### 7. Worktree isolation を導入する
 
 現在の実装は branch 作成が中心だが、複数 Loop / Agent を並列に走らせるには作業ディレクトリの分離が必要になる。

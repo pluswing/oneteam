@@ -37,7 +37,7 @@
 - [x] **Done**: 成功時のworktree cleanupと既存OneTeam worktreeのrecovery
 - [ ] **Partial**: 全Loop Runではなく、書き込みを行うimplementation / fixが主なworktree対象
 - [x] **Done**: 最大変更ファイル数 / diff行数、command allowlist / denylist、protected path / branch、Risk SignalのHuman Gate
-- [ ] **Partial**: time budgetは主にverification command単位で、Agent実行全体のdeadlineではない
+- [x] **Done**: Loop固有またはProject既定のtime budgetをAgent Job全体のdeadlineとしてprovider process / LM Studio request・toolへ伝播し、lint / test / buildのcommand timeoutは独立設定として分離する
 - [ ] **Partial**: Objectiveのmax roundsは実効制御されるが、Issue / project policyから安全に変更する公開導線がない
 - [x] **Done**: Codex / Claude Code / LM Studioのusageを正規化してObjectiveへtokenとprovider報告USD costを累積し、token / cost budget到達後のjobをdequeue時にprovider実行前でHuman Gateへ止める。cost未報告時は単価を推定しない
 
@@ -174,7 +174,7 @@
 - [x] Goal Contractの`Evidence Required`を型付きにし、種類、必須性、対象commit、freshnessをGateが機械判定する。missing / stale / commit mismatch / unavailableを監査可能な判定結果として残す
 - [x] implementation / review / QA / verifierでrole-based provider / modelを設定し、Job detail / Activity / milestoneに実行条件を残す。provider切替再開時だけ切替先modelを再解決する
 - [x] provider usage / token / provider報告USD costをObjectiveに集計し、budget到達後のjobをdequeue時に`running`へ遷移させずprovider実行前で停止する
-- [ ] Agent全体deadlineとcommand別timeoutを分離する
+- [x] Agent全体deadlineとcommand別timeoutを分離し、deadline到達時のpartial telemetry、経過時間、適用上限を`timeout` Evidenceへ保存する
 - [ ] PostToolUse / Stop Hook相当の軽量検証をprovider adapterごとに追加する
 - [ ] stale objective、CI failure、regression、TODO / FIXME discoveryをSchedulerへ追加する
 - [ ] TriageをIssues / notificationsへ統合し、Loops tabなしで処理できるようにする
