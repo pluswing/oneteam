@@ -11,6 +11,7 @@ import { createRepositories, type Repositories } from "./db/repositories";
 import type { CodexLoginOptions } from "./services/codex-auth";
 import { ObjectiveScheduler } from "./services/objective-scheduler";
 import { ensureProviderReady } from "./services/provider-readiness";
+import { recoverInterruptedAgentJobs } from "./services/runtime-recovery";
 
 export type OneTeamRuntime = {
   app: ReturnType<typeof createApp>;
@@ -52,7 +53,7 @@ export async function createOneTeamRuntime(
   };
   await ensureDefaultAiSettings(activeDatabase.repos, config);
   if (config.agents.workerEnabled) {
-    await activeDatabase.repos.agentJobs.requeueInterrupted();
+    await recoverInterruptedAgentJobs(activeDatabase.repos);
   }
 
   const runtime = {
@@ -91,7 +92,7 @@ export async function createOneTeamRuntime(
     };
     await ensureDefaultAiSettings(activeDatabase.repos, config);
     if (worker) {
-      await activeDatabase.repos.agentJobs.requeueInterrupted();
+      await recoverInterruptedAgentJobs(activeDatabase.repos);
     }
     runtime.database.url = nextUrl;
     previousContext.client.close();

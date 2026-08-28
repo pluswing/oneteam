@@ -67,7 +67,7 @@
 - [ ] requirements完了後からimplementation、PR creation、review、fix、QA、verifier、mergeまでをstanding objectiveが自動的に駆動する
 - [ ] 各stepの完了条件と次stepをlabelだけでなくObjective state machineでも管理する
 - [ ] retry、fix、re-review、re-QA、re-verifyを同じObjectiveのroundとして追跡する
-- [ ] アプリ再起動後にqueued / running / waiting_providerのObjectiveを安全に復元する
+- [x] アプリ起動 / リポジトリ切替後にqueuedを継続し、interrupted running Jobをattempt付きで再queueしてLoop Step / Run・Objective・Activityを同期する。waiting_providerは期限を保持して自動再開する
 - [ ] ユーザーがPause / Resume / Cancelでき、後続Jobの自動作成を確実に止められる
 
 ### Automatic merge gate
