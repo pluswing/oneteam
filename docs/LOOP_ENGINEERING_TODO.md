@@ -115,7 +115,7 @@
 
 - [x] Issue / PRのlatest statusとAgent JobにProvider Waitを明示する
 - [x] Agent Jobに推定再開時刻、自動再試行までのライブ残り時間、wait reason、最終確認時刻、retry countを表示する
-- [ ] **Partial**: Resume nowとCancelを提供する。待機Jobのprovider直接変更は未実装
+- [x] Resume now、待機Jobのprovider切替付き再開、Cancelを提供する
 - [x] quota待機をHuman Gateや実装failureと異なるstatus / calloutで表示する
 
 ## P1: GitHub-quality UI

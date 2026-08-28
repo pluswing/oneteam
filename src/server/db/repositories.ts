@@ -1202,11 +1202,12 @@ export function createRepositories(db: Database) {
         return rows.map(mapAgentJob);
       },
 
-      async resumeProviderWait(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+      async resumeProviderWait(projectId: string, jobId: number, aiProvider?: AiProvider): Promise<AgentJobDto | null> {
         const rows = await db
           .update(agentJobs)
           .set({
             status: "queued",
+            aiProvider,
             error: null,
             attempt: sql`${agentJobs.attempt} + 1`,
             nextRetryAt: null,

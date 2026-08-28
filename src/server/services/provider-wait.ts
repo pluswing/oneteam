@@ -208,9 +208,10 @@ export function buildProviderWaitComment(job: AgentJobDto, decision: ProviderWai
 export async function resumeProviderWait(
   repos: Repositories,
   job: AgentJobDto,
-  trigger: "automatic" | "manual"
+  trigger: "automatic" | "manual",
+  aiProvider = job.aiProvider
 ): Promise<AgentJobDto | null> {
-  const resumed = await repos.agentJobs.resumeProviderWait(job.projectId, job.id);
+  const resumed = await repos.agentJobs.resumeProviderWait(job.projectId, job.id, aiProvider);
   if (!resumed) {
     return null;
   }
@@ -220,7 +221,7 @@ export async function resumeProviderWait(
     await repos.objectives.update(job.projectId, objective.id, {
       status: "running",
       stopReason: null,
-      summary: `${trigger === "manual" ? "Manual" : "Automatic"} provider retry queued for job #${job.id}.`
+      summary: `${trigger === "manual" ? "Manual" : "Automatic"} provider retry queued for job #${job.id} using ${resumed.aiProvider}.`
     });
   }
 
@@ -234,7 +235,8 @@ export async function resumeProviderWait(
   }
 
   const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
-  const message = buildProviderRetryComment(job, trigger);
+  const providerChanged = job.aiProvider !== resumed.aiProvider;
+  const message = buildProviderRetryComment(job, trigger, resumed.aiProvider);
   const targets = await providerEventTargets(repos, job, objective);
   for (const target of targets) {
     await repos.activities.create({
@@ -243,21 +245,30 @@ export async function resumeProviderWait(
       targetType: target.targetType,
       targetId: target.targetId,
       activityType: "system",
-      title: "AI provider retry queued",
+      title: providerChanged ? "AI provider switched and retry queued" : "AI provider retry queued",
       body: message,
-      payload: { trigger, previousNextRetryAt: job.nextRetryAt, providerWaitEvent: "retry_queued", retryCount }
+      payload: {
+        trigger,
+        previousNextRetryAt: job.nextRetryAt,
+        providerWaitEvent: "retry_queued",
+        retryCount,
+        previousProvider: job.aiProvider,
+        provider: resumed.aiProvider
+      }
     });
     if (trigger === "manual" || retryCount === 1 || retryCount % 3 === 0) {
       await createProviderEventComment(repos, {
         projectId: job.projectId,
         target,
         body: message,
-        key: `provider-wait:${job.id}:retry:${retryCount}:${trigger}`,
+        key: `provider-wait:${job.id}:retry:${retryCount}:${trigger}:${resumed.aiProvider}`,
         metadata: {
           agentJobId: job.id,
           providerWaitEvent: "retry_queued",
           trigger,
           retryCount,
+          previousProvider: job.aiProvider,
+          provider: resumed.aiProvider,
           previousNextRetryAt: job.nextRetryAt
         }
       });
@@ -313,16 +324,22 @@ export async function recordProviderWaitCanceled(repos: Repositories, job: Agent
   }
 }
 
-export function buildProviderRetryComment(job: AgentJobDto, trigger: "automatic" | "manual"): string {
+export function buildProviderRetryComment(
+  job: AgentJobDto,
+  trigger: "automatic" | "manual",
+  aiProvider = job.aiProvider
+): string {
   const retryCount = numericMetadata(job.waitMetadata, "retryCount") ?? 0;
+  const providerChanged = job.aiProvider !== aiProvider;
   return buildSystemComment({
-    title: "AI provider retry queued",
+    title: providerChanged ? "AI provider switched and retry queued" : "AI provider retry queued",
     outcome: "info",
     summary: `${trigger === "manual" ? "A user" : "The scheduler"} resumed the preserved Agent Job for another provider attempt.`,
     fields: [
       { label: "Job", value: `#${job.id}`, code: true },
       { label: "Agent", value: job.agentType, code: true },
-      { label: "Provider", value: job.aiProvider, code: true },
+      { label: "Provider", value: aiProvider, code: true },
+      providerChanged ? { label: "Previous provider", value: job.aiProvider, code: true } : null,
       { label: "Resume trigger", value: trigger, code: true },
       { label: "Retry attempt", value: retryCount },
       job.nextRetryAt ? { label: "Previous retry time", value: job.nextRetryAt, code: true } : null

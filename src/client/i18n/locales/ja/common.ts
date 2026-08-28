@@ -232,6 +232,8 @@ export const ja = {
     cancelJob: "ジョブをキャンセル",
     retryJob: "再試行",
     resumeNow: "今すぐ再開",
+    resumeProvider: "再開するプロバイダー",
+    switchAndResume: "切り替えて再開",
     waitingProvider: "AI プロバイダーの利用枠を待機中",
     nextRetry: "次回再試行",
     waitReason: "待機理由",

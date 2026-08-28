@@ -677,9 +677,10 @@ export const api = {
     return response.jobId;
   },
 
-  async resumeAgentJob(projectId: string, jobId: number): Promise<AgentJobDto> {
+  async resumeAgentJob(projectId: string, jobId: number, aiProvider?: AiProvider): Promise<AgentJobDto> {
     const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs/${jobId}/resume`, {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify({ aiProvider })
     });
     return response.job;
   }

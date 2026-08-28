@@ -138,21 +138,41 @@ describe("automatic delivery pipeline", () => {
     await worker.tick();
     const app = createApp({ repos });
 
+    const invalidProviderResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ aiProvider: "unknown" })
+    });
+    expect(invalidProviderResponse.status).toBe(400);
+    expect((await repos.agentJobs.get(project.id, job.id))?.status).toBe("waiting_provider");
+
     const resumeResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/resume`, {
-      method: "POST"
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ aiProvider: "claude_code" })
     });
     expect(resumeResponse.status).toBe(200);
-    expect((await resumeResponse.json()) as { job: { status: string } }).toMatchObject({ job: { status: "queued" } });
+    expect((await resumeResponse.json()) as { job: { status: string; aiProvider: string } }).toMatchObject({
+      job: { status: "queued", aiProvider: "claude_code" }
+    });
     const manuallyResumedComments = await repos.comments.list(project.id, "issue", issue.id);
     expect(
       manuallyResumedComments.some(
         (comment) => comment.metadata?.providerWaitEvent === "retry_queued" && comment.metadata?.trigger === "manual"
       )
     ).toBe(true);
+    expect(
+      manuallyResumedComments.some(
+        (comment) =>
+          comment.metadata?.previousProvider === "codex" &&
+          comment.metadata?.provider === "claude_code" &&
+          comment.body.includes("## AI provider switched and retry queued")
+      )
+    ).toBe(true);
 
     await worker.tick();
     const waitingAgain = await repos.agentJobs.get(project.id, job.id);
-    expect(waitingAgain).toMatchObject({ status: "waiting_provider", attempt: 2 });
+    expect(waitingAgain).toMatchObject({ status: "waiting_provider", attempt: 2, aiProvider: "claude_code" });
     expect(waitingAgain?.waitMetadata?.retryCount).toBe(2);
 
     const cancelResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/cancel`, {

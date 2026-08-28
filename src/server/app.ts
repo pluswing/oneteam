@@ -126,6 +126,10 @@ const createAgentJobSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional()
 });
 
+const resumeProviderWaitSchema = z.object({
+  aiProvider: z.enum(aiProviders).optional()
+});
+
 const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
 });
@@ -1461,21 +1465,26 @@ export function createApp({
     return c.json({ jobId: job.id });
   });
 
-  app.post("/api/projects/:projectId/agent-jobs/:jobId/resume", async (c) => {
-    const projectId = c.req.param("projectId");
-    const job = await repos.agentJobs.get(projectId, Number(c.req.param("jobId")));
-    if (!job) {
-      notFound("Agent job was not found.");
+  app.post(
+    "/api/projects/:projectId/agent-jobs/:jobId/resume",
+    zValidator("json", resumeProviderWaitSchema),
+    async (c) => {
+      const projectId = c.req.param("projectId");
+      const job = await repos.agentJobs.get(projectId, Number(c.req.param("jobId")));
+      if (!job) {
+        notFound("Agent job was not found.");
+      }
+      if (job.status !== "waiting_provider") {
+        conflict("Only jobs waiting for an AI provider can be resumed here.");
+      }
+      const input = c.req.valid("json");
+      const resumed = await resumeProviderWait(repos, job, "manual", input.aiProvider ?? job.aiProvider);
+      if (!resumed) {
+        conflict("The provider wait changed before it could be resumed.");
+      }
+      return c.json({ job: resumed });
     }
-    if (job.status !== "waiting_provider") {
-      conflict("Only jobs waiting for an AI provider can be resumed here.");
-    }
-    const resumed = await resumeProviderWait(repos, job, "manual");
-    if (!resumed) {
-      conflict("The provider wait changed before it could be resumed.");
-    }
-    return c.json({ job: resumed });
-  });
+  );
 
   app.get("/api/projects/:projectId/agent-jobs/:jobId/activities", async (c) => {
     const job = await repos.agentJobs.get(c.req.param("projectId"), Number(c.req.param("jobId")));

@@ -230,6 +230,8 @@ export const en = {
     cancelJob: "Cancel job",
     retryJob: "Retry",
     resumeNow: "Resume now",
+    resumeProvider: "Resume with provider",
+    switchAndResume: "Switch and resume",
     waitingProvider: "Waiting for AI provider usage",
     nextRetry: "Next retry",
     waitReason: "Wait reason",
