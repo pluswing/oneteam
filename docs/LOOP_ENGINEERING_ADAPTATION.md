@@ -59,12 +59,15 @@ Codex の usage remaining が尽きたことは実装失敗や Human Gate とし
 - Stop / Wait Reason は `provider_quota_exhausted` とする
 - provider、検出メッセージ、検出時刻、usage snapshot、reset time、`next_retry_at`、retry count を保存する
 - Codex が reset time を返す場合はその時刻まで待ち、返さない場合は上限付き exponential backoff で再確認する
+- retry期限ではCodex app-serverの読取専用`account/rateLimits/read`を先に実行し、利用枠が回復した場合だけ実Agent Jobをqueueする
 - 待機中は worktree、branch、Agent Job input、Objective、可能なら Codex thread/session identifier を保持する
 - アプリ再起動後も永続化した `next_retry_at` から待機を復元する
 - quota が回復したら同じ工程を自動的に `queued` へ戻し、Evidence を再取得して再開する
 - quota 待機では objective round count と repeated failure count を増やさない
 - UI には待機理由、推定再開時刻、最終確認時刻、Resume now、Cancel を表示する
 - polling ごとにコメントを増やさず、待機開始と再開の節目だけを Issue / PR timeline に記録する
+
+Codex capacity probeはthreadを作らずprovider turnも消費しない。未回復時はrate-limit snapshot、確認時刻、reset time、probe count、次回確認時刻をJob出力、Loop Evidence、Activityへ保存し、コメントは初回と3回ごとの節目だけに抑える。app-server endpointが未対応または連続して応答しない場合は、2回のprobe延長後に1回だけ実Job retryへフォールバックし、古いCodex clientで永久待機しない。Codex以外のproviderは専用probeを提供するまで従来どおり実retryで確認する。
 
 ### UI の新しい重点
 

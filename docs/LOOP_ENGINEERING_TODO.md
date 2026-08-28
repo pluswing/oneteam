@@ -103,12 +103,12 @@
 ### Wait scheduler / recovery
 
 - [x] reset timeがある場合は直後、ない場合はjitter付き・上限付きexponential backoffで再開する
-- [ ] quota確認用の軽量probeと、実Job再開を分離して無駄なtoken消費とerror spamを避ける
+- [x] Codex app-serverの`account/rateLimits/read`を使うtoken-free軽量probeと実Job再開を分離し、未回復時はprovider turnを開始せず待機を延長する
 - [x] worktree、branch、job input、Objective、Evidence、Codex thread IDを保持し、Codex providerでの再開時は`codex exec resume`により同じthreadと元worktreeで継続する
 - [x] quota回復時に同じJob / Objective stepを自動queueし、通常の完了処理でEvidenceを再取得する
 - [x] アプリ再起動時に`waiting_provider`と`nextRetryAt`をDBから復元する
 - [x] 状態条件付きupdateにより、同一Jobの二重再開を防止する
-- [ ] **Partial**: wait開始 / 自動・手動再開 / cancelをActivityと重複排除された構造化Markdownへ記録し、PRの履歴をlinked Issueにも同期する。Cancel時はObjective / Loopも整合させる。軽量probeによる延長 / 回復eventは未実装
+- [x] **Done**: wait開始 / probe延長・回復 / 自動・手動再開 / cancelをActivityと重複排除された構造化Markdownへ記録し、PRの履歴をlinked Issueにも同期する。Cancel時はObjective / Loopも整合させる
 - [x] usage limit、resetあり / なし、別WorkerによるDB復元、手動Resume、Cancelのunit / integration testを追加する
 
 ### UI
