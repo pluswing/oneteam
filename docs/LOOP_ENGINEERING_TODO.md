@@ -1,7 +1,7 @@
 # OneTeam 自動完遂 / Loop Engineering TODO
 
 作成日: 2026-06-17
-最終更新日: 2026-08-28
+最終更新日: 2026-08-29
 
 このTODOは、[LOOP_ENGINEERING_ADAPTATION.md](./LOOP_ENGINEERING_ADAPTATION.md) の方針を、現在の実装状況と次の目標に分けて管理する。
 
@@ -34,7 +34,7 @@
 ### Worktree / Safety / Budget
 
 - [x] **Done**: implementation / fixのgit worktree分離、dirty main workspaceとの分離、job lock
-- [x] **Done**: 成功時のworktree cleanupと既存OneTeam worktreeのrecovery
+- [x] **Done**: 成功・取消時のworktree cleanup、失敗・Human Gate・Provider Gate・pause・回復可能エラー時のretention、既存OneTeam worktreeのrecovery。判断はJob出力、Loop Evidence、Activityへ記録する
 - [ ] **Partial**: 全Loop Runではなく、書き込みを行うimplementation / fixが主なworktree対象
 - [x] **Done**: 最大変更ファイル数 / diff行数、command allowlist / denylist、protected path / branch、Risk SignalのHuman Gate
 - [x] **Done**: Loop固有またはProject既定のtime budgetをAgent Job全体のdeadlineとしてprovider process / LM Studio request・toolへ伝播し、lint / test / buildのcommand timeoutは独立設定として分離する
@@ -178,7 +178,7 @@
 - [x] Codex / Claude Code / LM Studio共通のStop validatorで未構造化応答、status / stop reason矛盾、command evidence矛盾、repository外pathをHuman Gateへ止める。tool loopを制御できるLM StudioではPostToolUse判定もActivity / tool responseへ保存する
 - [x] stale Objective、failed verification / CI Evidence、regression、tracked TODO / FIXME discoveryをSchedulerへ追加し、直接testで再走査時のdedupeまで検証する
 - [x] TriageをIssuesの通知セクションへ統合し、rich Markdownの発見内容、priority、discovery種別を確認してその場でIssue化 / 無視できるようにする
-- [ ] Worktree cleanup / retention policyを成功、失敗、Human Gate、Provider Gate別に定義する
+- [x] Worktree cleanup / retention policyを成功、失敗、Human Gate、Provider Gate別に定義し、Objective / Job取消時のcleanupまで実行する
 - [ ] objective hard gate、max rounds、repeated failure、score manipulation、schedulerの直接testを追加する
 
 ## P3: Connector / Plugin

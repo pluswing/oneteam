@@ -354,7 +354,8 @@ Provider adapterの終了境界では共通Stop validatorを実行し、未構�
 
 - Loop Run ごとに git worktree を作成する
 - Agent Job は割り当てられた worktree 内でのみ編集する
-- 完了後に worktree を cleanup する
+- 成功・取消時は worktree を cleanup し、失敗、Human Gate、Provider Gate、pause、回復可能エラーでは再開・調査のため保持する
+- cleanup / retention の判断、理由、path、branchをAgent Job出力、Loop Evidence、Activityへ残す
 - main workspace に未コミット変更があっても、分離 worktree で安全に実行できるようにする
 - 同じ Issue / PR に対する破壊的 Job は引き続き lock する
 
@@ -369,6 +370,8 @@ worktree path 例:
 ```text
 ~/.oneteam/worktrees/{projectId}/loop-{loopRunId}
 ```
+
+保持したworktreeは、Provider枠回復、Human Gate解除、pause解除では同じLoop Runから再利用する。ObjectiveまたはAgent Jobが取り消された場合は、実行中Workerまたは取消APIがworktreeをcleanupし、Loop Runの`worktree_path`を消去する。
 
 ### 8. Skills / Project Knowledge を管理する
 
