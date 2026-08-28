@@ -8,7 +8,12 @@ import { createApp } from "../server/app";
 import { createDatabaseContext } from "../server/db/client";
 import { runMigrations } from "../server/db/migrations";
 import { createRepositories } from "../server/db/repositories";
-import type { PullRequestDto, RepositoryCommitDto, RepositoryFileChangeDto } from "../shared/types";
+import type {
+  PullRequestDto,
+  PullRequestLineCommentDto,
+  RepositoryCommitDto,
+  RepositoryFileChangeDto
+} from "../shared/types";
 
 const execFileAsync = promisify(execFile);
 
@@ -84,6 +89,70 @@ describe("pull request git API", () => {
     expect(files.targetCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(diff.file.patch).toContain("+Feature");
     expect(staleDiffResponse.status).toBe(409);
+
+    const lineCommentResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/line-comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: "Please add a test for this line.",
+          path: "README.md",
+          line: 3,
+          side: "R",
+          sourceCommit: files.sourceCommit,
+          targetCommit: files.targetCommit
+        })
+      }
+    );
+    const lineComment = (await lineCommentResponse.json()) as { comment: PullRequestLineCommentDto };
+    const lineCommentsResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/line-comments`
+    );
+    const lineComments = (await lineCommentsResponse.json()) as { items: PullRequestLineCommentDto[] };
+    const staleLineCommentResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/line-comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: "Stale review comment.",
+          path: "README.md",
+          line: 3,
+          side: "R",
+          sourceCommit: "stale",
+          targetCommit: files.targetCommit
+        })
+      }
+    );
+    const invalidLineCommentResponse = await app.request(
+      `/api/projects/${project.id}/pull-requests/${pullRequest.id}/line-comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: "Invalid review comment.",
+          path: "README.md",
+          line: 3,
+          side: "L",
+          sourceCommit: files.sourceCommit,
+          targetCommit: files.targetCommit
+        })
+      }
+    );
+
+    expect(lineCommentResponse.status).toBe(201);
+    expect(lineComment.comment).toMatchObject({
+      body: "Please add a test for this line.",
+      path: "README.md",
+      line: 3,
+      side: "R",
+      sourceCommit: files.sourceCommit,
+      targetCommit: files.targetCommit
+    });
+    expect(lineComments.items).toEqual([lineComment.comment]);
+    expect(staleLineCommentResponse.status).toBe(409);
+    expect(invalidLineCommentResponse.status).toBe(400);
 
     context.client.close();
   });

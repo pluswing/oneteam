@@ -361,6 +361,14 @@ export type PullRequestFindingDto = {
   createdAt: string;
 };
 
+export type PullRequestLineCommentDto = CommentDto & {
+  path: string;
+  line: number;
+  side: "L" | "R";
+  sourceCommit: string;
+  targetCommit: string;
+};
+
 export type MergeConflictDto = {
   hasConflicts: boolean;
   files: Array<{

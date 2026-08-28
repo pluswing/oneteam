@@ -44,6 +44,12 @@ import { ensureObjectiveForTarget } from "./services/objective-runs";
 import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
 import { mergePullRequest } from "./services/pull-request-merge";
 import { collectPullRequestFindings } from "./services/pull-request-findings";
+import {
+  collectPullRequestLineComments,
+  diffPatchContainsLine,
+  lineCommentMetadata,
+  toPullRequestLineComment
+} from "./services/pull-request-line-comments";
 import { recordProviderWaitCanceled, resumeProviderWait } from "./services/provider-wait";
 
 const execFileAsync = promisify(execFile);
@@ -85,6 +91,15 @@ const updateIssueSchema = z.object({
 
 const createCommentSchema = z.object({
   body: z.string().min(1)
+});
+
+const createPullRequestLineCommentSchema = z.object({
+  body: z.string().min(1),
+  path: z.string().min(1),
+  line: z.number().int().positive(),
+  side: z.enum(["L", "R"]),
+  sourceCommit: z.string().min(1),
+  targetCommit: z.string().min(1)
 });
 
 const createPullRequestSchema = z.object({
@@ -891,6 +906,72 @@ export function createApp({
         targetId: pullRequestId
       });
       return c.json({ comment, autoResumedJobId: autoResumedJob?.id ?? null }, 201);
+    }
+  );
+
+  app.get("/api/projects/:projectId/pull-requests/:pullRequestId/line-comments", async (c) => {
+    const projectId = c.req.param("projectId");
+    const pullRequestId = Number(c.req.param("pullRequestId"));
+    const pullRequest = await repos.pullRequests.get(projectId, pullRequestId);
+    if (!pullRequest) {
+      notFound("Pull request was not found.");
+    }
+    const comments = await repos.comments.list(projectId, "pull_request", pullRequestId);
+    return c.json({ items: collectPullRequestLineComments(comments) });
+  });
+
+  app.post(
+    "/api/projects/:projectId/pull-requests/:pullRequestId/line-comments",
+    zValidator("json", createPullRequestLineCommentSchema),
+    async (c) => {
+      const project = await getProjectOr404(repos, c.req.param("projectId"));
+      const pullRequestId = Number(c.req.param("pullRequestId"));
+      const pullRequest = await repos.pullRequests.get(project.id, pullRequestId);
+      if (!pullRequest) {
+        notFound("Pull request was not found.");
+      }
+      const input = c.req.valid("json");
+      const [sourceCommit, targetCommit] = await Promise.all([
+        getRevisionHash(project.repoPath, pullRequest.sourceBranch),
+        getRevisionHash(project.repoPath, pullRequest.targetBranch)
+      ]);
+      if (input.sourceCommit !== sourceCommit || input.targetCommit !== targetCommit) {
+        conflict("Pull request branches changed. Refresh the diff before commenting.");
+      }
+      const files = await getDiffFiles(project.repoPath, sourceCommit, targetCommit);
+      const file = files.find((candidate) => candidate.path === input.path);
+      if (!file) {
+        notFound("Changed file was not found.");
+      }
+      if (file.binary) {
+        throw new HTTPException(400, { message: "Binary files do not support line comments." });
+      }
+      const patch = await getDiffFilePatch(project.repoPath, sourceCommit, targetCommit, file.path, {
+        contextLines: 100_000,
+        previousPath: file.previousPath
+      });
+      if (!diffPatchContainsLine(patch, input.side, input.line)) {
+        throw new HTTPException(400, { message: "The selected line is not part of this pull request diff." });
+      }
+      const comment = await repos.comments.create({
+        projectId: project.id,
+        targetType: "pull_request",
+        targetId: pullRequestId,
+        authorType: "user",
+        body: input.body,
+        metadata: lineCommentMetadata({
+          path: input.path,
+          line: input.line,
+          side: input.side,
+          sourceCommit,
+          targetCommit
+        })
+      });
+      const lineComment = toPullRequestLineComment(comment);
+      if (!lineComment) {
+        throw new Error("Failed to create pull request line comment metadata.");
+      }
+      return c.json({ comment: lineComment }, 201);
     }
   );
 
