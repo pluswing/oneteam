@@ -182,6 +182,8 @@ export const agentActivities = sqliteTable("agent_activities", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   payloadJson: text("payload_json"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  lastOccurredAt: text("last_occurred_at"),
   createdAt: text("created_at").notNull()
 });
 

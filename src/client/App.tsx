@@ -407,8 +407,13 @@ function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJo
       <span className="conversation-activity-icon"><Icon aria-hidden="true" size={16} /></span>
       <div>
         <header>
-          <strong>{props.activity.title}</strong>
-          <ConversationPermalink anchor={`activity-${props.activity.id}`} createdAt={props.activity.createdAt} />
+          <strong>
+            {props.activity.title}
+            {props.activity.occurrenceCount > 1 ? (
+              <span className="activity-occurrence-count">×{props.activity.occurrenceCount}</span>
+            ) : null}
+          </strong>
+          <ConversationPermalink anchor={`activity-${props.activity.id}`} createdAt={props.activity.lastOccurredAt} />
         </header>
         {props.activity.body ? <CollapsibleConversationMarkdown content={props.activity.body} /> : null}
         {props.activity.agentJobId ? (

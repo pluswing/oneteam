@@ -427,6 +427,14 @@ const migrations: Migration[] = [
       )`,
       "create index if not exists idx_comment_revisions_comment_created on comment_revisions(project_id, comment_id, created_at desc)"
     ]
+  },
+  {
+    id: "0012_activity_occurrences",
+    statements: [
+      "alter table agent_activities add column occurrence_count integer not null default 1",
+      "alter table agent_activities add column last_occurred_at text",
+      "update agent_activities set last_occurred_at = created_at where last_occurred_at is null"
+    ]
   }
 ];
 

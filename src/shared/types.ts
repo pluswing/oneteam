@@ -200,6 +200,8 @@ export type ActivityDto = {
   title: string;
   body: string;
   payload: Record<string, unknown> | null;
+  occurrenceCount: number;
+  lastOccurredAt: string;
   createdAt: string;
 };
 

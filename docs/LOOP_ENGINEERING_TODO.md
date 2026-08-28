@@ -164,7 +164,7 @@
 - [x] **Done**: structured Agent outputからserver側で安定したMarkdown summaryを生成し、provider / model / session、Evidence、review / QA finding、next workflow stateを記録する
 - [x] **Done**: internal system commentはMarkdownを標準とし、表とcalloutを共通builderで生成する
 - [x] sanitizerのelement / attribute allowlist、URL、CSS、same-origin image、data attribute policyを明文化し、unit / browser security testを追加する
-- [ ] Activityの逐次ログをcommentへ連投せず、節目単位で圧縮・重複排除する
+- [x] Agent runごとに節目単位のcommentを1件生成し、逐次ログはActivityへ分離する。30秒以内の連続した同一Activityはoccurrence count付きの1件へ圧縮し、Issue / PR timelineはsystem / commit等の監査イベントだけを表示する
 - [ ] **Partial**: merge / Issue完了 / Agent review・QA commentのPR / changed file / finding line参照はdeep link化済み。自由文中の参照検証とcommit link生成は未実装
 - [x] merge後のfinal summaryにstable anchorを付け、Issueの完了サマリーとPRのmergeサマリーを相互参照できるようにする
 - [ ] 日本語 / 英語で情報階層と表の読みやすさが崩れないsnapshot / browser testを追加する

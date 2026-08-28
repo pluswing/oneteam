@@ -151,8 +151,13 @@ function ActivityLog(props: { activities: ActivityDto[] }) {
       {props.activities.map((activity) => (
         <article className="activity-item" key={activity.id}>
           <header>
-            <strong>{activity.title}</strong>
-            <span>{formatDateTime(activity.createdAt)}</span>
+            <strong>
+              {activity.title}
+              {activity.occurrenceCount > 1 ? (
+                <span className="activity-occurrence-count">×{activity.occurrenceCount}</span>
+              ) : null}
+            </strong>
+            <span>{formatDateTime(activity.lastOccurredAt)}</span>
           </header>
           {activity.body ? <MarkdownContent content={activity.body} /> : null}
         </article>

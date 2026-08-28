@@ -155,6 +155,8 @@ function mapActivity(row: ActivityRow): ActivityDto {
     title: row.title,
     body: row.body,
     payload: parseJsonObject(row.payloadJson),
+    occurrenceCount: row.occurrenceCount ?? 1,
+    lastOccurredAt: row.lastOccurredAt ?? row.createdAt,
     createdAt: row.createdAt
   };
 }
@@ -1171,6 +1173,42 @@ export function createRepositories(db: Database) {
         body?: string;
         payload?: Record<string, unknown>;
       }): Promise<ActivityDto> {
+        const timestamp = now();
+        const payloadJson = stringifyJson(input.payload);
+        const latestRows = await db
+          .select()
+          .from(agentActivities)
+          .where(
+            and(
+              eq(agentActivities.projectId, input.projectId),
+              eq(agentActivities.targetType, input.targetType),
+              eq(agentActivities.targetId, input.targetId)
+            )
+          )
+          .orderBy(desc(agentActivities.id))
+          .limit(1);
+        const latest = latestRows[0];
+        const latestTimestamp = Date.parse(latest?.lastOccurredAt ?? latest?.createdAt ?? "");
+        if (
+          latest &&
+          latest.agentJobId === (input.agentJobId ?? null) &&
+          latest.activityType === input.activityType &&
+          latest.title === input.title &&
+          latest.body === (input.body ?? "") &&
+          latest.payloadJson === payloadJson &&
+          Number.isFinite(latestTimestamp) &&
+          Date.parse(timestamp) - latestTimestamp <= 30_000
+        ) {
+          const compactedRows = await db
+            .update(agentActivities)
+            .set({
+              occurrenceCount: sql`${agentActivities.occurrenceCount} + 1`,
+              lastOccurredAt: timestamp
+            })
+            .where(eq(agentActivities.id, latest.id))
+            .returning();
+          return mapActivity(compactedRows[0]);
+        }
         const rows = await db
           .insert(agentActivities)
           .values({
@@ -1181,8 +1219,10 @@ export function createRepositories(db: Database) {
             activityType: input.activityType,
             title: input.title,
             body: input.body ?? "",
-            payloadJson: stringifyJson(input.payload),
-            createdAt: now()
+            payloadJson,
+            occurrenceCount: 1,
+            lastOccurredAt: timestamp,
+            createdAt: timestamp
           })
           .returning();
         return mapActivity(rows[0]);
