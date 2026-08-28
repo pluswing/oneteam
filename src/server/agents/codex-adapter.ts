@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ActivityType } from "../../shared/types";
-import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
+import type {
+  AgentAdapter,
+  AgentActivityResult,
+  AgentRunResult,
+  ProviderCapacityProbeResult
+} from "./types";
 import { unstructuredAdapterStopResult, validateAdapterStopResult } from "./adapter-guardrails";
 
 export type CodexAdapterOptions = {
@@ -44,6 +49,13 @@ function parseAgentRunResult(candidate: string): AgentRunResult | null {
 
 export class CodexAdapter implements AgentAdapter {
   constructor(private readonly options: CodexAdapterOptions) {}
+
+  async probeCapacity(
+    input: Parameters<NonNullable<AgentAdapter["probeCapacity"]>>[0]
+  ): Promise<ProviderCapacityProbeResult> {
+    const options = await this.resolveOptions();
+    return probeCodexCapacity(resolveCommand(options.command), input.timeoutMs);
+  }
 
   async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentRunResult> {
     const options = await this.resolveOptions();
@@ -235,6 +247,174 @@ function providerExecutionMetadata(model: string | null, telemetry: CodexTelemet
     resumedSession: telemetry.resumedSession,
     usage: telemetry.usage
   };
+}
+
+export function classifyCodexRateLimitSnapshot(
+  value: unknown,
+  checkedAt = new Date()
+): Omit<ProviderCapacityProbeResult, "provider" | "checkedAt" | "source"> {
+  const response = isRecord(value) ? value : null;
+  const byLimitId = isRecord(response?.rateLimitsByLimitId) ? response.rateLimitsByLimitId : null;
+  const snapshot = isRecord(byLimitId?.codex)
+    ? byLimitId.codex
+    : isRecord(response?.rateLimits)
+      ? response.rateLimits
+      : null;
+  if (!snapshot) {
+    return {
+      status: "unknown",
+      message: "Codex app-server did not return a rate-limit snapshot.",
+      usageSnapshot: response,
+      resetAt: null
+    };
+  }
+
+  const primary = isRecord(snapshot.primary) ? snapshot.primary : null;
+  const secondary = isRecord(snapshot.secondary) ? snapshot.secondary : null;
+  const individualLimit = isRecord(snapshot.individualLimit) ? snapshot.individualLimit : null;
+  const primaryUsedPercent = numericValue(primary?.usedPercent);
+  const secondaryUsedPercent = numericValue(secondary?.usedPercent);
+  const individualRemainingPercent = numericValue(individualLimit?.remainingPercent);
+  const primaryExhausted = primaryUsedPercent !== null && primaryUsedPercent >= 100;
+  const secondaryExhausted = secondaryUsedPercent !== null && secondaryUsedPercent >= 100;
+  const individualExhausted = individualRemainingPercent !== null && individualRemainingPercent <= 0;
+  const reachedType = typeof snapshot.rateLimitReachedType === "string" ? snapshot.rateLimitReachedType : null;
+  const spendControlReached = snapshot.spendControlReached === true;
+  const exhausted = Boolean(
+    primaryExhausted || secondaryExhausted || individualExhausted || reachedType || spendControlReached
+  );
+  const hasAvailabilitySignal = Boolean(
+    primary || secondary || individualLimit || reachedType || typeof snapshot.spendControlReached === "boolean"
+  );
+  const resetCandidates = [
+    primaryExhausted ? timestampFromSeconds(primary?.resetsAt) : null,
+    secondaryExhausted ? timestampFromSeconds(secondary?.resetsAt) : null,
+    individualExhausted ? timestampFromSeconds(individualLimit?.resetsAt) : null
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > checkedAt.getTime());
+  const fallbackResetCandidates = [
+    timestampFromSeconds(primary?.resetsAt),
+    timestampFromSeconds(secondary?.resetsAt),
+    timestampFromSeconds(individualLimit?.resetsAt)
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > checkedAt.getTime());
+  const applicableResetCandidates = resetCandidates.length ? resetCandidates : fallbackResetCandidates;
+  const resetAt = exhausted && applicableResetCandidates.length
+    ? new Date(Math.min(...applicableResetCandidates)).toISOString()
+    : null;
+
+  return {
+    status: exhausted ? "exhausted" : hasAvailabilitySignal ? "available" : "unknown",
+    message: exhausted
+      ? `Codex capacity remains unavailable${reachedType ? ` (${reachedType})` : ""}.`
+      : hasAvailabilitySignal
+        ? "Codex rate-limit capacity is available."
+        : "Codex rate-limit availability could not be determined.",
+    usageSnapshot: response,
+    resetAt
+  };
+}
+
+async function probeCodexCapacity(command: string, timeoutMs = 10_000): Promise<ProviderCapacityProbeResult> {
+  const checkedAt = new Date();
+  return new Promise((resolveProbe) => {
+    const child = spawn(command, ["app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdoutBuffer = "";
+    let stderr = "";
+    let settled = false;
+    let rateLimitRequestSent = false;
+    const timer = setTimeout(() => {
+      finish({
+        status: "unknown",
+        message: `Codex capacity probe timed out after ${timeoutMs}ms.`,
+        usageSnapshot: null,
+        resetAt: null
+      });
+    }, timeoutMs);
+
+    function finish(result: Omit<ProviderCapacityProbeResult, "provider" | "checkedAt" | "source">) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.stdin.end();
+      child.kill("SIGTERM");
+      resolveProbe({
+        ...result,
+        provider: "codex",
+        checkedAt: checkedAt.toISOString(),
+        source: "codex_app_server_rate_limits"
+      });
+    }
+
+    function handleLine(line: string) {
+      let message: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (!isRecord(parsed)) return;
+        message = parsed;
+      } catch {
+        return;
+      }
+      if (message.id === 1 && !rateLimitRequestSent) {
+        rateLimitRequestSent = true;
+        child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
+        child.stdin.write(`${JSON.stringify({ id: 2, method: "account/rateLimits/read", params: null })}\n`);
+        return;
+      }
+      if (message.id !== 2) return;
+      if (isRecord(message.error)) {
+        finish({
+          status: "unknown",
+          message: `Codex capacity probe failed: ${String(message.error.message ?? "unknown app-server error")}`,
+          usageSnapshot: message.error,
+          resetAt: null
+        });
+        return;
+      }
+      finish(classifyCodexRateLimitSnapshot(message.result, checkedAt));
+    }
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString("utf8");
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) handleLine(line);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.stdin.on("error", () => undefined);
+    child.on("error", (error) => {
+      finish({ status: "unknown", message: error.message, usageSnapshot: null, resetAt: null });
+    });
+    child.on("close", () => {
+      if (stdoutBuffer) handleLine(stdoutBuffer);
+      if (!settled) {
+        finish({
+          status: "unknown",
+          message: stderr.trim() || "Codex app-server closed before returning rate limits.",
+          usageSnapshot: null,
+          resetAt: null
+        });
+      }
+    });
+    child.stdin.write(`${JSON.stringify({
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "oneteam-provider-probe", version: "0.1.0" },
+        capabilities: { experimentalApi: true }
+      }
+    })}\n`);
+  });
+}
+
+function numericValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timestampFromSeconds(value: unknown): number | null {
+  const numeric = numericValue(value);
+  if (numeric === null) return null;
+  return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
 }
 
 const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);

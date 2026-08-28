@@ -2,10 +2,89 @@ import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CodexAdapter } from "../server/agents/codex-adapter";
+import { classifyCodexRateLimitSnapshot, CodexAdapter } from "../server/agents/codex-adapter";
 import type { AgentJobDto } from "../shared/types";
 
 describe("codex adapter", () => {
+  it("classifies available and exhausted Codex rate-limit snapshots", () => {
+    const checkedAt = new Date("2026-08-29T00:00:00.000Z");
+    expect(classifyCodexRateLimitSnapshot({
+      rateLimits: {
+        primary: { usedPercent: 20, resetsAt: 1_788_000_000 },
+        secondary: { usedPercent: 60, resetsAt: 1_788_600_000 },
+        spendControlReached: false,
+        rateLimitReachedType: null
+      }
+    }, checkedAt)).toMatchObject({ status: "available", resetAt: null });
+
+    expect(classifyCodexRateLimitSnapshot({
+      rateLimitsByLimitId: {
+        codex: {
+          primary: { usedPercent: 100, resetsAt: 1_788_000_000 },
+          secondary: { usedPercent: 60, resetsAt: 1_788_600_000 },
+          spendControlReached: false,
+          rateLimitReachedType: "rate_limit_reached"
+        }
+      }
+    }, checkedAt)).toMatchObject({
+      status: "exhausted",
+      resetAt: new Date(1_788_000_000_000).toISOString()
+    });
+  });
+
+  it("reads capacity through the Codex app-server without starting an agent turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-probe-"));
+    const methodsPath = join(dir, "methods.json");
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+
+const methods = [];
+const lines = createInterface({ input: process.stdin });
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  methods.push(message.method);
+  writeFileSync(${JSON.stringify(methodsPath)}, JSON.stringify(methods));
+  if (message.id === 1) {
+    process.stdout.write(JSON.stringify({ id: 1, result: { userAgent: "fake" } }) + "\\n");
+  }
+  if (message.id === 2) {
+    process.stdout.write(JSON.stringify({
+      id: 2,
+      result: {
+        rateLimits: {
+          primary: { usedPercent: 25, resetsAt: 1788000000 },
+          secondary: { usedPercent: 50, resetsAt: 1788600000 },
+          spendControlReached: false,
+          rateLimitReachedType: null
+        }
+      }
+    }) + "\\n");
+  }
+}
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+
+    const result = await new CodexAdapter({ command: fakeCodexPath }).probeCapacity({
+      job: fakeJob,
+      timeoutMs: 2_000
+    });
+
+    expect(result).toMatchObject({
+      status: "available",
+      provider: "codex",
+      source: "codex_app_server_rate_limits"
+    });
+    expect(await readFile(methodsPath, "utf8")).toBe(
+      JSON.stringify(["initialize", "initialized", "account/rateLimits/read"])
+    );
+  });
+
   it("runs the local Codex CLI with full access flags and captures JSONL activity", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-"));
     const argsPath = join(dir, "args.json");

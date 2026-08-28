@@ -3,7 +3,7 @@ import { aiProviderLabel, normalizeAiSettings } from "../../shared/ai-providers"
 import { CodexAdapter } from "./codex-adapter";
 import { ClaudeCodeAdapter } from "./claude-code-adapter";
 import { LmStudioAdapter } from "./lm-studio-adapter";
-import type { AgentAdapter, AgentRunResult } from "./types";
+import type { AgentAdapter, AgentRunResult, ProviderCapacityProbeResult } from "./types";
 
 export type ProviderRoutingAdapterOptions = {
   defaults: AiSettingsDto;
@@ -29,6 +29,15 @@ export class ProviderRoutingAdapter implements AgentAdapter {
     });
     await this.options.ensureReady?.(provider, settings);
     return this.createAdapter(provider, settings, model).run(input);
+  }
+
+  async probeCapacity(
+    input: Parameters<NonNullable<AgentAdapter["probeCapacity"]>>[0]
+  ): Promise<ProviderCapacityProbeResult | null> {
+    const settings = normalizeAiSettings(await this.options.loadSettings(), this.options.defaults);
+    const provider = input.job.aiProvider ?? settings.provider;
+    const adapter = this.createAdapter(provider, settings, input.job.aiModel);
+    return adapter.probeCapacity?.(input) ?? null;
   }
 
   private createAdapter(provider: AiProvider, settings: AiSettingsDto, model: string | null): AgentAdapter {

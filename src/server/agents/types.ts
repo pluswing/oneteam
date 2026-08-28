@@ -83,6 +83,16 @@ export type AgentRunResult = {
   } | null;
 };
 
+export type ProviderCapacityProbeResult = {
+  status: "available" | "exhausted" | "unknown";
+  provider: AgentJobDto["aiProvider"];
+  checkedAt: string;
+  source: string;
+  message: string;
+  usageSnapshot: Record<string, unknown> | null;
+  resetAt: string | null;
+};
+
 export type AgentAdapter = {
   run(input: {
     job: AgentJobDto;
@@ -92,4 +102,8 @@ export type AgentAdapter = {
     onActivity?: (activity: AgentActivityResult) => Promise<void> | void;
     isCanceled?: () => Promise<boolean> | boolean;
   }): Promise<AgentRunResult>;
+  probeCapacity?(input: {
+    job: AgentJobDto;
+    timeoutMs?: number;
+  }): Promise<ProviderCapacityProbeResult | null>;
 };
