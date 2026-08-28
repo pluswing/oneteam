@@ -474,6 +474,11 @@ function AgentJobDetailScreen(props: {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [job, visibleActivities.length]);
 
+  const providerProbe = recordValue(job?.waitMetadata?.lastProbe);
+  const providerProbeCount = numberValue(job?.waitMetadata?.probeCount) ?? 0;
+  const providerLastCheckedAt = stringValue(job?.waitMetadata?.lastCheckedAt)
+    ?? stringValue(job?.waitMetadata?.detectedAt);
+
   return (
     <div className="detail-page">
       <div className="page-toolbar">
@@ -507,8 +512,15 @@ function AgentJobDetailScreen(props: {
                   </span>
                   <span>{t("agents.nextRetry")}: {formatDateTime(job.nextRetryAt)}</span>
                   <span>{t("agents.waitReason")}: {job.waitReason ?? "-"}</span>
-                  <span>{t("agents.lastChecked")}: {formatDateTime(stringValue(job.waitMetadata?.detectedAt))}</span>
+                  <span>{t("agents.lastChecked")}: {formatDateTime(providerLastCheckedAt)}</span>
                   <span>{t("agents.retryCount")}: {numberValue(job.waitMetadata?.retryCount) ?? 0}</span>
+                  {providerProbe ? (
+                    <>
+                      <span>{t("agents.probeStatus")}: {stringValue(providerProbe.status) ?? "-"}</span>
+                      <span>{t("agents.probeSource")}: {stringValue(providerProbe.source) ?? "-"}</span>
+                      <span>{t("agents.probeCount")}: {providerProbeCount}</span>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
               <dl className="agent-job-detail-facts">
