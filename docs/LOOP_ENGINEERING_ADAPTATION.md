@@ -340,6 +340,8 @@ Provider usageのbudget制御では、providerごとに異なるtelemetryを共�
 
 時間制御はAgent Job全体と検証commandを分離する。Loop固有の`time_budget_minutes`を優先し、未指定時はProject既定のAgent time budgetを使用する。deadlineはprovider adapterへ渡し、CLI process、LM Studio request、tool commandを中断可能にする。lint / test / buildには別のcommand timeoutを適用し、Agentの残り時間がそれより短い場合だけ残り時間を上限にする。Agent deadline到達時はpartial resultとprovider telemetryを破棄せず、`timeout` EvidenceとしてHuman Gateへ残す。
 
+Provider adapterの終了境界では共通Stop validatorを実行し、未構造化応答、成功statusとstop reasonの矛盾、成功したtestと非0 exit codeの矛盾、repository外を指すchanged fileを自動成功させない。判定結果は`adapterValidation` metadataとEvidenceへ保存する。OneTeam自身がtool loopを制御するLM Studioでは各tool実行後にもPostToolUse判定を行い、Activityと次のmodel requestへ渡すtool responseの両方へ記録する。Codex / Claude Codeの内部toolはCLI外部から直接interceptせず、stream activityの監査記録とStop validator、WorkerのEvidence / diff gateで検証する。
+
 ### 7. Worktree isolation を導入する
 
 現在の実装は branch 作成が中心だが、複数 Loop / Agent を並列に走らせるには作業ディレクトリの分離が必要になる。

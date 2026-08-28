@@ -175,7 +175,7 @@
 - [x] implementation / review / QA / verifierでrole-based provider / modelを設定し、Job detail / Activity / milestoneに実行条件を残す。provider切替再開時だけ切替先modelを再解決する
 - [x] provider usage / token / provider報告USD costをObjectiveに集計し、budget到達後のjobをdequeue時に`running`へ遷移させずprovider実行前で停止する
 - [x] Agent全体deadlineとcommand別timeoutを分離し、deadline到達時のpartial telemetry、経過時間、適用上限を`timeout` Evidenceへ保存する
-- [ ] PostToolUse / Stop Hook相当の軽量検証をprovider adapterごとに追加する
+- [x] Codex / Claude Code / LM Studio共通のStop validatorで未構造化応答、status / stop reason矛盾、command evidence矛盾、repository外pathをHuman Gateへ止める。tool loopを制御できるLM StudioではPostToolUse判定もActivity / tool responseへ保存する
 - [ ] stale objective、CI failure、regression、TODO / FIXME discoveryをSchedulerへ追加する
 - [ ] TriageをIssues / notificationsへ統合し、Loops tabなしで処理できるようにする
 - [ ] Worktree cleanup / retention policyを成功、失敗、Human Gate、Provider Gate別に定義する
