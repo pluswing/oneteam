@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProviderWait } from "../server/services/provider-wait";
+import { buildProviderWaitComment, classifyProviderWait } from "../server/services/provider-wait";
 import type { AgentJobDto } from "../shared/types";
 
 describe("provider wait classification", () => {
@@ -64,6 +64,29 @@ describe("provider wait classification", () => {
 
     expect(decision?.resetAt).toBe("2026-08-28T01:05:10.000Z");
     expect(decision?.nextRetryAt).toBe("2026-08-28T01:05:15.000Z");
+  });
+
+  it("formats provider waits as an outcome-first durable comment", () => {
+    const job = fakeJob();
+    const decision = classifyProviderWait(
+      job,
+      {
+        status: "failed",
+        message: "Usage limit exceeded.",
+        metadata: { providerExecution: { usage: { remaining: 0 }, sessionId: "session-1", model: "gpt-test" } }
+      },
+      new Date("2026-08-28T00:00:00.000Z"),
+      () => 0.5
+    );
+
+    expect(decision).not.toBeNull();
+    const comment = buildProviderWaitComment(job, decision!);
+    expect(comment).toContain("## AI provider usage wait");
+    expect(comment).toContain("> **Outcome · WAITING**");
+    expect(comment).toContain("| Session | `session-1` |");
+    expect(comment).toContain("### Usage snapshot");
+    expect(comment).toContain('"remaining": 0');
+    expect(comment).toContain("### Next step");
   });
 });
 

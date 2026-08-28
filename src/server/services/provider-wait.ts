@@ -2,6 +2,7 @@ import type { AgentJobDto } from "../../shared/types";
 import type { AgentRunResult } from "../agents/types";
 import type { Repositories } from "../db/repositories";
 import { objectiveForJob } from "./objective-runs";
+import { buildSystemComment } from "./system-comment";
 
 export const providerQuotaWaitReason = "provider_quota_exhausted";
 
@@ -75,23 +76,7 @@ export async function enterProviderWait(
   decision: ProviderWaitDecision
 ): Promise<AgentJobDto | null> {
   const target = job.targetType === "project" ? null : { targetType: job.targetType, targetId: job.targetId };
-  const message = [
-    "## AI provider usage wait",
-    "",
-    `The **${job.aiProvider}** usage allowance is currently unavailable. OneTeam preserved this job and will retry it automatically.`,
-    "",
-    `- Job: \`#${job.id}\` (${job.agentType})`,
-    `- Reason: \`${decision.reason}\``,
-    `- Retry attempt: ${decision.retryCount}`,
-    decision.model ? `- Model: \`${decision.model}\`` : null,
-    decision.sessionId ? `- Session: \`${decision.sessionId}\`` : null,
-    `- Next retry: ${decision.nextRetryAt}`,
-    decision.resetAt ? `- Provider reset: ${decision.resetAt}` : "- Provider reset: not reported; exponential backoff is active",
-    "",
-    "This wait does not consume an Objective round. You can also resume the job immediately from the Agent Job screen."
-  ]
-    .filter((line): line is string => line !== null)
-    .join("\n");
+  const message = buildProviderWaitComment(job, decision);
   const output = {
     status: "waiting_provider",
     message,
@@ -170,6 +155,50 @@ export async function enterProviderWait(
   }
 
   return waitingJob;
+}
+
+export function buildProviderWaitComment(job: AgentJobDto, decision: ProviderWaitDecision): string {
+  return buildSystemComment({
+    title: "AI provider usage wait",
+    outcome: "waiting",
+    summary: `The ${job.aiProvider} usage allowance is unavailable. OneTeam preserved the job state and scheduled an automatic retry.`,
+    fields: [
+      { label: "Job", value: `#${job.id}`, code: true },
+      { label: "Agent", value: job.agentType, code: true },
+      { label: "Provider", value: decision.provider, code: true },
+      decision.model ? { label: "Model", value: decision.model, code: true } : null,
+      decision.sessionId ? { label: "Session", value: decision.sessionId, code: true } : null,
+      { label: "Stop reason", value: decision.reason, code: true },
+      { label: "Retry attempt", value: decision.retryCount },
+      { label: "Detected at", value: decision.detectedAt, code: true },
+      {
+        label: "Provider reset",
+        value: decision.resetAt ?? "Not reported; bounded exponential backoff is active",
+        code: Boolean(decision.resetAt)
+      },
+      { label: "Next retry", value: decision.nextRetryAt, code: true }
+    ],
+    sections: [
+      decision.usageSnapshot
+        ? {
+            title: "Usage snapshot",
+            body: `\`\`\`json\n${JSON.stringify(decision.usageSnapshot, null, 2)}\n\`\`\``
+          }
+        : {
+            title: "Usage snapshot",
+            body: "The provider did not return structured usage telemetry for this attempt."
+          },
+      {
+        title: "Loop accounting",
+        items: [
+          "This provider wait does not consume an Objective round.",
+          "The worktree, job input, Objective, and available provider session identifier remain attached to the job."
+        ]
+      }
+    ],
+    nextStep: "OneTeam will queue the same job after the retry time. Use **Resume now** to retry sooner, or **Cancel** to stop this Objective.",
+    recordedAt: new Date(decision.detectedAt)
+  });
 }
 
 export async function resumeProviderWait(

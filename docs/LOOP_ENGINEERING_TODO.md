@@ -49,7 +49,7 @@
 - [ ] **Internal / Hidden**: Loops、Loop Run detail、Triage Inbox、Skills管理UIは実装されているがroute / navigationから非表示
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
-- [ ] **Partial**: system commentの内容とレイアウトはAgent出力依存が強く、節目ごとの統一templateやdiff deep linkがない
+- [ ] **Partial**: internal system commentはOutcome / Record / Evidence or Decision / Next step / timestampの共通Markdown contractへ統一済み。Agent出力のserver-side再構成とdiff deep link生成は未実装
 - [ ] **Partial**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、word-level diff、Viewed、空白無視、line anchorまで対応。syntax highlight、context展開、inline review、virtualizationは未実装
 
 ### Provider / Connector
@@ -87,7 +87,7 @@
 - [ ] 要件確定、実装開始、PR作成、review、QA、Provider Gate、mergeの節目でIssueを自動更新する
 - [ ] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [ ] Goal Contract変更時は旧条件との差分と変更理由を残す
-- [ ] **Partial**: merge後にPR / Issueへcommit、branch、Verifier参照を含むMarkdown summaryを投稿する。主要diff、残リスク、Memory参照の集約は未完了
+- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / Verifier / required commands / risk decisionを含むMarkdown summaryを投稿する。主要diffのdeep linkとMemory参照の集約は未完了
 - [ ] **Partial**: merge後のIssue自動closeと`done` labelは実装済み。再open時のObjective選択は未実装
 
 ## P0: Codex usage remaining待機と自動再開
@@ -151,7 +151,7 @@
 
 ## P1: 後から読み返せるAgent / system comment
 
-- [ ] milestone commentの共通contractを定義する
+- [x] **Done**: internal milestone commentの共通Markdown contractとbuilderを定義する
   - conclusion / current state
   - Goal Contract summary
   - changes / decision
@@ -160,9 +160,9 @@
   - diff / file / line / commit / PR references
   - next step / stop or wait reason / resume condition
   - Agent role / provider / model / timestamp
-- [ ] requirements、implementation、review、fix、QA、verifier、Provider Gate、merge completionのtemplateを作る
+- [ ] **Partial**: Provider Gate、ready-to-merge、automatic merge block / failure、merge completion、Issue completionのtemplateは実装済み。requirements、implementation、review、fix、QA、verifierはAgent output依存
 - [ ] structured Agent outputからserver側で安定したMarkdown / HTML summaryを生成できるようにする
-- [ ] Markdownを標準、sanitized HTMLをtable / callout / comparisonが有効な場合に限定する
+- [x] **Done**: internal system commentはMarkdownを標準とし、表とcalloutを共通builderで生成する
 - [ ] sanitizerのallowlist、URL、CSS、image、data attribute policyとsecurity testを強化する
 - [ ] Activityの逐次ログをcommentへ連投せず、節目単位で圧縮・重複排除する
 - [ ] comment内のfile / line / commit / PR参照を検証可能なdeep linkとして保存する

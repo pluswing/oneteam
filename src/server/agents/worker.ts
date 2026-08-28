@@ -23,6 +23,7 @@ import {
 import { applyObjectiveHardGate, preflightObjectiveJob, recordObjectiveJobResult } from "../services/objective-runs";
 import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../services/provider-wait";
 import { mergePullRequest } from "../services/pull-request-merge";
+import { buildSystemComment } from "../services/system-comment";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -694,7 +695,28 @@ export class AgentWorker {
         targetType: "pull_request",
         targetId: pullRequest.id,
         authorType: "system",
-        body: `## Automatic merge failed\n\n${message}\n\nThe verifier result was preserved. Inspect the repository before retrying the merge.`,
+        body: buildSystemComment({
+          title: "Automatic merge failed",
+          outcome: "failed",
+          summary: message,
+          fields: [
+            { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+            { label: "Verifier job", value: `#${job.id}`, code: true },
+            { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+            { label: "Target branch", value: pullRequest.targetBranch, code: true },
+            { label: "Stop reason", value: "automatic_merge_failed", code: true }
+          ],
+          sections: [
+            {
+              title: "Preserved state",
+              items: [
+                "The verifier result and evidence remain attached to the Objective.",
+                "No merge status was recorded for this Pull Request."
+              ]
+            }
+          ],
+          nextStep: "Inspect the repository and error details, then rerun verification before retrying merge."
+        }),
         bodyFormat: "markdown",
         metadata: { agentJobId: job.id, automaticMerge: "failed" }
       });
@@ -861,7 +883,26 @@ export class AgentWorker {
   }
 
   private async notifyPullRequestReadyToMerge(job: AgentJobDto): Promise<void> {
-    const body = "Verifier confirmed the stop condition and evidence. This pull request is ready for user merge.";
+    const body = buildSystemComment({
+      title: "Pull request ready to merge",
+      outcome: "ready",
+      summary: "The verifier confirmed the stop condition against the current evidence snapshot.",
+      fields: [
+        { label: "Pull request", value: `#${job.targetId}`, code: true },
+        { label: "Verifier job", value: `#${job.id}`, code: true },
+        { label: "Workflow state", value: workflowLabelNames.readyToMerge, code: true }
+      ],
+      sections: [
+        {
+          title: "Decision",
+          items: [
+            "The Pull Request reached the pre-merge state.",
+            "Merge eligibility will still be rechecked against conflicts, branch snapshots, required commands, and risk policy."
+          ]
+        }
+      ],
+      nextStep: "OneTeam will attempt the automatic merge gate. If policy disables automatic merge or the gate cannot prove safety, the Pull Request remains available for manual review."
+    });
     await this.repos.comments.create({
       projectId: job.projectId,
       targetType: "pull_request",

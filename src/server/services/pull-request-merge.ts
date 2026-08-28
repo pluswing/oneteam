@@ -16,6 +16,7 @@ import { scanScoreManipulationRisks } from "./diff-risk-scanner";
 import { runLabelAutomation } from "./label-automation";
 import { appendObjectiveEvidence, markObjectiveMerged } from "./objective-runs";
 import { readAutomationSettings } from "./automation-settings";
+import { buildSystemComment, markdownCode, type SystemCommentSection } from "./system-comment";
 import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
 import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
 
@@ -119,22 +120,26 @@ export async function mergePullRequest(
     throw new Error("Pull request disappeared after its branches were merged.");
   }
 
-  const mergeBody = [
-    `## ${mode === "automatic" ? "Automatically merged" : "Merged"}`,
-    "",
-    `Merged \`${pullRequest.sourceBranch}\` into \`${pullRequest.targetBranch}\`.`,
-    "",
-    `- Merge commit: \`${mergeResult.mergeCommit.slice(0, 12)}\``,
-    `- Source snapshot: \`${sourceHead.slice(0, 12)}\``,
-    `- Target snapshot: \`${targetHead.slice(0, 12)}\``,
-    `- Merge base: \`${mergeBase.slice(0, 12)}\``,
-    automaticGateEvidence
-      ? `- Required checks: ${automaticGateEvidence.commandResults.length || "none configured"}`
-      : null,
-    input.verifierJob ? `- Verifier job: \`#${input.verifierJob.id}\`` : null
-  ]
-    .filter((line): line is string => line !== null)
-    .join("\n");
+  const mergeBody = buildSystemComment({
+    title: mode === "automatic" ? "Automatically merged" : "Merged",
+    outcome: "success",
+    summary: `Merged ${pullRequest.sourceBranch} into ${pullRequest.targetBranch}. The recorded commit snapshots identify the exact candidate that passed the merge decision.`,
+    fields: [
+      { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+      { label: "Merge mode", value: mode, code: true },
+      { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+      { label: "Target branch", value: pullRequest.targetBranch, code: true },
+      { label: "Merge commit", value: mergeResult.mergeCommit, code: true },
+      { label: "Source snapshot", value: sourceHead, code: true },
+      { label: "Target snapshot", value: targetHead, code: true },
+      { label: "Merge base", value: mergeBase, code: true },
+      input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
+    ],
+    sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence) : [],
+    nextStep: pullRequest.issueId
+      ? `The linked Issue #${pullRequest.issueId} will be updated and closed, and the final Objective evidence will remain available for audit.`
+      : "No linked Issue requires an update. The Pull Request and Objective retain the merge evidence for audit."
+  });
   await repos.comments.create({
     projectId: project.id,
     targetType: "pull_request",
@@ -196,6 +201,33 @@ type AutomaticGateEvidence = {
   riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown> }>;
   verifierEvidenceCapturedAt: string;
 };
+
+function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence): SystemCommentSection[] {
+  const commandItems = evidence.commandResults.length
+    ? evidence.commandResults.map(
+        (result) =>
+          `[${result.status === "passed" ? "PASS" : "FAIL"}] ${markdownCode(result.command)} — exit ${
+            result.exitCode ?? "none"
+          }, ${result.durationMs} ms${result.timedOut ? ", timed out" : ""}`
+      )
+    : ["No required lint, test, or build commands were configured for this project."];
+  return [
+    {
+      title: "Verification evidence",
+      items: [
+        `Verifier evidence captured at ${markdownCode(evidence.verifierEvidenceCapturedAt)}.`,
+        ...commandItems,
+        `${evidence.changedFiles.length} changed files and ${evidence.diffLineCount} changed lines were evaluated.`
+      ]
+    },
+    {
+      title: "Risk decision",
+      items: evidence.riskSignals.length
+        ? evidence.riskSignals.map((signal) => `[BLOCK] **${signal.title}** — ${signal.summary}`)
+        : ["[PASS] No score-manipulation risk signal was detected in the verified diff."]
+    }
+  ];
+}
 
 async function verifyAutomaticMergeCandidate(
   repos: Repositories,
@@ -428,18 +460,35 @@ async function recordAutomaticMergeBlock(
       summary: reason
     });
   }
-  const body = [
-    "## Automatic merge paused",
-    "",
-    reason,
-    "",
-    conflicts
-      ? "OneTeam queued the conflict-resolution workflow. Verification must pass again before merge."
-      : "Review the repository state, then resume the workflow or merge manually.",
-    verifierJob ? `\nVerifier job: \`#${verifierJob.id}\`` : null
-  ]
-    .filter((line): line is string => line !== null)
-    .join("\n");
+  const body = buildSystemComment({
+    title: "Automatic merge paused",
+    outcome: "blocked",
+    summary: reason,
+    fields: [
+      { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+      { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+      { label: "Target branch", value: pullRequest.targetBranch, code: true },
+      { label: "Stop reason", value: conflicts ? "merge_conflict" : "automatic_merge_blocked", code: true },
+      verifierJob ? { label: "Verifier job", value: `#${verifierJob.id}`, code: true } : null
+    ],
+    sections: [
+      {
+        title: "Decision",
+        items: conflicts
+          ? [
+              "The conflict-resolution workflow is queued.",
+              "The changed candidate must pass verification again before merge."
+            ]
+          : [
+              "The verified candidate was not merged.",
+              "Repository state or policy must be corrected before the automatic gate can run again."
+            ]
+      }
+    ],
+    nextStep: conflicts
+      ? "Wait for conflict resolution, then review the new evidence from the repeated verifier run."
+      : "Review the recorded reason, correct the repository or policy state, and resume the workflow. Manual merge remains an explicit fallback."
+  });
   await repos.comments.create({
     projectId: project.id,
     targetType: "pull_request",
@@ -494,15 +543,28 @@ async function closeLinkedIssue(
     targetType: "issue",
     targetId: issue.id,
     authorType: "system",
-    body: [
-      "## Objective completed",
-      "",
-      `Pull request #${pullRequest.id} was merged and the linked Issue was closed.`,
-      "",
-      `- Merge commit: \`${mergeCommit.slice(0, 12)}\``,
-      `- Source branch: \`${pullRequest.sourceBranch}\``,
-      `- Target branch: \`${pullRequest.targetBranch}\``
-    ].join("\n"),
+    body: buildSystemComment({
+      title: "Objective completed",
+      outcome: "success",
+      summary: `Pull request #${pullRequest.id} was merged and this linked Issue was closed.`,
+      fields: [
+        { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+        { label: "Merge commit", value: mergeCommit, code: true },
+        { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+        { label: "Target branch", value: pullRequest.targetBranch, code: true }
+      ],
+      sections: [
+        {
+          title: "Final state",
+          items: [
+            "The Pull Request is marked as merged.",
+            "The Objective is marked as succeeded with its final merge evidence.",
+            "This Issue is closed with its original description preserved."
+          ]
+        }
+      ],
+      nextStep: "Use the Pull Request timeline and Objective evidence when auditing the implementation or planning follow-up work."
+    }),
     bodyFormat: "markdown",
     metadata: { pullRequestId: pullRequest.id, mergeCommit }
   });

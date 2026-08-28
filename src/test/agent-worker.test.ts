@@ -852,9 +852,8 @@ describe("agent worker", () => {
     const activities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
 
     expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
-    expect(comments.map((comment) => comment.body)).toContain(
-      "Verifier confirmed the stop condition and evidence. This pull request is ready for user merge."
-    );
+    expect(comments.some((comment) => comment.body.includes("## Pull request ready to merge"))).toBe(true);
+    expect(comments.some((comment) => comment.body.includes("> **Outcome · READY**"))).toBe(true);
     expect(activities.map((activity) => activity.title)).toContain("Pull request ready to merge");
 
     context.client.close();
