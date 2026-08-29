@@ -25,7 +25,7 @@ import {
   UserRound,
   XCircle
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AiProvider, RoleAiAgentType, RoleAiOverrides } from "../shared/ai-providers";
 import {
   aiProviderLabel,
@@ -69,15 +69,17 @@ import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
 import { summarizeAgentJobs } from "./agent-status";
 import { AppShell } from "./components/AppShell";
 import { AsyncState } from "./components/AsyncState";
-import { DiffViewer } from "./components/DiffViewer";
 import { MarkdownContent } from "./components/MarkdownContent";
 import { SetupWizard } from "./components/SetupWizard";
 import { formatDateTime, formatPullRequestStatus } from "./formatters";
 import { setLocale as setUiLocale, t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
-import { AgentJobsView } from "./views/AgentJobsView";
-import { LoopsView, type LoopsScreen } from "./views/LoopsView";
+import type { LoopsScreen } from "./views/LoopsView";
+
+const AgentJobsView = lazy(async () => ({ default: (await import("./views/AgentJobsView")).AgentJobsView }));
+const DiffViewer = lazy(async () => ({ default: (await import("./components/DiffViewer")).DiffViewer }));
+const LoopsView = lazy(async () => ({ default: (await import("./views/LoopsView")).LoopsView }));
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -2308,15 +2310,17 @@ function PullRequestDetailScreen(props: {
             </>
           ) : null}
           {tab === "files" ? (
-            <DiffViewer
-              files={files}
-              findings={findings}
-              lineComments={lineComments}
-              projectId={props.project.id}
-              pullRequestId={props.pullRequestId}
-              sourceCommit={diffRevision?.sourceCommit ?? null}
-              targetCommit={diffRevision?.targetCommit ?? null}
-            />
+            <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+              <DiffViewer
+                files={files}
+                findings={findings}
+                lineComments={lineComments}
+                projectId={props.project.id}
+                pullRequestId={props.pullRequestId}
+                sourceCommit={diffRevision?.sourceCommit ?? null}
+                targetCommit={diffRevision?.targetCommit ?? null}
+              />
+            </Suspense>
           ) : null}
           {tab === "commits" ? (
             <div className="commit-list">
@@ -3479,22 +3483,26 @@ export function App() {
         />
       ) : null}
       {view === "agentJobs" ? (
-        <AgentJobsView
-          project={project}
-          routeJobId={routeAgentJobId}
-          onOpenAgentJob={handleOpenAgentJob}
-        />
+        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+          <AgentJobsView
+            project={project}
+            routeJobId={routeAgentJobId}
+            onOpenAgentJob={handleOpenAgentJob}
+          />
+        </Suspense>
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
       {view === "loops" ? (
-        <LoopsView
-          project={project}
-          screen={routeLoopsScreen}
-          onOpenLoop={handleOpenLoop}
-          onOpenRun={handleOpenLoopRun}
-          onOpenAgentJob={handleOpenAgentJob}
-          onBackToList={handleOpenLoops}
-        />
+        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+          <LoopsView
+            project={project}
+            screen={routeLoopsScreen}
+            onOpenLoop={handleOpenLoop}
+            onOpenRun={handleOpenLoopRun}
+            onOpenAgentJob={handleOpenAgentJob}
+            onBackToList={handleOpenLoops}
+          />
+        </Suspense>
       ) : null}
       {view === "settings" ? (
         <SettingsView project={project} onProjectLocaleChange={handleProjectLocaleChange} />
