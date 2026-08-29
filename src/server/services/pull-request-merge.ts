@@ -40,6 +40,10 @@ import {
   extractImportantDiffReferences,
   type ImportantDiffReference
 } from "./important-diff-references";
+import {
+  runIdempotentFinalizationWithBackoff,
+  type FinalizationRetryEvent
+} from "./idempotent-finalization";
 
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
@@ -239,6 +243,8 @@ export async function mergePullRequest(
   if (!mergedPullRequest) {
     throw new Error("Pull request disappeared after its branches were merged.");
   }
+  const finalizationRetries: FinalizationRetryEvent[] = [];
+  await runIdempotentFinalizationWithBackoff(async () => {
   const memoryEntry = await markObjectiveMerged(repos, {
     project,
     pullRequest: mergedPullRequest,
@@ -273,6 +279,7 @@ export async function mergePullRequest(
       { label: "Target snapshot", value: commitReference(targetHead) },
       { label: "Merge base", value: commitReference(mergeBase) },
       { label: "Transient merge retries", value: mergeResult.retryCount },
+      { label: "Finalization retries", value: finalizationRetries.length },
       memoryEntry
         ? { label: "Loop Memory", value: `[Memory #${memoryEntry.id}](/loops#memory-${memoryEntry.id})` }
         : null,
@@ -283,47 +290,60 @@ export async function mergePullRequest(
       ? `Review the linked [Issue #${pullRequest.issueId} completion summary](/issues/${pullRequest.issueId}#completion-summary) for the final Objective state and audit evidence.`
       : "No linked Issue requires an update. The Pull Request and Objective retain the merge evidence for audit."
   });
-  await repos.comments.create({
-    projectId: project.id,
-    targetType: "pull_request",
-    targetId: pullRequest.id,
-    authorType: "system",
-    body: mergeBody,
-    bodyFormat: "markdown",
-    metadata: {
-      summaryAnchor: "merge-summary",
-      mergeMode: mode,
-      mergeStrategy: automation.autoMergeStrategy,
-      mergeCommit: mergeResult.mergeCommit,
-      sourceHead,
-      targetHead,
-      mergeBase,
-      automaticGateEvidence,
-      mergeRetries,
-      memoryEntryId: memoryEntry?.id ?? null,
-      verifierJobId: input.verifierJob?.id ?? null
-    }
-  });
-  await repos.activities.create({
-    projectId: project.id,
-    agentJobId: input.verifierJob?.id ?? null,
-    targetType: "pull_request",
-    targetId: pullRequest.id,
-    activityType: "system",
-    title: mode === "automatic" ? "Pull request automatically merged" : "Pull request merged",
-    body: mergeBody,
-    payload: {
-      mergeMode: mode,
-      mergeStrategy: automation.autoMergeStrategy,
-      mergeCommit: mergeResult.mergeCommit,
-      sourceHead,
-      targetHead,
-      mergeBase,
-      automaticGateEvidence,
-      mergeRetries,
-      memoryEntryId: memoryEntry?.id ?? null
-    }
-  });
+  const mergeCompletionEventKey = `merge-completed:pull-request:${pullRequest.id}:${mergeResult.mergeCommit}`;
+  const existingMergeComments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
+  if (!existingMergeComments.some((comment) => comment.metadata?.mergeCompletionEventKey === mergeCompletionEventKey)) {
+    await repos.comments.create({
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      authorType: "system",
+      body: mergeBody,
+      bodyFormat: "markdown",
+      metadata: {
+        mergeCompletionEventKey,
+        summaryAnchor: "merge-summary",
+        mergeMode: mode,
+        mergeStrategy: automation.autoMergeStrategy,
+        mergeCommit: mergeResult.mergeCommit,
+        sourceHead,
+        targetHead,
+        mergeBase,
+        automaticGateEvidence,
+        mergeRetries,
+        finalizationRetries,
+        memoryEntryId: memoryEntry?.id ?? null,
+        verifierJobId: input.verifierJob?.id ?? null
+      }
+    });
+  }
+  const existingMergeActivities = await repos.activities.list(project.id, "pull_request", pullRequest.id);
+  if (!existingMergeActivities.some(
+    (activity) => activity.payload?.mergeCompletionEventKey === mergeCompletionEventKey
+  )) {
+    await repos.activities.create({
+      projectId: project.id,
+      agentJobId: input.verifierJob?.id ?? null,
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      activityType: "system",
+      title: mode === "automatic" ? "Pull request automatically merged" : "Pull request merged",
+      body: mergeBody,
+      payload: {
+        mergeCompletionEventKey,
+        mergeMode: mode,
+        mergeStrategy: automation.autoMergeStrategy,
+        mergeCommit: mergeResult.mergeCommit,
+        sourceHead,
+        targetHead,
+        mergeBase,
+        automaticGateEvidence,
+        mergeRetries,
+        finalizationRetries,
+        memoryEntryId: memoryEntry?.id ?? null
+      }
+    });
+  }
   await closeLinkedIssue(repos, {
     project,
     pullRequest: mergedPullRequest,
@@ -336,7 +356,32 @@ export async function mergePullRequest(
     verifierJob: input.verifierJob ?? null,
     automaticGateEvidence,
     mergeRetries,
-    memoryEntry
+    memoryEntry,
+    finalizationRetries
+  });
+  }, {
+    delaysMs: [500, 2_000, 5_000],
+    onRetry: async (event) => {
+      finalizationRetries.push(event);
+      const targets: Array<{ targetType: "pull_request" | "issue"; targetId: number }> = [
+        { targetType: "pull_request", targetId: pullRequest.id },
+        ...(pullRequest.issueId ? [{ targetType: "issue" as const, targetId: pullRequest.issueId }] : [])
+      ];
+      await Promise.all(targets.map((target) => repos.activities.create({
+        projectId: project.id,
+        agentJobId: input.verifierJob?.id ?? null,
+        targetType: target.targetType,
+        targetId: target.targetId,
+        activityType: "system",
+        title: "Merge finalization retry",
+        body: `Git merge ${mergeResult.mergeCommit.slice(0, 12)} succeeded, but local record finalization failed on attempt ${event.failedAttempt}. Retrying in ${event.delayMs} ms.`,
+        payload: {
+          mergeCommit: mergeResult.mergeCommit,
+          finalizationEvent: "retry",
+          ...event
+        }
+      }))).catch(() => undefined);
+    }
   });
 
   return {
@@ -1123,6 +1168,7 @@ async function closeLinkedIssue(
     automaticGateEvidence: AutomaticGateEvidence | null;
     mergeRetries: GitRetryEvent[];
     memoryEntry: LoopMemoryEntryDto | null;
+    finalizationRetries: FinalizationRetryEvent[];
   }
 ): Promise<void> {
   const { project, pullRequest } = input;
@@ -1140,7 +1186,7 @@ async function closeLinkedIssue(
   });
   const eventKey = `objective-completed:pull-request:${pullRequest.id}:merge:${input.mergeCommit}`;
   const comments = await repos.comments.list(project.id, "issue", issue.id);
-  if (comments.some((comment) => comment.metadata?.mergeCompletionEventKey === eventKey)) return;
+  const hasCompletionComment = comments.some((comment) => comment.metadata?.mergeCompletionEventKey === eventKey);
   const body = buildSystemComment({
     title: "Objective completed",
     outcome: "success",
@@ -1159,6 +1205,7 @@ async function closeLinkedIssue(
       { label: "Target snapshot", value: commitReference(input.targetHead) },
       { label: "Merge base", value: commitReference(input.mergeBase) },
       { label: "Transient merge retries", value: input.mergeRetries.length },
+      { label: "Finalization retries", value: input.finalizationRetries.length },
       input.memoryEntry
         ? { label: "Loop Memory", value: `[Memory #${input.memoryEntry.id}](/loops#memory-${input.memoryEntry.id})` }
         : null,
@@ -1192,25 +1239,31 @@ async function closeLinkedIssue(
     verifierJobId: input.verifierJob?.id ?? null,
     automaticGateEvidence: input.automaticGateEvidence,
     mergeRetries: input.mergeRetries,
+    finalizationRetries: input.finalizationRetries,
     memoryEntryId: input.memoryEntry?.id ?? null
   };
-  await repos.comments.create({
-    projectId: project.id,
-    targetType: "issue",
-    targetId: issue.id,
-    authorType: "system",
-    body,
-    bodyFormat: "markdown",
-    metadata
-  });
-  await repos.activities.create({
-    projectId: project.id,
-    agentJobId: input.verifierJob?.id ?? null,
-    targetType: "issue",
-    targetId: issue.id,
-    activityType: "system",
-    title: "Objective completed",
-    body,
-    payload: metadata
-  });
+  if (!hasCompletionComment) {
+    await repos.comments.create({
+      projectId: project.id,
+      targetType: "issue",
+      targetId: issue.id,
+      authorType: "system",
+      body,
+      bodyFormat: "markdown",
+      metadata
+    });
+  }
+  const activities = await repos.activities.list(project.id, "issue", issue.id);
+  if (!activities.some((activity) => activity.payload?.mergeCompletionEventKey === eventKey)) {
+    await repos.activities.create({
+      projectId: project.id,
+      agentJobId: input.verifierJob?.id ?? null,
+      targetType: "issue",
+      targetId: issue.id,
+      activityType: "system",
+      title: "Objective completed",
+      body,
+      payload: metadata
+    });
+  }
 }

@@ -861,44 +861,63 @@ export class AgentWorker {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Automatic merge failed unexpectedly.";
-      const objective = await this.repos.objectives.findByPullRequest(job.projectId, pullRequest.id);
-      if (objective) {
+      const [objective, currentPullRequest] = await Promise.all([
+        this.repos.objectives.findByPullRequest(job.projectId, pullRequest.id),
+        this.repos.pullRequests.get(job.projectId, pullRequest.id)
+      ]);
+      const mergeSucceeded = currentPullRequest?.status === "merged";
+      if (objective && objective.status !== "succeeded") {
         await this.repos.objectives.update(job.projectId, objective.id, {
           status: "waiting_human",
-          stopReason: "automatic_merge_failed",
+          workflowStage: mergeSucceeded ? "merged" : objective.workflowStage,
+          stopReason: mergeSucceeded ? "merge_finalization_failed" : "automatic_merge_failed",
           summary: message
         });
       }
-      await this.repos.comments.create({
-        projectId: job.projectId,
-        targetType: "pull_request",
-        targetId: pullRequest.id,
-        authorType: "system",
-        body: buildSystemComment({
-          title: "Automatic merge failed",
-          outcome: "failed",
-          summary: message,
-          fields: [
-            { label: "Pull request", value: `#${pullRequest.id}`, code: true },
-            { label: "Verifier job", value: `#${job.id}`, code: true },
-            { label: "Source branch", value: pullRequest.sourceBranch, code: true },
-            { label: "Target branch", value: pullRequest.targetBranch, code: true },
-            { label: "Stop reason", value: "automatic_merge_failed", code: true }
-          ],
-          sections: [
-            {
-              title: "Preserved state",
-              items: [
-                "The verifier result and evidence remain attached to the Objective.",
-                "No merge status was recorded for this Pull Request."
-              ]
-            }
-          ],
-          nextStep: "Inspect the repository and error details, then rerun verification before retrying merge."
-        }),
-        bodyFormat: "markdown",
-        metadata: { agentJobId: job.id, automaticMerge: "failed" }
+      const stopReason = mergeSucceeded ? "merge_finalization_failed" : "automatic_merge_failed";
+      const body = buildSystemComment({
+        title: mergeSucceeded ? "Merge succeeded; finalization incomplete" : "Automatic merge failed",
+        outcome: mergeSucceeded ? "waiting" : "failed",
+        summary: message,
+        fields: [
+          { label: "Pull request", value: `#${pullRequest.id}`, code: true },
+          { label: "Verifier job", value: `#${job.id}`, code: true },
+          { label: "Source branch", value: pullRequest.sourceBranch, code: true },
+          { label: "Target branch", value: pullRequest.targetBranch, code: true },
+          { label: "Stop reason", value: stopReason, code: true }
+        ],
+        sections: [
+          {
+            title: "Preserved state",
+            items: mergeSucceeded
+              ? [
+                  "The Pull Request remains marked merged; OneTeam will not attempt the Git merge again.",
+                  "The verifier decision and any completed Objective or Memory records are not downgraded.",
+                  "Only the missing local comments, Activity, Issue close, or Memory finalization requires attention."
+                ]
+              : [
+                  "The verifier result and evidence remain attached to the Objective.",
+                  "No merge status was recorded for this Pull Request."
+                ]
+          }
+        ],
+        nextStep: mergeSucceeded
+          ? "Inspect the finalization error and retry the missing local records; do not merge the branches again."
+          : "Inspect the repository and error details, then rerun verification before retrying merge."
       });
+      const targets: Array<{ targetType: "pull_request" | "issue"; targetId: number }> = [
+        { targetType: "pull_request", targetId: pullRequest.id },
+        ...(pullRequest.issueId ? [{ targetType: "issue" as const, targetId: pullRequest.issueId }] : [])
+      ];
+      await Promise.all(targets.map((target) => this.repos.comments.create({
+        projectId: job.projectId,
+        targetType: target.targetType,
+        targetId: target.targetId,
+        authorType: "system",
+        body,
+        bodyFormat: "markdown",
+        metadata: { agentJobId: job.id, automaticMerge: mergeSucceeded ? "finalization_failed" : "failed", stopReason }
+      })));
     }
   }
 

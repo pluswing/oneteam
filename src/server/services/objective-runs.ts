@@ -454,21 +454,29 @@ export async function markObjectiveMerged(
   if (!objective) {
     return null;
   }
+  const existingMemory = (await repos.loopMemory.list(input.project.id)).find(
+    (entry) => entry.tags.includes(`pull_request:${input.pullRequest.id}`) && entry.tags.includes("merge")
+  ) ?? null;
+  const mergeAlreadyRecorded = evidenceItems(objective.evidence).some(
+    (item) => item.type === "merge" && item.payload?.mergeCommit === input.mergeCommit
+  );
   const mergedObjective = await repos.objectives.update(input.project.id, objective.id, {
     status: "succeeded",
     workflowStage: "merged",
     stopReason: "passed",
     summary: `Pull request #${input.pullRequest.id} merged at ${input.mergeCommit.slice(0, 12)}.`,
-    evidence: mergeEvidence(objective.evidence, null, {
-      type: "merge",
-      title: "Pull request merged",
-      summary: `Merged ${input.pullRequest.sourceBranch} into ${input.pullRequest.targetBranch}.`,
-      payload: {
-        pullRequestId: input.pullRequest.id,
-        mergeCommit: input.mergeCommit,
-        mergeRetries: input.mergeRetries ?? []
-      }
-    }),
+    evidence: mergeAlreadyRecorded
+      ? objective.evidence
+      : mergeEvidence(objective.evidence, null, {
+          type: "merge",
+          title: "Pull request merged",
+          summary: `Merged ${input.pullRequest.sourceBranch} into ${input.pullRequest.targetBranch}.`,
+          payload: {
+            pullRequestId: input.pullRequest.id,
+            mergeCommit: input.mergeCommit,
+            mergeRetries: input.mergeRetries ?? []
+          }
+        }),
     finishedAt: new Date().toISOString()
   });
   let loopId: number | null = null;
@@ -488,7 +496,7 @@ export async function markObjectiveMerged(
     `Merge commit: [\`${input.mergeCommit}\`](/repository#commit-${input.mergeCommit})`,
     ...(importantDiffLines.length ? ["", "Important diff:", ...importantDiffLines] : [])
   ].join("\n");
-  const memoryEntry = await repos.loopMemory.create({
+  const memoryEntry = existingMemory ?? await repos.loopMemory.create({
     projectId: input.project.id,
     loopId,
     loopRunId,
@@ -498,7 +506,12 @@ export async function markObjectiveMerged(
     body: memoryBody,
     tags: ["objective", "merge", "passed", `pull_request:${input.pullRequest.id}`]
   }).catch(() => null);
-  if (memoryEntry && mergedObjective) {
+  const memoryAlreadyRecorded = memoryEntry
+    ? evidenceItems(mergedObjective?.evidence ?? null).some(
+        (item) => item.type === "memory" && item.payload?.memoryEntryId === memoryEntry.id
+      )
+    : false;
+  if (memoryEntry && mergedObjective && !memoryAlreadyRecorded) {
     await appendObjectiveEvidence(repos, mergedObjective, [
       {
         type: "memory",
@@ -513,11 +526,13 @@ export async function markObjectiveMerged(
       }
     ]);
   }
-  await appendLoopMemoryNote(input.project.repoPath, {
-    title: `Objective #${objective.id} merged`,
-    body: memoryBody,
-    tags: ["objective", "merge", "passed"]
-  }).catch(() => undefined);
+  if (!existingMemory) {
+    await appendLoopMemoryNote(input.project.repoPath, {
+      title: `Objective #${objective.id} merged`,
+      body: memoryBody,
+      tags: ["objective", "merge", "passed"]
+    }).catch(() => undefined);
+  }
   return memoryEntry;
 }
 
