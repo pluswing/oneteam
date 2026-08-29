@@ -17,6 +17,7 @@ import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../
 import { saveAutomationSettings } from "../server/services/automation-settings";
 import { workflowLabelNames } from "../shared/workflow-labels";
 import { diffFileAnchor } from "../shared/diff-anchors";
+import { startLoopRun } from "../server/services/loop-runner";
 
 const execFileAsync = promisify(execFile);
 
@@ -773,6 +774,123 @@ describe("automatic delivery pipeline", () => {
           item.payload.status === "failed"
       )
     ).toBe(true);
+
+    context.client.close();
+  });
+
+  it("re-evaluates the verifier Loop risk policy before automatic merge", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "oneteam-loop-risk-db-"));
+    const repoPath = await createGitRepo("oneteam-loop-risk-repo-");
+    await git(repoPath, ["checkout", "-b", "feature/loop-risk"]);
+    await writeFile(join(repoPath, "policy.txt"), "one\ntwo\n");
+    await git(repoPath, ["add", "policy.txt"]);
+    await git(repoPath, ["commit", "-m", "loop risk candidate"]);
+    const sourceHead = await getRevisionHash(repoPath, "feature/loop-risk");
+    await git(repoPath, ["checkout", "main"]);
+
+    const context = createDatabaseContext(`file:${join(databaseDir, "test.db")}`);
+    await runMigrations(context.client);
+    const repos = createRepositories(context.db);
+    const project = await repos.projects.create({ name: "Loop risk", repoPath, defaultBranch: "main" });
+    await saveAutomationSettings(repos, {
+      autoMergeEnabled: true,
+      autoMergeTargetBranches: ["main"],
+      autoMergeStrategy: "merge",
+      autoMergeRiskThreshold: "high",
+      objectiveMaxRounds: 12,
+      objectiveTokenBudget: null,
+      objectiveCostBudgetUsd: null,
+      agentTimeBudgetMinutes: null,
+      verificationCommandTimeoutMinutes: 5
+    });
+    const issue = await repos.issues.create({ projectId: project.id, title: "Enforce Loop risk" });
+    const readyLabel = await repos.labels.findByName(project.id, workflowLabelNames.readyToMerge);
+    const pullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      issueId: issue.id,
+      title: "Loop risk candidate",
+      sourceBranch: "feature/loop-risk",
+      targetBranch: "main",
+      labelIds: readyLabel ? [readyLabel.id] : []
+    });
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: project.id,
+      targetType: "pull_request",
+      targetId: pullRequest.id
+    });
+    if (!objective) throw new Error("Failed to prepare Loop risk Objective.");
+    const loop = await repos.loops.create({
+      projectId: project.id,
+      name: "Strict merge risk",
+      purpose: "Require human review for any changed file.",
+      triggerType: "manual",
+      targetScope: "pull_request",
+      riskPolicy: {
+        humanGateOnRisk: true,
+        maxChangedFiles: 0,
+        maxDiffLines: 1,
+        protectedPaths: ["policy.txt"],
+        protectedBranches: []
+      }
+    });
+    const started = await startLoopRun(repos, {
+      projectId: project.id,
+      loopId: loop.id,
+      agentType: "verifier",
+      targetType: "pull_request",
+      targetId: pullRequest.id,
+      triggerType: "test_loop_policy",
+      objectiveRunId: objective.id
+    });
+    const completedVerifier = await repos.agentJobs.updateStatus(project.id, started.job.id, "succeeded");
+    if (!completedVerifier) throw new Error("Failed to complete Loop risk verifier.");
+    await repos.objectives.update(project.id, objective.id, {
+      status: "ready_to_merge",
+      workflowStage: "ready_to_merge",
+      judgeAgentJobId: completedVerifier.id,
+      evidence: {
+        items: [
+          {
+            type: "judge",
+            title: "Current verifier evidence",
+            payload: {
+              judgeAgentJobId: completedVerifier.id,
+              sourceCommit: sourceHead,
+              capturedAt: new Date().toISOString()
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await mergePullRequest(repos, {
+      project,
+      pullRequest,
+      mode: "automatic",
+      verifierJob: completedVerifier
+    });
+    const [updatedObjective, updatedPullRequest, prComments] = await Promise.all([
+      repos.objectives.get(project.id, objective.id),
+      repos.pullRequests.get(project.id, pullRequest.id),
+      repos.comments.list(project.id, "pull_request", pullRequest.id)
+    ]);
+    const evidenceItems = Array.isArray(updatedObjective?.evidence?.items) ? updatedObjective.evidence.items : [];
+    const gateEvidence = [...evidenceItems].reverse().find(
+      (item: unknown) => typeof item === "object" && item !== null && "type" in item && item.type === "automatic_merge_gate"
+    );
+
+    expect(result).toMatchObject({ state: "blocked" });
+    expect(result.state === "blocked" ? result.reason : "").toContain("Changed file budget exceeded");
+    expect(updatedPullRequest?.labels.map((label) => label.name)).toContain(workflowLabelNames.needsInput);
+    expect(updatedObjective).toMatchObject({ status: "waiting_human", stopReason: "risk_detected" });
+    expect(gateEvidence).toMatchObject({
+      payload: {
+        status: "failed",
+        loopPolicy: { loopId: loop.id, loopRunId: started.run.id, loopName: "Strict merge risk" }
+      }
+    });
+    expect(prComments.some((comment) => comment.body.includes("Changed file budget exceeded"))).toBe(true);
+    expect(prComments.some((comment) => comment.body.includes(`/loops/${loop.id}`))).toBe(true);
 
     context.client.close();
   });

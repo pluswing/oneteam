@@ -24,6 +24,11 @@ import { buildSystemComment, markdownCode, type SystemCommentSection } from "./s
 import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
 import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
 import { ensureSystemLoop, startLoopRun } from "./loop-runner";
+import {
+  applyAutomaticMergeCommandPolicy,
+  evaluateAutomaticMergeLoopDiffPolicy,
+  resolveAutomaticMergeLoopContext
+} from "./automatic-merge-risk-policy";
 
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
@@ -132,7 +137,9 @@ export async function mergePullRequest(
         pullRequest,
         input.verifierJob,
         verification.blockedReason,
-        false
+        false,
+        verification.stopReason,
+        verification.evidence
       );
       return { state: "blocked", reason: verification.blockedReason };
     }
@@ -329,6 +336,12 @@ type AutomaticGateEvidence = {
   riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown>; blocking: boolean }>;
   riskThreshold: ProjectSettingsDto["automation"]["autoMergeRiskThreshold"];
   verifierEvidenceCapturedAt: string;
+  loopPolicy: {
+    loopId: number;
+    loopRunId: number;
+    loopName: string;
+    humanGateOnRisk: boolean;
+  } | null;
 };
 
 function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullRequestId: number): SystemCommentSection[] {
@@ -339,7 +352,7 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullReq
             result.exitCode ?? "none"
           }, ${result.durationMs} ms${result.timedOut ? ", timed out" : ""}`
       )
-    : ["No required lint, test, or build commands were configured for this project."];
+    : ["No required lint, test, or build command was executed; review the Risk decision for policy blocks."];
   return [
     {
       title: "Verification evidence",
@@ -347,6 +360,9 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullReq
         `Verifier evidence captured at ${markdownCode(evidence.verifierEvidenceCapturedAt)}.`,
         ...commandItems,
         `${evidence.changedFiles.length} changed files and ${evidence.diffLineCount} changed lines were evaluated.`,
+        evidence.loopPolicy
+          ? `Loop policy: [${markdownCode(`#${evidence.loopPolicy.loopId} — ${evidence.loopPolicy.loopName}`)}](/loops/${evidence.loopPolicy.loopId}), run ${markdownCode(`#${evidence.loopPolicy.loopRunId}`)}.`
+          : "No Loop-specific risk policy was linked to the verifier job.",
         changedFileLinks(evidence.changedFiles, pullRequestId)
       ]
     },
@@ -383,11 +399,18 @@ async function verifyAutomaticMergeCandidate(
   targetHead: string,
   mergeBase: string,
   riskThreshold: ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]
-): Promise<{ blockedReason: string | null; evidence: AutomaticGateEvidence; reverification: boolean }> {
+): Promise<{
+  blockedReason: string | null;
+  evidence: AutomaticGateEvidence;
+  reverification: boolean;
+  stopReason?: "risk_detected";
+}> {
   const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
   const verifierEvidence = objective ? currentVerifierEvidence(objective, verifierJob, sourceHead) : null;
   const capturedAt = new Date().toISOString();
   const commands = await repos.commands.list(project.id);
+  const loopContext = await resolveAutomaticMergeLoopContext(repos, verifierJob);
+  const commandPolicy = applyAutomaticMergeCommandPolicy(commands, loopContext);
   const missingRequiredCommands = commands.filter(
     (command) => command.isRequired && (!command.isAvailable || !command.command)
   );
@@ -401,7 +424,15 @@ async function verifyAutomaticMergeCandidate(
     commandResults: [],
     riskSignals: [],
     riskThreshold,
-    verifierEvidenceCapturedAt: verifierEvidence?.capturedAt ?? ""
+    verifierEvidenceCapturedAt: verifierEvidence?.capturedAt ?? "",
+    loopPolicy: loopContext
+      ? {
+          loopId: loopContext.loop.id,
+          loopRunId: loopContext.loopRunId,
+          loopName: loopContext.loop.name,
+          humanGateOnRisk: loopContext.policy.humanGateOnRisk
+        }
+      : null
   };
 
   if (!objective || !verifierEvidence) {
@@ -426,14 +457,24 @@ async function verifyAutomaticMergeCandidate(
       return { blockedReason: reason, evidence: emptyEvidence, reverification: false };
     }
 
-    const commandResults = await runVerificationCommands(worktree.repoPath, commands);
+    const commandResults = await runVerificationCommands(worktree.repoPath, commandPolicy.commands);
     const [changedFiles, diffLineCount, diffPatch] = await Promise.all([
       getChangedFilesSince(worktree.repoPath, pullRequest.targetBranch),
       getDiffLineCountSince(worktree.repoPath, pullRequest.targetBranch),
       getDiffPatchSince(worktree.repoPath, pullRequest.targetBranch)
     ]);
-    const riskSignals = scanScoreManipulationRisks(diffPatch);
-    const blockingRiskSignals = riskSignalsAtOrAbove(riskSignals, riskThreshold);
+    const scoreRiskSignals = scanScoreManipulationRisks(diffPatch);
+    const blockingScoreRiskSignals = riskSignalsAtOrAbove(scoreRiskSignals, riskThreshold);
+    const loopRiskSignals = [
+      ...commandPolicy.riskSignals,
+      ...evaluateAutomaticMergeLoopDiffPolicy({
+        context: loopContext,
+        sourceBranch: pullRequest.sourceBranch,
+        changedFiles,
+        diffLineCount
+      })
+    ];
+    const blockingLoopRiskSignals = loopRiskSignals.filter((signal) => signal.blocking);
     const evidence: AutomaticGateEvidence = {
       ...emptyEvidence,
       capturedAt: new Date().toISOString(),
@@ -443,12 +484,15 @@ async function verifyAutomaticMergeCandidate(
         ...result,
         outputExcerpt: output.slice(0, 2000)
       })),
-      riskSignals: riskSignals.map((signal) => ({
-        title: signal.title,
-        summary: signal.summary,
-        payload: signal.payload,
-        blocking: blockingRiskSignals.includes(signal)
-      }))
+      riskSignals: [
+        ...scoreRiskSignals.map((signal) => ({
+          title: signal.title,
+          summary: signal.summary,
+          payload: signal.payload,
+          blocking: blockingScoreRiskSignals.includes(signal)
+        })),
+        ...loopRiskSignals
+      ]
     };
     const failedCommands = commandResults.filter((result) => result.status === "failed");
     if (failedCommands.length) {
@@ -456,12 +500,14 @@ async function verifyAutomaticMergeCandidate(
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
       return { blockedReason: reason, evidence, reverification: false };
     }
-    if (blockingRiskSignals.length) {
-      const reason = `Risk signals block automatic merge at ${riskThreshold} threshold: ${blockingRiskSignals
-        .map((signal) => signal.title)
+    if (blockingScoreRiskSignals.length || blockingLoopRiskSignals.length) {
+      const reason = `Risk signals block automatic merge: ${[
+        ...blockingScoreRiskSignals.map((signal) => signal.title),
+        ...blockingLoopRiskSignals.map((signal) => signal.title)
+      ]
         .join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
-      return { blockedReason: reason, evidence, reverification: false };
+      return { blockedReason: reason, evidence, reverification: false, stopReason: "risk_detected" };
     }
 
     const [currentSourceHead, afterStatus] = await Promise.all([
@@ -664,6 +710,7 @@ async function requestAutomaticMergeReverification(
     return { state: "blocked", reason: blockedReason };
   }
   const priorVerifierSnapshot = verifierEvidenceSnapshot(objective, verifierJob);
+  const priorLoopContext = await resolveAutomaticMergeLoopContext(repos, verifierJob);
   const previousSourceHead = input.previousSourceHead ?? priorVerifierSnapshot?.sourceHead ?? undefined;
   const previousTargetHead = input.previousTargetHead ?? priorVerifierSnapshot?.targetHead ?? undefined;
 
@@ -690,10 +737,15 @@ async function requestAutomaticMergeReverification(
   if (!nextVerifier) {
     reverifyLoop = await ensureSystemLoop(repos, {
       projectId: project.id,
-      name: "Automatic merge re-verification",
+      name: priorLoopContext
+        ? `Automatic merge re-verification for Loop #${priorLoopContext.loop.id}`
+        : "Automatic merge re-verification",
       purpose: "Refresh verifier evidence when source or target snapshots change during the automatic merge gate.",
       triggerType: "automatic_merge_snapshot_drift",
-      targetScope: "pull_request:snapshot_drift"
+      targetScope: priorLoopContext
+        ? `pull_request:snapshot_drift:loop:${priorLoopContext.loop.id}`
+        : "pull_request:snapshot_drift",
+      riskPolicy: priorLoopContext?.loop.riskPolicy
     });
     if (reverifyLoop.status === "disabled") {
       const blockedReason = `${reason} The automatic merge re-verification Loop is disabled.`;
@@ -728,6 +780,8 @@ async function requestAutomaticMergeReverification(
         objectiveRunId: objective.id,
         automaticMergeReverification: true,
         previousVerifierJobId: verifierJob.id,
+        previousLoopId: priorLoopContext?.loop.id ?? null,
+        previousLoopRunId: priorLoopContext?.loopRunId ?? null,
         reason,
         previousSourceHead: previousSourceHead ?? null,
         previousTargetHead: previousTargetHead ?? null,
@@ -758,6 +812,9 @@ async function requestAutomaticMergeReverification(
       { label: "Pull request", value: `[#${pullRequest.id} — ${pullRequest.title}](/pulls/${pullRequest.id})` },
       { label: "Previous verifier", value: `#${verifierJob.id}`, code: true },
       { label: "Reverification job", value: `#${nextVerifier.id}`, code: true },
+      priorLoopContext
+        ? { label: "Preserved risk policy", value: `Loop #${priorLoopContext.loop.id} — ${priorLoopContext.loop.name}` }
+        : null,
       previousSourceHead ? { label: "Previous source", value: commitReference(previousSourceHead) } : null,
       input.currentSourceHead ? { label: "Current source", value: commitReference(input.currentSourceHead) } : null,
       previousTargetHead ? { label: "Previous target", value: commitReference(previousTargetHead) } : null,
@@ -797,6 +854,8 @@ async function requestAutomaticMergeReverification(
         verifierJobId: nextVerifier.id,
         loopId,
         loopRunId,
+        previousLoopId: priorLoopContext?.loop.id ?? null,
+        previousLoopRunId: priorLoopContext?.loopRunId ?? null,
         previousSourceHead: previousSourceHead ?? null,
         previousTargetHead: previousTargetHead ?? null,
         currentSourceHead: input.currentSourceHead ?? null,
@@ -817,7 +876,9 @@ async function requestAutomaticMergeReverification(
         previousVerifierJobId: verifierJob.id,
         verifierJobId: nextVerifier.id,
         loopId,
-        loopRunId
+        loopRunId,
+        previousLoopId: priorLoopContext?.loop.id ?? null,
+        previousLoopRunId: priorLoopContext?.loopRunId ?? null
       }
     });
   }
@@ -832,6 +893,8 @@ async function requestAutomaticMergeReverification(
         verifierJobId: nextVerifier.id,
         loopId,
         loopRunId,
+        previousLoopId: priorLoopContext?.loop.id ?? null,
+        previousLoopRunId: priorLoopContext?.loopRunId ?? null,
         previousSourceHead: previousSourceHead ?? null,
         previousTargetHead: previousTargetHead ?? null,
         currentSourceHead: input.currentSourceHead ?? null,
@@ -901,8 +964,11 @@ async function recordAutomaticMergeBlock(
   pullRequest: PullRequestDto,
   verifierJob: AgentJobDto | null,
   reason: string,
-  conflicts: boolean
+  conflicts: boolean,
+  stopReasonOverride?: "risk_detected",
+  automaticGateEvidence?: AutomaticGateEvidence
 ): Promise<void> {
+  const stopReason = conflicts ? "merge_conflict" : stopReasonOverride ?? "automatic_merge_blocked";
   const labelName = conflicts ? workflowLabelNames.resolvingConflicts : workflowLabelNames.needsInput;
   const label = await repos.labels.findByName(project.id, labelName);
   let updatedPullRequest = pullRequest;
@@ -915,7 +981,7 @@ async function recordAutomaticMergeBlock(
     await repos.objectives.update(project.id, objective.id, {
       status: conflicts ? "running" : "waiting_human",
       workflowStage: conflicts ? "fix" : objective.workflowStage,
-      stopReason: conflicts ? "merge_conflict" : "automatic_merge_blocked",
+      stopReason,
       summary: reason
     });
   }
@@ -930,10 +996,11 @@ async function recordAutomaticMergeBlock(
       },
       { label: "Source branch", value: pullRequest.sourceBranch, code: true },
       { label: "Target branch", value: pullRequest.targetBranch, code: true },
-      { label: "Stop reason", value: conflicts ? "merge_conflict" : "automatic_merge_blocked", code: true },
+      { label: "Stop reason", value: stopReason, code: true },
       verifierJob ? { label: "Verifier job", value: `#${verifierJob.id}`, code: true } : null
     ],
     sections: [
+      ...(automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : []),
       {
         title: "Decision",
         items: conflicts
@@ -972,6 +1039,8 @@ async function recordAutomaticMergeBlock(
         pullRequestId: pullRequest.id,
         reason,
         conflicts,
+        stopReason,
+        automaticGateEvidence: automaticGateEvidence ?? null,
         verifierJobId: verifierJob?.id ?? null
       }
     });
@@ -983,7 +1052,14 @@ async function recordAutomaticMergeBlock(
       activityType: "system",
       title: "Automatic merge paused",
       body,
-      payload: { automaticMergeEventKey: eventKey, pullRequestId: pullRequest.id, reason, conflicts }
+      payload: {
+        automaticMergeEventKey: eventKey,
+        pullRequestId: pullRequest.id,
+        reason,
+        conflicts,
+        stopReason,
+        automaticGateEvidence: automaticGateEvidence ?? null
+      }
     });
   }
   if (conflicts) {
