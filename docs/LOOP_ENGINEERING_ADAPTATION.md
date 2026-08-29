@@ -119,6 +119,7 @@ Agent / system comment は、その場の進捗通知だけでなく、数週間
 - 同じ内容の細かな進捗コメントを連投せず、節目ごとに圧縮した summary を投稿する
 - 詳細な逐次ログは Activity に残し、Comment は読み返す価値のある decision / handoff artifact にする
 - HTML は allowlist sanitizer を通し、script、event handler、unsafe URL / CSS、iframe などを禁止する
+- HTML reportも共通milestoneを置き換えない。同じAgent JobへOutcome / Evidence / Next stepを含むMarkdown `milestone`と原文HTMLの`rich_report`を別recordとして保存し、timeline上で一つのJob artifactとして束ねる
 - 色だけで状態を表さず、見出し、テキスト、アイコン、表のラベルを併用する
 
 ## 目的

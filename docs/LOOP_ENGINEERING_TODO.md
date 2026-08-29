@@ -49,7 +49,7 @@
 - [x] **Done**: Loops、Loop Run detail、Skills / Memory管理UIを正式routeへ接続し、GitHub相当の主要repository tabを増やさずproject toolsメニューからAutomation画面として開ける。Memory entryはstable anchorを持ち、system summaryからdeep linkできる。TriageはIssues一覧の通知セクションにも統合済み
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
-- [ ] **Partial**: internal system commentと通常Markdown Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成済み。明示的なsanitized HTML reportは原文を保持
+- [x] **Done**: internal system commentと全Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成する。明示的なHTML reportは同じAgent Jobの別`rich_report` recordへ原文保存し、表示時sanitizeすることで共通milestoneとrich layoutを両立する
 - [x] **Done**: diffはファイル一覧と選択ファイルの遅延取得、unified / split、行番号、syntax highlight、word-level diff、Viewed、空白無視、context / 全文切り替え、hunk folding、line anchor、Agent finding / ユーザー行コメントのinline表示、scroll virtualizationに対応
 
 ### Provider / Connector
