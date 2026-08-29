@@ -74,7 +74,7 @@
 
 - [x] project settingsで`autoMergeEnabled`、対象branch、merge / squash strategy、diff risk thresholdを管理する
 - [x] Verifier pass後に`ready-to-merge`をautomatic merge gateへ接続する
-- [ ] **Partial**: merge直前のsource HEAD、target HEAD、merge-base、conflict、Objective Evidence、required commands、score-manipulation Risk Signalを再確認する。LoopごとのRisk Policy再評価は未実装
+- [x] **Done**: merge直前にsource HEAD、target HEAD、merge-base、conflict、Objective Evidence、required commands、score-manipulation Risk Signalとverifier Jobに紐づくLoop Risk Policyを再確認する。command allow / deny、変更ファイル数、diff行数、protected path、protected source branchを現diffへ適用し、Gate Evidenceへ保存する
 - [x] Evidenceに対象commit hashと取得時刻を保存し、stale Verifier Evidenceを検出する
 - [x] **Done**: merge gate中のsource / target drift、stale verifier Evidence、型付きEvidenceのcommit mismatchを検出したら、旧判定を無効化して専用Loop Runのverifier Jobを自動queueする。旧/新snapshotと回復経路はPR / Issue / Objective Evidenceへ保存する
 - [x] conflictがある場合は`resolving-conflicts`へ戻し、conflict-resolution workflowをqueueする

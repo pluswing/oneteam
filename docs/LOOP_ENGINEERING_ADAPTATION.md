@@ -45,6 +45,8 @@ automatic merge中の失敗は、conflict、再検証が必要なsnapshot drift�
 
 source / target drift、24時間を超えたverifier Evidence、型付き`Evidence Required`のcommit mismatchは、通常のHuman Gateではなく自動回復経路へ送る。OneTeamは旧judge snapshotを無効化してObjectiveを`verification`へ戻し、専用Loop Runでverifier Jobをqueueする。queue操作自体はObjective roundを消費せず、実際のverifier実行には通常の最大round・token・cost・provider capacity gateを適用する。PRと関連Issueには旧/新commit、旧verifier、新verifier、再開条件を構造化コメントとActivityで残し、新Evidenceが通過した場合だけautomatic merge gateへ再進入する。既存verifierがHuman Gateまたはpause中、または再検証Loopが無効な場合は、そのユーザー判断を迂回せずHuman Gateを維持する。
 
+automatic merge gateはproject共通のdiff risk thresholdに加え、verifier Jobを所有するLoop RunからRisk Policyを解決して現在の候補へ再適用する。required commandはallow / deny判定後にだけ実行し、denyまたはallowlist外のcommandは`humanGateOnRisk`にかかわらず実行せずGateを止める。変更ファイル数、diff行数、protected path、protected source branchは`humanGateOnRisk=true`ならblock、`false`なら観測Evidenceとして残す。auto-merge対象として明示されたtarget branchは通常のlanding先なので、protected branch判定はsource branchへ適用する。snapshot driftによる再検証Loopは元LoopのRisk Policyを引き継ぎ、回復経路で安全基準が緩まないようにする。
+
 ### Issue の自動更新
 
 Issue は依頼の入口であると同時に、後から経緯を追跡するための永続的な記録とする。
