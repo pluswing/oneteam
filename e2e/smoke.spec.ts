@@ -30,6 +30,23 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".repository-identity")).toContainText("Local");
   await expect(page.getByRole("navigation", { name: "Repository navigation" })).toBeVisible();
   await expect(page.getByText("No issues")).toBeVisible();
+  const skipLink = page.getByRole("link", { name: "Skip to content" });
+  await skipLink.focus();
+  await expect(skipLink).toBeVisible();
+  await skipLink.click();
+  await expect(page.locator("main#main-content")).toBeFocused();
+  const toolsButton = page.getByRole("button", { name: "Project and settings" });
+  await toolsButton.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Projects" })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitem", { name: "Settings" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(toolsButton).toBeFocused();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.getByRole("button", { name: "Agent runs" }).click();
+  await expect(page.locator("main#main-content")).toBeFocused();
+  await page.getByRole("button", { name: "Issues", exact: true }).click();
+  await expect(page.locator("main#main-content")).toBeFocused();
 
   await page.getByRole("button", { name: "New issue" }).click();
   await expect(page.getByRole("heading", { name: "New issue" })).toBeVisible();

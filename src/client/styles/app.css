@@ -41,6 +41,28 @@ button {
   background: #f6f8fa;
 }
 
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #0969da;
+  font-weight: 700;
+  transform: translateY(calc(-100% - 16px));
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.main:focus-visible {
+  outline-offset: -4px;
+}
+
 .topbar {
   display: flex;
   align-items: center;

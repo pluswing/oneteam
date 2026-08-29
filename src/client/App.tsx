@@ -3454,6 +3454,7 @@ export function App() {
   return (
     <AppShell
       agentState={summarizeAgentJobs(agentJobs)}
+      navigationKey={routeToPath(route)}
       onSwitchProject={handleSwitchProject}
       onViewChange={handleViewChange}
       projectName={project.name}

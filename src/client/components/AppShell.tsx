@@ -7,6 +7,7 @@ import type { View } from "../routes";
 
 export function AppShell(props: {
   view: View;
+  navigationKey: string;
   onViewChange: (view: View) => void;
   onSwitchProject: () => void;
   agentState: AgentHeaderState;
@@ -16,6 +17,9 @@ export function AppShell(props: {
 }) {
   const [isSettingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const settingsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const previousNavigationKey = useRef(props.navigationKey);
   const nav = [
     { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
     { view: "pullRequests" as const, label: t("nav.pullRequests"), icon: GitPullRequest },
@@ -44,8 +48,42 @@ export function AppShell(props: {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [isSettingsMenuOpen]);
 
+  useEffect(() => {
+    if (!isSettingsMenuOpen) return;
+    settingsMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [isSettingsMenuOpen]);
+
+  useEffect(() => {
+    if (previousNavigationKey.current === props.navigationKey) return;
+    previousNavigationKey.current = props.navigationKey;
+    mainRef.current?.focus({ preventScroll: true });
+  }, [props.navigationKey]);
+
+  function handleSettingsMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSettingsMenuOpen(false);
+      settingsMenuButtonRef.current?.focus();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(settingsMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (!items.length) return;
+    event.preventDefault();
+    const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowDown"
+          ? (currentIndex + 1) % items.length
+          : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  }
+
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">{t("nav.skipToContent")}</a>
       <header className="topbar">
         <div className="header-brand" aria-label={t("app.name")}>
           <div className="header-logo" aria-hidden="true">
@@ -55,10 +93,10 @@ export function AppShell(props: {
         </div>
         <div className="topbar-spacer" />
         <div className={`agent-state agent-state-${props.agentState.status}`} title={props.agentState.title}>
-          {props.agentState.status === "ready" ? <CheckCircle2 size={16} /> : null}
-          {props.agentState.status === "running" ? <RotateCcw size={16} /> : null}
-          {props.agentState.status === "queued" ? <Bot size={16} /> : null}
-          {props.agentState.status === "waiting" || props.agentState.status === "failed" ? <CircleAlert size={16} /> : null}
+          {props.agentState.status === "ready" ? <CheckCircle2 aria-hidden="true" size={16} /> : null}
+          {props.agentState.status === "running" ? <RotateCcw aria-hidden="true" size={16} /> : null}
+          {props.agentState.status === "queued" ? <Bot aria-hidden="true" size={16} /> : null}
+          {props.agentState.status === "waiting" || props.agentState.status === "failed" ? <CircleAlert aria-hidden="true" size={16} /> : null}
           {props.agentState.label}
         </div>
         <div className="settings-menu" ref={settingsMenuRef}>
@@ -68,12 +106,19 @@ export function AppShell(props: {
             aria-label={t("nav.tools")}
             className={props.view === "settings" ? "settings-menu-button active" : "settings-menu-button"}
             onClick={() => setSettingsMenuOpen((current) => !current)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSettingsMenuOpen(true);
+              }
+            }}
+            ref={settingsMenuButtonRef}
             type="button"
           >
-            <Settings size={18} />
+            <Settings aria-hidden="true" size={18} />
           </button>
           {isSettingsMenuOpen ? (
-            <div className="settings-menu-popover" role="menu">
+            <div className="settings-menu-popover" onKeyDown={handleSettingsMenuKeyDown} role="menu">
               <button
                 className="settings-menu-item"
                 onClick={() => {
@@ -83,7 +128,7 @@ export function AppShell(props: {
                 role="menuitem"
                 type="button"
               >
-                <FolderOpen size={16} />
+                <FolderOpen aria-hidden="true" size={16} />
                 <span>{t("nav.projects")}</span>
               </button>
               {settingsNav.map((item) => {
@@ -99,7 +144,7 @@ export function AppShell(props: {
                     role="menuitem"
                     type="button"
                   >
-                    <Icon size={16} />
+                    <Icon aria-hidden="true" size={16} />
                     <span>{item.label}</span>
                   </button>
                 );
@@ -133,7 +178,7 @@ export function AppShell(props: {
           })}
         </nav>
       </header>
-      <main className="main">{props.children}</main>
+      <main className="main" id="main-content" ref={mainRef} tabIndex={-1}>{props.children}</main>
     </div>
   );
 }

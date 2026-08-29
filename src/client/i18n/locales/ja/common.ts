@@ -14,6 +14,7 @@ export const ja = {
     repository: "リポジトリ",
     settings: "設定",
     tools: "プロジェクトと設定",
+    skipToContent: "本文へ移動",
     repositoryNavigation: "リポジトリナビゲーション",
     localRepository: "ローカル"
   },

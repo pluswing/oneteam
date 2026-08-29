@@ -12,6 +12,7 @@ export const en = {
     repository: "Repository",
     settings: "Settings",
     tools: "Project and settings",
+    skipToContent: "Skip to content",
     repositoryNavigation: "Repository navigation",
     localRepository: "Local"
   },
