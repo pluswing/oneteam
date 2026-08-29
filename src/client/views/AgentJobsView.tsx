@@ -1,5 +1,5 @@
 import { Play, RotateCcw, Square } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { aiProviderLabel, aiProviders, type AiProvider } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
 import { api } from "../api";
@@ -396,20 +396,52 @@ function AgentJobDetailScreen(props: {
   const [job, setJob] = useState<AgentJobDto | null>(null);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
   const [resumeProvider, setResumeProvider] = useState<AiProvider>("codex");
+  const loadedJobId = useRef<number | null>(null);
+  const activeJobId = useRef(props.jobId);
+  const activeJobProjectId = useRef(props.project.id);
 
   async function load() {
     const [jobResponse, activityResponse] = await Promise.all([
       api.getAgentJob(props.project.id, props.jobId),
       api.listAgentJobActivities(props.project.id, props.jobId)
     ]);
+    if (activeJobProjectId.current !== props.project.id || activeJobId.current !== props.jobId) return;
     setJob(jobResponse);
     setActivities(activityResponse.filter((activity) => activity.agentJobId === jobResponse.id));
+    loadedJobId.current = jobResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load agent job.";
+    if (loadedJobId.current === props.jobId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedJobId.current === props.jobId);
+    void load().catch(handleLoadError);
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+    activeJobProjectId.current = props.project.id;
+    activeJobId.current = props.jobId;
+    loadedJobId.current = null;
+    setJob(null);
+    setActivities([]);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
   }, [props.project.id, props.jobId]);
 
   useEffect(() => {
@@ -422,7 +454,7 @@ function AgentJobDetailScreen(props: {
       return;
     }
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+      void load().catch(handleLoadError);
     }, 3000);
     return () => window.clearInterval(interval);
   }, [isActive, props.project.id, props.jobId]);
@@ -503,7 +535,12 @@ function AgentJobDetailScreen(props: {
           {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
       <section className="page-section agent-job-detail-section">
         {job ? (
           <>

@@ -625,7 +625,11 @@ export function DiffViewer(props: {
   const [selectedFile, setSelectedFile] = useState<RepositoryFileChangeDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
   const diffCache = useRef(new Map<string, RepositoryFileChangeDto>());
+  const selectedFileRef = useRef<RepositoryFileChangeDto | null>(null);
+  const selectedFileRevisionRef = useRef<string | null>(null);
 
   useEffect(() => {
     setViewedPaths(readViewedPaths(viewedStorageKey));
@@ -685,20 +689,35 @@ export function DiffViewer(props: {
   useEffect(() => {
     if (!selectedPath || !props.sourceCommit || !props.targetCommit) {
       setSelectedFile(null);
+      selectedFileRef.current = null;
+      selectedFileRevisionRef.current = null;
+      setLoading(false);
+      setError(null);
+      setRetrying(false);
       return;
     }
+    const revisionKey = [props.projectId, props.pullRequestId, props.sourceCommit, props.targetCommit, selectedPath].join(":");
     const cacheKey = [props.sourceCommit, props.targetCommit, selectedPath, context, ignoreWhitespace].join(":");
     const cached = diffCache.current.get(cacheKey);
     if (cached) {
       setSelectedFile(cached);
+      selectedFileRef.current = cached;
+      selectedFileRevisionRef.current = revisionKey;
       setError(null);
       setLoading(false);
+      setRetrying(false);
       return;
     }
     const controller = new AbortController();
-    setLoading(true);
+    const hasStaleFile = selectedFileRef.current !== null && selectedFileRevisionRef.current === revisionKey;
+    setLoading(!hasStaleFile);
+    setRetrying(hasStaleFile);
     setError(null);
-    setSelectedFile(null);
+    if (!hasStaleFile) {
+      setSelectedFile(null);
+      selectedFileRef.current = null;
+      selectedFileRevisionRef.current = null;
+    }
     void api
       .getPullRequestFileDiff(props.projectId, props.pullRequestId, selectedPath, {
         context,
@@ -717,20 +736,30 @@ export function DiffViewer(props: {
           }
           diffCache.current.set(cacheKey, file);
           setSelectedFile(file);
+          selectedFileRef.current = file;
+          selectedFileRevisionRef.current = revisionKey;
+          setError(null);
+          setRetrying(false);
         }
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : t("pullRequests.diffLoadFailed"));
+          if (selectedFileRef.current && selectedFileRevisionRef.current === revisionKey) {
+            setError(null);
+            setRetrying(true);
+          } else {
+            setError(reason instanceof Error ? reason.message : t("pullRequests.diffLoadFailed"));
+            setRetrying(false);
+          }
         }
       })
       .finally(() => {
         if (!controller.signal.aborted) {
           setLoading(false);
         }
-      });
+    });
     return () => controller.abort();
-  }, [context, ignoreWhitespace, props.projectId, props.pullRequestId, props.sourceCommit, props.targetCommit, selectedPath]);
+  }, [context, ignoreWhitespace, props.projectId, props.pullRequestId, props.sourceCommit, props.targetCommit, retryVersion, selectedPath]);
 
   const filteredFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -907,7 +936,24 @@ export function DiffViewer(props: {
             </header>
           ) : null}
           {loading ? <AsyncState compact kind="loading" message={t("pullRequests.loadingDiff")} /> : null}
-          {error ? <AsyncState compact kind="error" message={error} /> : null}
+          {isRetrying ? (
+            <AsyncState
+              actionLabel={t("status.retry")}
+              compact
+              kind="retrying"
+              message={t("status.retrying")}
+              onAction={() => setRetryVersion((current) => current + 1)}
+            />
+          ) : null}
+          {error ? (
+            <AsyncState
+              actionLabel={t("status.retry")}
+              compact
+              kind="error"
+              message={error}
+              onAction={() => setRetryVersion((current) => current + 1)}
+            />
+          ) : null}
           {displayedFindings.length ? (
             <div className="diff-finding-overview" aria-label={t("pullRequests.findings")}>
               {displayedFindings.map((finding) => (

@@ -25,7 +25,7 @@ import {
   UserRound,
   XCircle
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AiProvider, RoleAiAgentType, RoleAiOverrides } from "../shared/ai-providers";
 import {
   aiProviderLabel,
@@ -1179,7 +1179,11 @@ function IssueDetailScreen(props: {
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
   const [isUpdatingStatus, setUpdatingStatus] = useState(false);
+  const loadedIssueId = useRef<number | null>(null);
+  const activeIssueId = useRef(props.issueId);
+  const activeIssueProjectId = useRef(props.project.id);
 
   async function load() {
     const [issueResponse, commentsResponse, activityResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
@@ -1190,18 +1194,50 @@ function IssueDetailScreen(props: {
       api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId }),
       api.getIssueObjective(props.project.id, props.issueId)
     ]);
+    if (activeIssueProjectId.current !== props.project.id || activeIssueId.current !== props.issueId) return;
     setIssue(issueResponse);
     setComments(commentsResponse);
     setActivities(activityResponse);
     setRelatedPullRequests(pullRequestResponse.items);
     setRelatedAgentJobs(agentJobResponse);
     setObjective(objectiveResponse);
+    loadedIssueId.current = issueResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load issue.";
+    if (loadedIssueId.current === props.issueId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedIssueId.current === props.issueId);
+    void load().catch(handleLoadError);
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+    activeIssueProjectId.current = props.project.id;
+    activeIssueId.current = props.issueId;
+    loadedIssueId.current = null;
+    setIssue(null);
+    setComments([]);
+    setActivities([]);
+    setRelatedPullRequests([]);
+    setRelatedAgentJobs([]);
+    setObjective(null);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+      void load().catch(handleLoadError);
     }, 4000);
     return () => window.clearInterval(interval);
   }, [props.project.id, props.issueId]);
@@ -1291,7 +1327,12 @@ function IssueDetailScreen(props: {
           </div>
         ) : null}
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
       {issue ? <WorkItemDetailMeta item={issue} /> : null}
       <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
       {!issue && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
@@ -1953,9 +1994,13 @@ function PullRequestDetailScreen(props: {
     window.location.hash.startsWith("#diff-") ? "files" : "conversation"
   );
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
   const [mergeMessage, setMergeMessage] = useState<string | null>(null);
   const [isMerging, setMerging] = useState(false);
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
+  const loadedPullRequestId = useRef<number | null>(null);
+  const activePullRequestId = useRef(props.pullRequestId);
+  const activePullRequestProjectId = useRef(props.project.id);
 
   async function load() {
     const [pullRequestResponse, commentsResponse, activityResponse, agentJobResponse, objectiveResponse] = await Promise.all([
@@ -1976,6 +2021,7 @@ function PullRequestDetailScreen(props: {
       api.getPullRequestMergeConflicts(props.project.id, props.pullRequestId),
       linkedIssuePromise
     ]);
+    if (activePullRequestProjectId.current !== props.project.id || activePullRequestId.current !== props.pullRequestId) return;
     setPullRequest(pullRequestResponse);
     setLinkedIssue(linkedIssueResponse);
     setRelatedAgentJobs(agentJobResponse);
@@ -1988,12 +2034,49 @@ function PullRequestDetailScreen(props: {
     setDiffRevision({ sourceCommit: filesResponse.sourceCommit, targetCommit: filesResponse.targetCommit });
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
+    loadedPullRequestId.current = pullRequestResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load pull request.";
+    if (loadedPullRequestId.current === props.pullRequestId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedPullRequestId.current === props.pullRequestId);
+    void load().catch(handleLoadError);
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+    activePullRequestProjectId.current = props.project.id;
+    activePullRequestId.current = props.pullRequestId;
+    loadedPullRequestId.current = null;
+    setPullRequest(null);
+    setLinkedIssue(null);
+    setRelatedAgentJobs([]);
+    setComments([]);
+    setActivities([]);
+    setObjective(null);
+    setFiles([]);
+    setFindings([]);
+    setLineComments([]);
+    setDiffRevision(null);
+    setCommits([]);
+    setMergeConflicts(null);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+      void load().catch(handleLoadError);
     }, 4000);
     return () => window.clearInterval(interval);
   }, [props.project.id, props.pullRequestId]);
@@ -2101,7 +2184,12 @@ function PullRequestDetailScreen(props: {
           </button>
         ) : null}
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
       {pullRequest ? <WorkItemDetailMeta item={pullRequest} /> : null}
       <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
       {!pullRequest && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
@@ -2649,12 +2737,17 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
   const [agentTimeBudgetMinutes, setAgentTimeBudgetMinutes] = useState("");
   const [verificationCommandTimeoutMinutes, setVerificationCommandTimeoutMinutes] = useState("5");
   const [error, setError] = useState<string | null>(null);
+  const [errorSource, setErrorSource] = useState<"load" | "save" | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
   const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
+  const loadedSettingsProjectId = useRef<string | null>(null);
+  const activeSettingsProjectId = useRef(props.project.id);
 
   async function load() {
     const response = await api.getSettings(props.project.id);
+    if (activeSettingsProjectId.current !== props.project.id) return;
     setSettings(response);
     setLocale(normalizeLocale(response.project.locale));
     setAiProvider(response.ai.provider);
@@ -2682,13 +2775,45 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
       ? ""
       : String(response.automation.agentTimeBudgetMinutes));
     setVerificationCommandTimeoutMinutes(String(response.automation.verificationCommandTimeoutMinutes));
+    loadedSettingsProjectId.current = props.project.id;
+    setError(null);
+    setErrorSource(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    if (loadedSettingsProjectId.current === props.project.id) {
+      setError(null);
+      setErrorSource(null);
+      setRetrying(true);
+      return;
+    }
+    setError(err instanceof Error ? err.message : "Failed to load settings.");
+    setErrorSource("load");
+    setRetrying(false);
+  }
+
+  function retrySettingsLoad(): void {
+    const hasStaleSettings = loadedSettingsProjectId.current === props.project.id;
+    setError(null);
+    setErrorSource(null);
+    setLoading(!hasStaleSettings);
+    setRetrying(hasStaleSettings);
+    void load()
+      .catch(handleLoadError)
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
+    activeSettingsProjectId.current = props.project.id;
+    loadedSettingsProjectId.current = null;
+    setSettings(null);
     setLoading(true);
+    setRetrying(false);
     setError(null);
+    setErrorSource(null);
     void load()
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings."))
+      .catch(handleLoadError)
       .finally(() => setLoading(false));
   }, [props.project.id]);
 
@@ -2696,6 +2821,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
     event.preventDefault();
     setSaving(true);
     setError(null);
+    setErrorSource(null);
     setSavedMessage(null);
     try {
       const response = await api.updateSettings(props.project.id, {
@@ -2737,6 +2863,7 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
       setSavedMessage(t("settings.saved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings.");
+      setErrorSource("save");
     } finally {
       setSaving(false);
     }
@@ -2747,7 +2874,17 @@ function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (loca
       <div className="section-header">
         <h1>{t("settings.title")}</h1>
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retrySettingsLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState
+          actionLabel={errorSource === "load" ? t("status.retry") : undefined}
+          kind="error"
+          message={error}
+          onAction={errorSource === "load" ? retrySettingsLoad : undefined}
+        />
+      ) : null}
       {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
       {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
       {!isLoading && settings ? (
