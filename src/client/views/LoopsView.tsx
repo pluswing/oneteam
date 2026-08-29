@@ -15,7 +15,7 @@ import { MarkdownContent } from "../components/MarkdownContent";
 import { formatDateTime } from "../formatters";
 import { t } from "../i18n";
 
-type LoopsScreen = { name: "list" } | { name: "detail"; loopId: number } | { name: "run"; loopRunId: number };
+export type LoopsScreen = { name: "list" } | { name: "detail"; loopId: number } | { name: "run"; loopRunId: number };
 
 function optionalNumber(value: string): number | null {
   const trimmed = value.trim();
@@ -174,6 +174,12 @@ function LoopsListScreen(props: {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load loops."));
   }, [props.project.id]);
 
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1);
+    if (!anchor || memory.length === 0) return;
+    window.requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "center" }));
+  }, [memory]);
+
   async function convertTriageItem(triageItemId: number) {
     await api.convertTriageItemToIssue(props.project.id, triageItemId);
     await load();
@@ -299,7 +305,7 @@ function LoopsListScreen(props: {
           <div className="job-list">
             {memory.length === 0 ? <div className="empty-state">{t("loops.noMemory")}</div> : null}
             {memory.slice(0, 6).map((entry) => (
-              <article className="job-row" key={entry.id}>
+              <article className="job-row" id={`memory-${entry.id}`} key={entry.id}>
                 <strong>{entry.title}</strong>
                 {entry.body ? <MarkdownContent content={entry.body} /> : null}
                 <span className="muted-text">{entry.tags.join(", ") || formatDateTime(entry.createdAt)}</span>

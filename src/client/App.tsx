@@ -76,6 +76,7 @@ import { setLocale as setUiLocale, t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
 import { AgentJobsView } from "./views/AgentJobsView";
+import { LoopsView, type LoopsScreen } from "./views/LoopsView";
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -3072,6 +3073,11 @@ export function App() {
   const routePullRequestId = route.name === "pullRequest" || route.name === "pullRequestConflicts" ? route.pullRequestId : null;
   const routePullRequestScreen =
     route.name === "pullRequestConflicts" ? "conflicts" : route.name === "pullRequest" ? "detail" : null;
+  const routeLoopsScreen: LoopsScreen = route.name === "loop"
+    ? { name: "detail", loopId: route.loopId }
+    : route.name === "loopRun"
+      ? { name: "run", loopRunId: route.loopRunId }
+      : { name: "list" };
 
   const navigate = useCallback((nextRoute: AppRoute, mode: "push" | "replace" = "push") => {
     const path = routeToPath(nextRoute);
@@ -3096,6 +3102,12 @@ export function App() {
   );
   const handleOpenPullRequestConflicts = useCallback(
     (pullRequestId: number) => navigate({ name: "pullRequestConflicts", pullRequestId }),
+    [navigate]
+  );
+  const handleOpenLoops = useCallback(() => navigate({ name: "loops" }), [navigate]);
+  const handleOpenLoop = useCallback((loopId: number) => navigate({ name: "loop", loopId }), [navigate]);
+  const handleOpenLoopRun = useCallback(
+    (loopRunId: number) => navigate({ name: "loopRun", loopRunId }),
     [navigate]
   );
   const refreshRepositories = useCallback(async () => {
@@ -3252,6 +3264,16 @@ export function App() {
         />
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
+      {view === "loops" ? (
+        <LoopsView
+          project={project}
+          screen={routeLoopsScreen}
+          onOpenLoop={handleOpenLoop}
+          onOpenRun={handleOpenLoopRun}
+          onOpenAgentJob={handleOpenAgentJob}
+          onBackToList={handleOpenLoops}
+        />
+      ) : null}
       {view === "settings" ? (
         <SettingsView project={project} onProjectLocaleChange={handleProjectLocaleChange} />
       ) : null}

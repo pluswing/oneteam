@@ -1,4 +1,4 @@
-export type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
+export type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "loops" | "settings";
 
 export type AppRoute =
   | { name: "issues" }
@@ -9,6 +9,9 @@ export type AppRoute =
   | { name: "agentJobs" }
   | { name: "agentJob"; jobId: number }
   | { name: "repository" }
+  | { name: "loops" }
+  | { name: "loop"; loopId: number }
+  | { name: "loopRun"; loopRunId: number }
   | { name: "settings" };
 
 export function parseRoute(pathname = window.location.pathname): AppRoute {
@@ -39,6 +42,15 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
   if (first === "repository") {
     return { name: "repository" };
   }
+  if (first === "loops" && id === null) {
+    return { name: "loops" };
+  }
+  if (first === "loops" && id !== null) {
+    return { name: "loop", loopId: id };
+  }
+  if (first === "loop-runs" && id !== null) {
+    return { name: "loopRun", loopRunId: id };
+  }
   if (first === "settings") {
     return { name: "settings" };
   }
@@ -64,6 +76,12 @@ export function routeToPath(route: AppRoute): string {
       return `/jobs/${route.jobId}`;
     case "repository":
       return "/repository";
+    case "loops":
+      return "/loops";
+    case "loop":
+      return `/loops/${route.loopId}`;
+    case "loopRun":
+      return `/loop-runs/${route.loopRunId}`;
     case "settings":
       return "/settings";
   }
@@ -78,6 +96,9 @@ export function viewForRoute(route: AppRoute): View {
   }
   if (route.name === "agentJob") {
     return "agentJobs";
+  }
+  if (route.name === "loop" || route.name === "loopRun") {
+    return "loops";
   }
   return route.name;
 }

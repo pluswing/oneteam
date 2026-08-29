@@ -11,6 +11,9 @@ describe("client routes", () => {
     expect(routeToPath({ name: "agentJobs" })).toBe("/jobs");
     expect(routeToPath({ name: "agentJob", jobId: 3 })).toBe("/jobs/3");
     expect(routeToPath({ name: "repository" })).toBe("/repository");
+    expect(routeToPath({ name: "loops" })).toBe("/loops");
+    expect(routeToPath({ name: "loop", loopId: 4 })).toBe("/loops/4");
+    expect(routeToPath({ name: "loopRun", loopRunId: 5 })).toBe("/loop-runs/5");
     expect(routeToPath({ name: "settings" })).toBe("/settings");
   });
 
@@ -21,7 +24,9 @@ describe("client routes", () => {
     expect(viewForRoute(parseRoute("/pulls/2/conflicts"))).toBe("pullRequests");
     expect(parseRoute("/jobs/3")).toEqual({ name: "agentJob", jobId: 3 });
     expect(viewForRoute(parseRoute("/jobs/3"))).toBe("agentJobs");
-    expect(parseRoute("/loops/4")).toEqual({ name: "issues" });
-    expect(parseRoute("/loop-runs/5")).toEqual({ name: "issues" });
+    expect(parseRoute("/loops/4")).toEqual({ name: "loop", loopId: 4 });
+    expect(viewForRoute(parseRoute("/loops/4"))).toBe("loops");
+    expect(parseRoute("/loop-runs/5")).toEqual({ name: "loopRun", loopRunId: 5 });
+    expect(viewForRoute(parseRoute("/loop-runs/5"))).toBe("loops");
   });
 });

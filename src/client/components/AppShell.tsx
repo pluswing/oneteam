@@ -22,7 +22,10 @@ export function AppShell(props: {
     { view: "agentJobs" as const, label: t("nav.agentRuns"), icon: Bot },
     { view: "repository" as const, label: t("nav.repository"), icon: Terminal }
   ];
-  const settingsNav = [{ view: "settings" as const, label: t("nav.settings"), icon: Settings }];
+  const settingsNav = [
+    { view: "loops" as const, label: t("nav.loops"), icon: RotateCcw },
+    { view: "settings" as const, label: t("nav.settings"), icon: Settings }
+  ];
 
   useEffect(() => {
     if (!isSettingsMenuOpen) {
