@@ -88,12 +88,15 @@ Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project to
 通信失敗時は取得済みのIssue / PR / Agent runを一覧・detailのどちらでも消さず、共通`retrying` stateをARIA live regionで表示する。diffはproject、PR、source / target commit、fileが一致する同一revisionのpatchだけを維持し、別revisionの古いpatchを表示しない。Settingsを含む未読込画面のerrorと、取得済みデータを維持したretryingを区別し、各状態に明示的な`Retry now`を置く。loading、retrying、empty、errorは視覚表現とテキストの両方で識別でき、画面遷移前の遅い応答が現在のdetailを上書きしないよう対象IDを検証する。
 
 - file tree / file list と sticky file header
+- 選択fileだけをTab順に置くroving focus、Arrow Up / Down・Home / End移動、選択状態と表示layoutのARIA通知
 - unified / split diff 切り替え
 - old / new line number、syntax highlighting、word-level diff
 - 変更行数、rename、binary、追加 / 削除状態の明確な表示
 - context 展開、折りたたみ、全文表示、ファイル内検索
 - whitespace 無視、viewed 状態、reviewed progress
 - file / line deep link と system comment からの参照
+
+全画面のkeyboard focusは共通の高contrast focus ringで可視化し、dark top barでは専用色を使う。`prefers-reduced-motion`ではanimationとtransitionを実質停止する。diffのkeyboard操作はChromium E2EでTab移動、focus ring、roving focus、ARIA stateまで検証する。
 - 行単位コメントと review finding の該当行表示
 - 大規模 diff の遅延読み込み、virtualization、表示上限
 - keyboard navigation と、色だけに依存しない accessibility
