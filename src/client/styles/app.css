@@ -27,6 +27,15 @@ button {
   cursor: pointer;
 }
 
+:where(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 3px solid #0969da;
+  outline-offset: 2px;
+}
+
+.topbar :where(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline-color: #58a6ff;
+}
+
 .app-shell {
   min-height: 100vh;
   background: #f6f8fa;
@@ -2646,6 +2655,12 @@ textarea {
   background: #ffffff;
 }
 
+.diff-file-list > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline-offset: -3px;
+}
+
 .diff-file-list > button.active {
   box-shadow: inset 3px 0 #0969da;
   background: #ddf4ff;
@@ -3038,6 +3053,17 @@ textarea {
 
 .diff-hunk-row svg.collapsed {
   transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .diff-hunk-action {

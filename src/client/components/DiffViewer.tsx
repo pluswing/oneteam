@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronUp, FileCode2, Plus, Search } from "lucide-react";
-import { Fragment, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PullRequestFindingDto,
   PullRequestLineCommentDto,
@@ -630,6 +630,7 @@ export function DiffViewer(props: {
   const diffCache = useRef(new Map<string, RepositoryFileChangeDto>());
   const selectedFileRef = useRef<RepositoryFileChangeDto | null>(null);
   const selectedFileRevisionRef = useRef<string | null>(null);
+  const fileListRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setViewedPaths(readViewedPaths(viewedStorageKey));
@@ -812,6 +813,26 @@ export function DiffViewer(props: {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${anchor}`);
   }
 
+  function handleFileListKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, index: number): void {
+    const nextIndex = event.key === "ArrowDown"
+      ? Math.min(index + 1, filteredFiles.length - 1)
+      : event.key === "ArrowUp"
+        ? Math.max(index - 1, 0)
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? filteredFiles.length - 1
+            : null;
+    if (nextIndex === null || nextIndex === index) return;
+    event.preventDefault();
+    const next = filteredFiles[nextIndex];
+    if (!next) return;
+    selectFile(next.path);
+    window.requestAnimationFrame(() => {
+      fileListRef.current?.querySelector<HTMLButtonElement>(`[data-file-index="${nextIndex}"]`)?.focus();
+    });
+  }
+
   function moveSelection(offset: number): void {
     const next = props.files[selectedIndex + offset];
     if (next) {
@@ -869,9 +890,9 @@ export function DiffViewer(props: {
           <span className="diff-progress-track" aria-hidden="true"><span style={{ width: `${props.files.length ? (viewedCount / props.files.length) * 100 : 0}%` }} /></span>
         </div>
         <div className="diff-toolbar-actions">
-          <div className="segmented-control" aria-label={t("pullRequests.diffLayout")}>
-            <button className={view === "unified" ? "active" : ""} onClick={() => setView("unified")} type="button">{t("pullRequests.unified")}</button>
-            <button className={view === "split" ? "active" : ""} onClick={() => setView("split")} type="button">{t("pullRequests.split")}</button>
+          <div className="segmented-control" aria-label={t("pullRequests.diffLayout")} role="group">
+            <button aria-pressed={view === "unified"} className={view === "unified" ? "active" : ""} onClick={() => setView("unified")} type="button">{t("pullRequests.unified")}</button>
+            <button aria-pressed={view === "split"} className={view === "split" ? "active" : ""} onClick={() => setView("split")} type="button">{t("pullRequests.split")}</button>
           </div>
           <label className="diff-context-control">
             <span>{t("pullRequests.context")}</span>
@@ -892,20 +913,29 @@ export function DiffViewer(props: {
             <span className="sr-only">{t("pullRequests.searchFiles")}</span>
             <input onChange={(event) => setQuery(event.target.value)} placeholder={t("pullRequests.searchFiles")} type="search" value={query} />
           </label>
-          <div className="diff-file-list">
-            {filteredFiles.map((file) => (
-              <button className={file.path === selectedPath ? "active" : ""} key={file.path} onClick={() => selectFile(file.path)} type="button">
-                <span className={`diff-file-status status-${fileStatusClass(file.status)}`} title={fileStatusLabel(file.status)}>{file.status.charAt(0)}</span>
+          <nav aria-label={t("pullRequests.filesChanged")} className="diff-file-list" ref={fileListRef}>
+            {filteredFiles.map((file, index) => (
+              <button
+                aria-current={file.path === selectedPath ? "true" : undefined}
+                className={file.path === selectedPath ? "active" : ""}
+                data-file-index={index}
+                key={file.path}
+                onClick={() => selectFile(file.path)}
+                onKeyDown={(event) => handleFileListKeyDown(event, index)}
+                tabIndex={file.path === selectedPath || (!filteredFiles.some((candidate) => candidate.path === selectedPath) && index === 0) ? 0 : -1}
+                type="button"
+              >
+                <span aria-label={fileStatusLabel(file.status)} className={`diff-file-status status-${fileStatusClass(file.status)}`}>{file.status.charAt(0)}</span>
                 <span className="diff-file-name"><span>{file.path}</span>{file.previousPath ? <small>{file.previousPath}</small> : null}</span>
-                <span className="diff-file-stats"><span className="addition">+{file.additions}</span><span className="deletion">−{file.deletions}</span></span>
+                <span aria-label={`+${file.additions}, −${file.deletions}`} className="diff-file-stats"><span aria-hidden="true" className="addition">+{file.additions}</span><span aria-hidden="true" className="deletion">−{file.deletions}</span></span>
                 <span className="diff-file-indicators">
                   {props.findings.some((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)) ? (
-                    <span className="diff-finding-count" title={t("pullRequests.openFindings")}>
+                    <span aria-label={`${props.findings.filter((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)).length} ${t("pullRequests.openFindings")}`} className="diff-finding-count">
                       {props.findings.filter((finding) => finding.status === "open" && (finding.path === file.path || finding.path === file.previousPath)).length}
                     </span>
                   ) : null}
                   {revisionLineComments.some((comment) => comment.path === file.path || comment.path === file.previousPath) ? (
-                    <span className="diff-comment-count" title={t("pullRequests.lineComments")}>
+                    <span aria-label={`${revisionLineComments.filter((comment) => comment.path === file.path || comment.path === file.previousPath).length} ${t("pullRequests.lineComments")}`} className="diff-comment-count">
                       {revisionLineComments.filter((comment) => comment.path === file.path || comment.path === file.previousPath).length}
                     </span>
                   ) : null}
@@ -914,12 +944,12 @@ export function DiffViewer(props: {
               </button>
             ))}
             {!filteredFiles.length ? <div className="diff-file-empty">{t("pullRequests.noMatchingFiles")}</div> : null}
-          </div>
+          </nav>
         </aside>
         <div className="diff-file-content">
           {currentSummary ? (
             <header className="diff-file-header" id={diffFileAnchor(currentSummary.path)}>
-              <div className="diff-file-title">
+              <div aria-live="polite" className="diff-file-title">
                 <FileCode2 aria-hidden="true" size={16} />
                 <div><strong>{currentSummary.path}</strong>{currentSummary.previousPath ? <small>{currentSummary.previousPath} → {currentSummary.path}</small> : null}</div>
                 <span className={`diff-status-label status-${fileStatusClass(currentSummary.status)}`}>{fileStatusLabel(currentSummary.status)}</span>
@@ -955,7 +985,7 @@ export function DiffViewer(props: {
             />
           ) : null}
           {displayedFindings.length ? (
-            <div className="diff-finding-overview" aria-label={t("pullRequests.findings")}>
+            <div className="diff-finding-overview" aria-label={t("pullRequests.findings")} role="region">
               {displayedFindings.map((finding) => (
                 <FindingCard finding={finding} key={finding.id} onOpen={finding.line ? () => openFinding(finding) : undefined} />
               ))}
