@@ -99,6 +99,8 @@ Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project to
 全画面のkeyboard focusは共通の高contrast focus ringで可視化し、dark top barでは専用色を使う。`prefers-reduced-motion`ではanimationとtransitionを実質停止する。diffのkeyboard操作はChromium E2EでTab移動、focus ring、roving focus、ARIA stateまで検証する。
 
 Checks summaryはreview / QA roleごとに未解決findingをseverity順で評価し、最重要の行を実URLとして表示する。finding overview cardとsystem / merge commentも同じstable anchor contractを使う。rename後のfindingは`previousPath`を現在pathへ解決してからanchorを生成し、deep link先では必要な全文contextとvirtual windowを自動的に開く。
+
+大規模diffの性能は感覚値ではなく、`oneteam:diff-load`と`oneteam:diff-render`のPerformance entryとしてfile fetch完了とReact commit後の次paintまでを記録する。6,000行fixtureのChromium E2EではDOM上限に加えてload 8秒未満、render 3秒未満を回帰条件にする。DiffViewerのtoolbar、file navigation、ARIA current / pressed、単一Tab stopはserver-rendered component snapshotでも固定する。
 - 行単位コメントと review finding の該当行表示
 - 大規模 diff の遅延読み込み、virtualization、表示上限
 - keyboard navigation と、色だけに依存しない accessibility

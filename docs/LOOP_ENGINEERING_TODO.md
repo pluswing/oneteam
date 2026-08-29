@@ -142,7 +142,7 @@
 - [x] **Done**: Review / QA Agent findingを正規化し、open / resolved履歴、ファイル件数、該当行inline card、全文contextへの移動を表示する。ユーザー行コメントはsource / target commitを固定して永続化し、stale diffを拒否したうえでMarkdown composerとともに該当行へinline表示する
 - [x] **Done**: merge system commentのchanged file / line、Checks summaryの未解決かつseverity最優先のreview / QA finding、diff overviewのfinding cardからstable file / line anchorへ直接移動する。rename findingは現在pathのanchorへ正規化する
 - [x] **Done**: 大規模diffのfile-level lazy loading、選択変更時のabort、source / target commit固定の30件cache、初期1,000行 / 段階描画 / 5,000行レビュー上限、finding focused window、overscan付きscroll virtualizationを実装
-- [ ] **Partial**: diff parser、split row、word diff、syntax tokenizer、deep-link、render limit / focused window / virtual rangeのunit testと6,000行diffのDOM上限browser testは実装済み。component snapshotと実時間のperformance計測は未実装
+- [x] **Done**: diff parser、split row、word diff、syntax tokenizer、deep-link、render limit / focused window / virtual rangeのunit test、DiffViewerのARIA / roving-focus component snapshot、6,000行diffのDOM上限browser testを実装する。Performance APIでfile fetchとcommit後paintを記録し、E2Eでload 8秒 / render 3秒の上限を検証する
 
 ### Conversation / checks
 
