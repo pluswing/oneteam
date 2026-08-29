@@ -1,8 +1,8 @@
 # OneTeam: Local Loop Engineering for solo developers
 
-OneTeam is a local web application for solo developers who want to design, run, verify, and remember AI development loops from local issues.
+OneTeam is a local web application for solo developers who want to design, run, verify, and remember autonomous AI development loops from local issues.
 
-It provides a GitHub-like local control plane for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam can help define a goal contract, prepare an implementation branch, run Codex CLI, collect evidence, create a local pull request, review changes, route fixes, support QA, and stop with a clear reason.
+It provides a GitHub-like local control plane for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam defines a Goal Contract, prepares isolated worktrees, runs the selected AI provider, collects Evidence, creates a local pull request, reviews and fixes changes, performs QA and final verification, and merges automatically when every policy gate passes. Human and provider-capacity gates preserve the complete execution state for later resumption.
 
 ## Website
 
@@ -15,14 +15,16 @@ It provides a GitHub-like local control plane for issues, pull requests, labels,
 - Create local issues and pull requests without GitHub integration.
 - Turn issues into verifiable AI development loops with goal contracts, evidence, and stop reasons.
 - Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, `done`, and `ready-to-merge`.
-- Run AI agent jobs through the local Codex CLI.
+- Run role-routed AI agent jobs through Codex CLI, Claude Code, or LM Studio.
 - Switch the UI and AI agent output language between English and Japanese.
 - Save AI progress, thinking summaries, command results, changed files, and errors as Activity Log entries.
 - Auto-detect install/dev/build/test/lint commands from the repository.
 - Pause safely for human input with Human Gate and resume when the user comments.
-- Prepare implementation branches as `oneteam/issue-{issueId}-{slug}`.
-- Detect dirty working trees and merge conflicts before unsafe operations.
-- Run Playwright smoke coverage for the core setup and workflow controls.
+- Isolate writing Agents in branch worktrees and read-only Agents in commit-pinned snapshot worktrees.
+- Re-run required commands and risk checks immediately before policy-gated local merge.
+- Persist Codex usage-limit waits and resume the same Job, Objective, thread, and worktree after capacity recovers.
+- Optionally poll GitHub Actions workflow status into Objective Evidence, PR Activity, and Triage without coupling Connector failures to Agent Jobs.
+- Run Playwright browser coverage for workflow controls, large diff performance, keyboard behavior, and screen-level text contrast.
 
 ## Tech Stack
 
@@ -35,7 +37,7 @@ It provides a GitHub-like local control plane for issues, pull requests, labels,
 - ORM / query builder: Drizzle ORM
 - Unit and integration tests: Vitest
 - E2E smoke tests: Playwright
-- AI execution: Codex CLI via `node_modules/.bin/codex`
+- AI execution: Codex CLI via `node_modules/.bin/codex`, Claude Code, or LM Studio
 
 ## Requirements
 
@@ -124,8 +126,9 @@ npm run codex:version
 5. Review Agent checks requirement coverage, evidence, and risk, then sends the pull request to `fixing` or `testing`.
 6. Fix Agent resolves review, QA, or conflict findings and returns to `reviewing`.
 7. QA Agent records evidence and sends defects to `fixing` or hands the pull request to final verification with `done`.
-8. Verifier Agent checks the stop condition and evidence, then marks the pull request `ready-to-merge`.
-9. The user performs the final merge.
+8. Verifier Agent checks the stop condition and typed Evidence, then marks the pull request `ready-to-merge`.
+9. The automatic merge gate rechecks source / target snapshots, conflicts, commands, Evidence freshness, and risk policy before merging locally.
+10. OneTeam finalizes the PR, Objective, Issue, comments, Activity, and Loop Memory idempotently. It stops at a Human Gate only when policy or missing Evidence requires a decision.
 
 ## Project Structure
 
@@ -153,11 +156,12 @@ docs            requirements and implementation documents
 - [MVP completion status](./docs/10-mvp-remaining-tasks.md)
 - [Manual E2E checklist](./docs/11-manual-e2e-checklist.md)
 - [Local Codex CLI setup](./docs/09-local-codex-setup.md)
+- [Connector setup](./docs/CONNECTORS.md)
 - [Loop Engineering adaptation](./docs/LOOP_ENGINEERING_ADAPTATION.md)
 - [Loop Engineering TODO](./docs/LOOP_ENGINEERING_TODO.md)
 
 ## Current Status
 
-The MVP implementation is complete. The remaining work is product hardening beyond MVP: deeper UX polish, broader browser coverage, larger repository performance tuning, and future integrations.
+The autonomous local workflow target is implemented: Issue → requirements → implementation → local PR → review / fix → QA → verification → policy-gated merge → Issue and Memory finalization. Codex capacity waits recover automatically, every Loop Step is isolated from the primary workspace, the diff viewer is optimized for review, and durable Markdown or sanitized HTML records retain the decision trail.
 
-The next target is an autonomous local workflow that continues from an issue through implementation, verification, pull request creation, review, and policy-gated merge. It will persist Codex capacity waits and resume after usage recovers, while retaining the existing Loop Engineering gates. UI work will prioritize a GitHub-quality pull request diff and durable Markdown or sanitized HTML system comments. See [the updated design](./docs/LOOP_ENGINEERING_ADAPTATION.md) and [implementation TODO](./docs/LOOP_ENGINEERING_TODO.md).
+All concrete implementation items in the current plan are complete. The remaining `Partial` area is optional future integration beyond the implemented GitHub Actions status runtime: GitHub Issue / PR synchronization, Linear, and Slack / Discord Connectors. See [the design](./docs/LOOP_ENGINEERING_ADAPTATION.md) and [implementation status](./docs/LOOP_ENGINEERING_TODO.md).
