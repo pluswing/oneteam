@@ -69,6 +69,29 @@ describe("agent milestone comment", () => {
     expect(comment).toContain("### Questions\n\n- Should archived users retain access?");
     expect(comment).toContain("resume it after the response is recorded");
   });
+
+  it("references a separately preserved HTML report without embedding raw markup", () => {
+    const comment = buildAgentMilestoneComment(
+      fakeJob("qa"),
+      {
+        status: "succeeded",
+        message: "Visual QA passed.",
+        stopReason: "passed",
+        comment: {
+          targetType: "pull_request",
+          targetId: 7,
+          body: '<section data-report="visual"><h2>Visual report</h2></section>',
+          bodyFormat: "html"
+        }
+      },
+      new Date("2026-08-28T02:00:00.000Z")
+    );
+
+    expect(comment).toContain("Outcome · SUCCESS");
+    expect(comment).toContain("original rich HTML report is preserved as the next sanitized timeline record");
+    expect(comment).not.toContain("data-report");
+    expect(comment).toContain("### Next step");
+  });
 });
 
 function fakeJob(agentType: AgentJobDto["agentType"]): AgentJobDto {

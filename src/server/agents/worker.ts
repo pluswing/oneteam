@@ -789,19 +789,29 @@ export class AgentWorker {
     };
 
     if (output.comment) {
+      const hasHtmlReport = output.comment.bodyFormat === "html";
       await this.repos.comments.create({
         projectId: job.projectId,
         targetType: output.comment.targetType,
         targetId: output.comment.targetId,
         authorType: "agent",
         agentType: job.agentType,
-        body:
-          output.comment.bodyFormat === "html"
-            ? output.comment.body
-            : buildAgentMilestoneComment(job, output),
-        bodyFormat: output.comment.bodyFormat === "html" ? "html" : "markdown",
-        metadata: commentMetadata
+        body: buildAgentMilestoneComment(job, output),
+        bodyFormat: "markdown",
+        metadata: { ...commentMetadata, commentRole: "milestone" }
       });
+      if (hasHtmlReport) {
+        await this.repos.comments.create({
+          projectId: job.projectId,
+          targetType: output.comment.targetType,
+          targetId: output.comment.targetId,
+          authorType: "agent",
+          agentType: job.agentType,
+          body: output.comment.body,
+          bodyFormat: "html",
+          metadata: { ...commentMetadata, commentRole: "rich_report" }
+        });
+      }
     } else if (output.questions?.length && target) {
       await this.repos.comments.create({
         projectId: job.projectId,

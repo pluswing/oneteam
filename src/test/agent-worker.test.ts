@@ -109,8 +109,15 @@ describe("agent worker", () => {
 
     expect(updatedJob?.status).toBe("succeeded");
     expect((updatedJob?.output as AgentRunResult | null | undefined)?.stopReason).toBe("passed");
-    expect(comments[0].body).toContain("Build the setup wizard");
-    expect(comments[0].bodyFormat).toBe("html");
+    const milestone = comments.find((comment) => comment.metadata?.commentRole === "milestone");
+    const richReport = comments.find((comment) => comment.metadata?.commentRole === "rich_report");
+    expect(comments).toHaveLength(2);
+    expect(milestone?.body).toContain("Outcome · SUCCESS");
+    expect(milestone?.body).toContain("original rich HTML report is preserved");
+    expect(milestone?.body).toContain("### Next step");
+    expect(milestone?.bodyFormat).toBe("markdown");
+    expect(richReport?.body).toContain("Build the setup wizard");
+    expect(richReport?.bodyFormat).toBe("html");
     expect(activities.map((activity) => activity.title)).toContain("Reviewed issue");
     expect(updatedIssue?.labels.map((label) => label.name)).toContain("ready-for-implementation");
 

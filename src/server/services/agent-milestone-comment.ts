@@ -87,8 +87,15 @@ function findingItems(job: AgentJobDto, values: Record<string, unknown>[], label
 
 function structuredSections(job: AgentJobDto, result: AgentRunResult): SystemCommentSection[] {
   const sections: SystemCommentSection[] = [];
-  const report = result.comment?.body?.trim();
+  const hasHtmlReport = result.comment?.bodyFormat === "html" && Boolean(result.comment.body.trim());
+  const report = hasHtmlReport ? null : result.comment?.body?.trim();
   if (report) sections.push({ title: "Agent summary", body: report });
+  if (hasHtmlReport) {
+    sections.push({
+      title: "Agent summary",
+      items: ["The original rich HTML report is preserved as the next sanitized timeline record for this Agent Job."]
+    });
+  }
 
   if (result.changedFiles?.length) {
     sections.push({

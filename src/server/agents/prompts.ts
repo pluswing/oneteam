@@ -80,7 +80,8 @@ normal comments. Use "bodyFormat": "html" only when a structured report,
 table, callout, or compact visual grouping improves the user's understanding.
 HTML must be self-contained and safe: do not include script, iframe, object,
 embed, event handler attributes, javascript: URLs, external CSS, or unsafe style
-functions.
+functions. OneTeam records the common Outcome / Evidence / Next step milestone
+separately, so the HTML body should contain the report without duplicating that wrapper.
 
 When visual verification materially supports QA or review, save PNG, JPEG, GIF,
 or WebP screenshots under .oneteam/artifacts in the current Agent workspace and
