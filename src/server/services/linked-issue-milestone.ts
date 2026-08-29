@@ -8,6 +8,7 @@ import {
 } from "./system-comment";
 import { workflowStageForLabel } from "./objective-workflow";
 import type { PreparedWorktree } from "./worktree-service";
+import { verifyMarkdownReferences } from "./verified-markdown-references";
 
 type LinkedIssueMilestone = {
   event: string;
@@ -215,19 +216,26 @@ async function createMilestone(
     nextStep: input.milestone.nextStep,
     recordedBy: "OneTeam workflow"
   });
+  const verified = await verifyMarkdownReferences(repos, {
+    projectId: input.job.projectId,
+    targetType: "issue",
+    targetId: input.objective.issueId,
+    body
+  });
   await repos.comments.create({
     projectId: input.job.projectId,
     targetType: "issue",
     targetId: input.objective.issueId,
     authorType: "system",
-    body,
+    body: verified.body,
     metadata: {
       workflowMilestoneKey: key,
       workflowMilestoneEvent: input.milestone.event,
       objectiveRunId: input.objective.id,
       pullRequestId: input.pullRequest.id,
       agentJobId: input.job.id,
-      workflowStage: input.objective.workflowStage
+      workflowStage: input.objective.workflowStage,
+      verifiedReferences: verified.references
     }
   });
   await repos.activities.create({
@@ -237,8 +245,12 @@ async function createMilestone(
     targetId: input.objective.issueId,
     activityType: "system",
     title: input.milestone.title,
-    body,
-    payload: { workflowMilestoneKey: key, pullRequestId: input.pullRequest.id }
+    body: verified.body,
+    payload: {
+      workflowMilestoneKey: key,
+      pullRequestId: input.pullRequest.id,
+      verifiedReferences: verified.references
+    }
   });
 }
 

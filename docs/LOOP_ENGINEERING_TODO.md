@@ -166,7 +166,7 @@
 - [x] **Done**: internal system commentはMarkdownを標準とし、表とcalloutを共通builderで生成する
 - [x] sanitizerのelement / attribute allowlist、URL、CSS、same-origin image、data attribute policyを明文化し、unit / browser security testを追加する
 - [x] Agent runごとに節目単位のcommentを1件生成し、逐次ログはActivityへ分離する。30秒以内の連続した同一Activityはoccurrence count付きの1件へ圧縮し、Issue / PR timelineはsystem / commit等の監査イベントだけを表示する
-- [ ] **Partial**: merge / Issue完了 / Agent commentのPR / changed file / finding line / implementation・snapshot・merge commit参照は検証済みdeep link化し、Repositoryに全branchのcommit historyとstable anchorを追加済み。自由文中の参照検証は未実装
+- [x] **Done**: merge / Issue完了 / Agent commentのPR / changed file / finding line / implementation・snapshot・merge commit参照を検証済みdeep link化し、Repositoryに全branchのcommit historyとstable anchorを追加する。Agent / workflow milestoneの自由文も既存Markdown構文を保護し、実在するPR、表示可能なcommit、対象diffのfile / lineだけをlink化する。解決結果はcomment metadataへ監査記録として保存し、検証不能な参照は原文を維持する
 - [x] merge後のfinal summaryにstable anchorを付け、Issueの完了サマリーとPRのmergeサマリーを相互参照できるようにする
 - [x] 日本語 / 英語で情報階層と表の読みやすさが崩れないbrowser testを追加する。言語切替後のrich table、Checks、巨大diff、長いfile pathを同一データで検証する
 

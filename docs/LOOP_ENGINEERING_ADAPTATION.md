@@ -122,6 +122,7 @@ Agent / system comment は、その場の進捗通知だけでなく、数週間
 - 詳細な逐次ログは Activity に残し、Comment は読み返す価値のある decision / handoff artifact にする
 - HTML は allowlist sanitizer を通し、script、event handler、unsafe URL / CSS、iframe などを禁止する
 - HTML reportも共通milestoneを置き換えない。同じAgent JobへOutcome / Evidence / Next stepを含むMarkdown `milestone`と原文HTMLの`rich_report`を別recordとして保存し、timeline上で一つのJob artifactとして束ねる
+- Agent / workflow milestoneの自由文は保存前にMarkdown-awareな参照検証を行う。既存link、URL、HTML、code blockは変更せず、実在するlocal PR、Repository履歴に表示できるcommit、対象PRで実在するchanged file / diff lineだけをstable deep linkへ変換する。解決不能、曖昧、範囲外の参照は原文を維持し、解決した種類、原文、完全hashまたはdiff位置、hrefをcomment metadataへ保存する。検証処理が利用不能でもAgent Job完了やcomment保存を失敗させない
 - 色だけで状態を表さず、見出し、テキスト、アイコン、表のラベルを併用する
 
 ## 目的

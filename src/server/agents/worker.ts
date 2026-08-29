@@ -49,6 +49,7 @@ import {
   recordLinkedIssueAgentMilestone,
   recordLinkedIssuePullRequestCreated
 } from "../services/linked-issue-milestone";
+import { verifyMarkdownReferences } from "../services/verified-markdown-references";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 
@@ -856,19 +857,32 @@ export class AgentWorker {
       ...(output.metadata ?? {}),
       agentJobId: job.id
     };
+    const createMilestoneComment = async (
+      commentTarget: { targetType: "issue" | "pull_request"; targetId: number },
+      metadata: Record<string, unknown>
+    ) => {
+      const verified = await verifyMarkdownReferences(this.repos, {
+        projectId: job.projectId,
+        ...commentTarget,
+        body: buildAgentMilestoneComment(job, output)
+      });
+      return this.repos.comments.create({
+        projectId: job.projectId,
+        ...commentTarget,
+        authorType: "agent",
+        agentType: job.agentType,
+        body: verified.body,
+        bodyFormat: "markdown",
+        metadata: { ...metadata, verifiedReferences: verified.references }
+      });
+    };
 
     if (output.comment) {
       const hasHtmlReport = output.comment.bodyFormat === "html";
-      await this.repos.comments.create({
-        projectId: job.projectId,
+      await createMilestoneComment({
         targetType: output.comment.targetType,
-        targetId: output.comment.targetId,
-        authorType: "agent",
-        agentType: job.agentType,
-        body: buildAgentMilestoneComment(job, output),
-        bodyFormat: "markdown",
-        metadata: { ...commentMetadata, commentRole: "milestone" }
-      });
+        targetId: output.comment.targetId
+      }, { ...commentMetadata, commentRole: "milestone" });
       if (hasHtmlReport) {
         await this.repos.comments.create({
           projectId: job.projectId,
@@ -882,25 +896,15 @@ export class AgentWorker {
         });
       }
     } else if (output.questions?.length && target) {
-      await this.repos.comments.create({
-        projectId: job.projectId,
+      await createMilestoneComment({
         targetType: target.targetType,
-        targetId: target.targetId,
-        authorType: "agent",
-        agentType: job.agentType,
-        body: buildAgentMilestoneComment(job, output),
-        metadata: commentMetadata
-      });
+        targetId: target.targetId
+      }, commentMetadata);
     } else if (output.message && target) {
-      await this.repos.comments.create({
-        projectId: job.projectId,
+      await createMilestoneComment({
         targetType: target.targetType,
-        targetId: target.targetId,
-        authorType: "agent",
-        agentType: job.agentType,
-        body: buildAgentMilestoneComment(job, output),
-        metadata: commentMetadata
-      });
+        targetId: target.targetId
+      }, commentMetadata);
     }
 
     if (output.status === "succeeded") {
