@@ -35,7 +35,7 @@
 
 - [x] **Done**: implementation / fixのgit worktree分離、dirty main workspaceとの分離、job lock
 - [x] **Done**: 成功・取消時のworktree cleanup、失敗・Human Gate・Provider Gate・pause・回復可能エラー時のretention、既存OneTeam worktreeのrecovery。判断はJob出力、Loop Evidence、Activityへ記録する
-- [ ] **Partial**: 全Loop Runではなく、書き込みを行うimplementation / fixが主なworktree対象
+- [x] **Done**: 全Loop Stepをprimary workspaceから分離する。implementation / fixは書き込みbranch worktree、それ以外は対象commitを固定したdetached snapshot worktreeを使い、同一Loop Runの待機・再開で復旧する。非書き込みroleのsnapshot変更はsource branchへ反映せずRisk Evidence付きHuman Gateへ止める
 - [x] **Done**: 最大変更ファイル数 / diff行数、command allowlist / denylist、protected path / branch、Risk SignalのHuman Gate
 - [x] **Done**: Loop固有またはProject既定のtime budgetをAgent Job全体のdeadlineとしてprovider process / LM Studio request・toolへ伝播し、lint / test / buildのcommand timeoutは独立設定として分離する
 - [x] **Done**: Objectiveのmax roundsを実効制御し、Project Settingsで1〜1000の新規Objective既定値を管理する。作成時snapshotのため進行中Objectiveは設定変更の影響を受けない

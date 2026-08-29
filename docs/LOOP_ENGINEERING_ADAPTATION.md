@@ -379,14 +379,15 @@ Provider adapterの終了境界では共通Stop validatorを実行し、未構�
 
 ### 7. Worktree isolation を導入する
 
-現在の実装は branch 作成が中心だが、複数 Loop / Agent を並列に走らせるには作業ディレクトリの分離が必要になる。
+全Loop Stepはprimary workspaceとは別のgit worktreeで実行する。書き込みroleと非書き込みroleでworktreeの性質を分け、複数Loop / Agentを並列に走らせてもbranchとユーザーの未commit変更を干渉させない。
 
 対応内容:
 
-- Loop Run ごとに git worktree を作成する
-- Agent Job は割り当てられた worktree 内でのみ編集する
+- implementation / fixはsource branchに接続した書き込みworktreeを使う
+- requirements / review / QA / verifier / command detectionは開始時commitを固定したdetached snapshot worktreeを使う
+- 非書き込みroleがsnapshotを変更した場合は変更を隔離したままRisk Evidence付きHuman Gateへ止める
 - 成功・取消時は worktree を cleanup し、失敗、Human Gate、Provider Gate、pause、回復可能エラーでは再開・調査のため保持する
-- cleanup / retention の判断、理由、path、branchをAgent Job出力、Loop Evidence、Activityへ残す
+- cleanup / retention の判断、理由、path、branch、worktree kind、snapshot commitをAgent Job出力、Loop Evidence、Activityへ残す
 - main workspace に未コミット変更があっても、分離 worktree で安全に実行できるようにする
 - 同じ Issue / PR に対する破壊的 Job は引き続き lock する
 
