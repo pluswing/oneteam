@@ -385,6 +385,17 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`#${diffLineAnchor("large.ts", "R", 1_500)}$`));
   await expect(page.locator(`#${diffLineAnchor("large.ts", "R", 1_500)}`)).toBeVisible();
   await expect(page.locator("a.diff-finding-card")).toHaveAttribute("href", `#${diffLineAnchor("large.ts", "R", 1_500)}`);
+  await expect.poll(async () => page.evaluate(() => {
+    const load = performance.getEntriesByName("oneteam:diff-load").at(-1);
+    const render = performance.getEntriesByName("oneteam:diff-render").at(-1);
+    return load && render ? { load: load.duration, render: render.duration } : null;
+  })).not.toBeNull();
+  const measuredDiffPerformance = await page.evaluate(() => ({
+    load: performance.getEntriesByName("oneteam:diff-load").at(-1)?.duration ?? Number.POSITIVE_INFINITY,
+    render: performance.getEntriesByName("oneteam:diff-render").at(-1)?.duration ?? Number.POSITIVE_INFINITY
+  }));
+  expect(measuredDiffPerformance.load).toBeLessThan(8_000);
+  expect(measuredDiffPerformance.render).toBeLessThan(3_000);
   const diffFileNavigation = page.getByRole("navigation", { name: "Files changed" });
   const diffFileButtons = diffFileNavigation.getByRole("button");
   await expect(diffFileButtons).toHaveCount(2);

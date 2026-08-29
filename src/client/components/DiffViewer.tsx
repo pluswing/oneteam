@@ -36,6 +36,8 @@ const diffVirtualizationThreshold = 300;
 const diffVirtualRowHeight = 24;
 const diffVirtualOverscan = 30;
 const diffVirtualDefaultViewportHeight = 480;
+const diffLoadPerformanceEntry = "oneteam:diff-load";
+const diffRenderPerformanceEntry = "oneteam:diff-render";
 
 function storageKey(projectId: string, pullRequestId: number): string {
   return `oneteam:diff-viewed:${projectId}:${pullRequestId}`;
@@ -638,6 +640,19 @@ export function DiffViewer(props: {
   const selectedFileRef = useRef<RepositoryFileChangeDto | null>(null);
   const selectedFileRevisionRef = useRef<string | null>(null);
   const fileListRef = useRef<HTMLElement | null>(null);
+  const renderStartedAtRef = useRef<number | null>(null);
+
+  function measurePerformance(
+    name: typeof diffLoadPerformanceEntry | typeof diffRenderPerformanceEntry,
+    startedAt: number,
+    detail: Record<string, unknown>
+  ): void {
+    try {
+      performance.measure(name, { start: startedAt, end: performance.now(), detail });
+    } catch {
+      // Performance measures are diagnostic and must never block the diff.
+    }
+  }
 
   useEffect(() => {
     setViewedPaths(readViewedPaths(viewedStorageKey));
@@ -695,6 +710,22 @@ export function DiffViewer(props: {
   }, [linkedLineFocus, selectedFile]);
 
   useEffect(() => {
+    const startedAt = renderStartedAtRef.current;
+    if (!selectedFile || startedAt === null) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      measurePerformance(diffRenderPerformanceEntry, startedAt, {
+        path: selectedFile.path,
+        pullRequestId: props.pullRequestId,
+        sourceCommit: props.sourceCommit,
+        targetCommit: props.targetCommit,
+        view
+      });
+      renderStartedAtRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [props.pullRequestId, props.sourceCommit, props.targetCommit, selectedFile, view]);
+
+  useEffect(() => {
     if (!selectedPath || !props.sourceCommit || !props.targetCommit) {
       setSelectedFile(null);
       selectedFileRef.current = null;
@@ -708,15 +739,23 @@ export function DiffViewer(props: {
     const cacheKey = [props.sourceCommit, props.targetCommit, selectedPath, context, ignoreWhitespace].join(":");
     const cached = diffCache.current.get(cacheKey);
     if (cached) {
+      const startedAt = performance.now();
+      renderStartedAtRef.current = startedAt;
       setSelectedFile(cached);
       selectedFileRef.current = cached;
       selectedFileRevisionRef.current = revisionKey;
       setError(null);
       setLoading(false);
       setRetrying(false);
+      measurePerformance(diffLoadPerformanceEntry, startedAt, {
+        cache: true,
+        path: selectedPath,
+        pullRequestId: props.pullRequestId
+      });
       return;
     }
     const controller = new AbortController();
+    const requestStartedAt = performance.now();
     const hasStaleFile = selectedFileRef.current !== null && selectedFileRevisionRef.current === revisionKey;
     setLoading(!hasStaleFile);
     setRetrying(hasStaleFile);
@@ -743,6 +782,12 @@ export function DiffViewer(props: {
             }
           }
           diffCache.current.set(cacheKey, file);
+          measurePerformance(diffLoadPerformanceEntry, requestStartedAt, {
+            cache: false,
+            path: selectedPath,
+            pullRequestId: props.pullRequestId
+          });
+          renderStartedAtRef.current = performance.now();
           setSelectedFile(file);
           selectedFileRef.current = file;
           selectedFileRevisionRef.current = revisionKey;
