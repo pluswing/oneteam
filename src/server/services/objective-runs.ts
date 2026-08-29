@@ -1,4 +1,4 @@
-import type { AgentJobDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import type { AgentJobDto, LoopMemoryEntryDto, ObjectiveRunDto, ProjectDto, PullRequestDto } from "../../shared/types";
 import {
   evidenceGateFailureSummary,
   evaluateEvidenceRequirements,
@@ -439,6 +439,8 @@ export async function markObjectiveMerged(
     project: ProjectDto;
     pullRequest: PullRequestDto;
     mergeCommit: string;
+    verifierJob?: AgentJobDto | null;
+    importantDiffs?: Array<{ path: string; line: number; href: string }>;
     mergeRetries?: Array<{
       operation: string;
       failedAttempt: number;
@@ -447,12 +449,12 @@ export async function markObjectiveMerged(
       message: string;
     }>;
   }
-): Promise<void> {
+): Promise<LoopMemoryEntryDto | null> {
   const objective = await repos.objectives.findByPullRequest(input.project.id, input.pullRequest.id);
   if (!objective) {
-    return;
+    return null;
   }
-  await repos.objectives.update(input.project.id, objective.id, {
+  const mergedObjective = await repos.objectives.update(input.project.id, objective.id, {
     status: "succeeded",
     workflowStage: "merged",
     stopReason: "passed",
@@ -469,11 +471,54 @@ export async function markObjectiveMerged(
     }),
     finishedAt: new Date().toISOString()
   });
+  let loopId: number | null = null;
+  let loopRunId: number | null = null;
+  if (input.verifierJob) {
+    const step = await repos.loopSteps.getByAgentJob(input.project.id, input.verifierJob.id);
+    const run = step ? await repos.loopRuns.get(input.project.id, step.loopRunId) : null;
+    loopId = run?.loopId ?? null;
+    loopRunId = run?.id ?? null;
+  }
+  const importantDiffLines = (input.importantDiffs ?? []).map(
+    (reference) => `- [\`${reference.path}:${reference.line}\`](${reference.href})`
+  );
+  const memoryBody = [
+    `Pull request [#${input.pullRequest.id}](/pulls/${input.pullRequest.id}#merge-summary) merged ${input.pullRequest.sourceBranch} into ${input.pullRequest.targetBranch}.`,
+    "",
+    `Merge commit: [\`${input.mergeCommit}\`](/repository#commit-${input.mergeCommit})`,
+    ...(importantDiffLines.length ? ["", "Important diff:", ...importantDiffLines] : [])
+  ].join("\n");
+  const memoryEntry = await repos.loopMemory.create({
+    projectId: input.project.id,
+    loopId,
+    loopRunId,
+    sourceType: loopRunId ? "loop_run" : input.verifierJob ? "agent_job" : "manual",
+    sourceId: loopRunId ?? input.verifierJob?.id ?? null,
+    title: `Objective #${objective.id} merged`,
+    body: memoryBody,
+    tags: ["objective", "merge", "passed", `pull_request:${input.pullRequest.id}`]
+  }).catch(() => null);
+  if (memoryEntry && mergedObjective) {
+    await appendObjectiveEvidence(repos, mergedObjective, [
+      {
+        type: "memory",
+        title: `Merge Memory #${memoryEntry.id}`,
+        summary: "The final merge decision and important diff references were saved to Loop Memory.",
+        payload: {
+          memoryEntryId: memoryEntry.id,
+          loopId,
+          loopRunId,
+          href: `/loops#memory-${memoryEntry.id}`
+        }
+      }
+    ]);
+  }
   await appendLoopMemoryNote(input.project.repoPath, {
     title: `Objective #${objective.id} merged`,
-    body: `Pull request #${input.pullRequest.id} merged at ${input.mergeCommit.slice(0, 12)}.`,
+    body: memoryBody,
     tags: ["objective", "merge", "passed"]
   }).catch(() => undefined);
+  return memoryEntry;
 }
 
 export async function appendObjectiveEvidence(

@@ -16,7 +16,7 @@ import { mergePullRequest } from "../server/services/pull-request-merge";
 import { classifyProviderWait, enterProviderWait, resumeProviderWait } from "../server/services/provider-wait";
 import { saveAutomationSettings } from "../server/services/automation-settings";
 import { workflowLabelNames } from "../shared/workflow-labels";
-import { diffFileAnchor } from "../shared/diff-anchors";
+import { diffFileAnchor, diffLineAnchor } from "../shared/diff-anchors";
 import { startLoopRun } from "../server/services/loop-runner";
 
 const execFileAsync = promisify(execFile);
@@ -376,9 +376,11 @@ describe("automatic delivery pipeline", () => {
     const prComments = await repos.comments.list(project.id, "pull_request", pullRequest.id);
     const issueComments = await repos.comments.list(project.id, "issue", issue.id);
     const issueActivities = await repos.activities.list(project.id, "issue", issue.id);
+    const memory = await repos.loopMemory.list(project.id);
     const mergeParents = (await git(repoPath, ["rev-list", "--parents", "-n", "1", "main"])).split(" ");
     const mergeComment = prComments.find((comment) => comment.body.includes("## Automatically merged"));
     const completionComment = issueComments.find((comment) => comment.body.includes("## Objective completed"));
+    const mergeMemory = memory.find((entry) => entry.tags.includes(`pull_request:${pullRequest.id}`));
 
     expect(updatedJob?.status).toBe("succeeded");
     expect(updatedPullRequest).toMatchObject({ status: "merged" });
@@ -407,12 +409,19 @@ describe("automatic delivery pipeline", () => {
     expect(mergeComment?.body).toContain(`/issues/${issue.id}#completion-summary`);
     expect(mergeComment?.metadata?.summaryAnchor).toBe("merge-summary");
     expect(mergeComment?.metadata?.mergeRetries).toEqual([]);
+    expect(mergeComment?.metadata?.memoryEntryId).toBe(mergeMemory?.id);
     expect(mergeComment?.body).toMatch(/\/repository#commit-[0-9a-f]{40}/);
     expect(prComments.some((comment) => comment.body.includes("| Merge strategy | `squash` |"))).toBe(true);
     expect(prComments.some((comment) => comment.body.includes("| Transient merge retries | 0 |"))).toBe(true);
     expect(
       prComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`))
     ).toBe(true);
+    expect(
+      prComments.some((comment) => comment.body.includes(
+        `/pulls/${pullRequest.id}#${diffLineAnchor("result.txt", "R", 1)}`
+      ))
+    ).toBe(true);
+    expect(mergeComment?.body).toContain(`/loops#memory-${mergeMemory?.id}`);
     expect(completionComment?.body).toContain("| Merge strategy | `squash` |");
     expect(completionComment?.body).toContain("| Source snapshot |");
     expect(completionComment?.body).toContain("| Target snapshot |");
@@ -423,14 +432,36 @@ describe("automatic delivery pipeline", () => {
     expect(completionComment?.body).toContain("No diff risk signal met the `high` automatic-merge threshold");
     expect(completionComment?.body).toContain(`/pulls/${pullRequest.id}#${diffFileAnchor("result.txt")}`);
     expect(completionComment?.body).toContain(`/pulls/${pullRequest.id}#merge-summary`);
+    expect(completionComment?.body).toContain(`/loops#memory-${mergeMemory?.id}`);
     expect(completionComment?.body).toMatch(/\/repository#commit-[0-9a-f]{40}/);
     expect(completionComment?.metadata).toMatchObject({
       summaryAnchor: "completion-summary",
       mergeMode: "automatic",
       mergeStrategy: "squash",
       mergeRetries: [],
+      memoryEntryId: mergeMemory?.id,
       verifierJobId: job.id
     });
+    expect(mergeMemory).toMatchObject({
+      sourceType: "agent_job",
+      sourceId: job.id,
+      title: `Objective #${objective?.id} merged`
+    });
+    expect(mergeMemory?.body).toContain(`/pulls/${pullRequest.id}#${diffLineAnchor("result.txt", "R", 1)}`);
+    expect(
+      objectiveEvidence.some(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          "type" in item &&
+          item.type === "memory" &&
+          "payload" in item &&
+          typeof item.payload === "object" &&
+          item.payload !== null &&
+          "memoryEntryId" in item.payload &&
+          item.payload.memoryEntryId === mergeMemory?.id
+      )
+    ).toBe(true);
     expect(issueComments.some((comment) => comment.body.includes(`/pulls/${pullRequest.id}`))).toBe(true);
     expect(issueActivities.map((activity) => activity.title)).toContain("Objective completed");
 

@@ -1,5 +1,12 @@
-import type { AgentJobDto, ObjectiveRunDto, ProjectDto, ProjectSettingsDto, PullRequestDto } from "../../shared/types";
-import { diffFileAnchor } from "../../shared/diff-anchors";
+import type {
+  AgentJobDto,
+  LoopMemoryEntryDto,
+  ObjectiveRunDto,
+  ProjectDto,
+  ProjectSettingsDto,
+  PullRequestDto
+} from "../../shared/types";
+import { diffFileAnchor, diffLineAnchor } from "../../shared/diff-anchors";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import { repositoryCommitPath } from "../../shared/repository-anchors";
 import { evidenceGateFailureSummary, evaluateEvidenceRequirements } from "../../shared/evidence-requirements";
@@ -29,6 +36,10 @@ import {
   evaluateAutomaticMergeLoopDiffPolicy,
   resolveAutomaticMergeLoopContext
 } from "./automatic-merge-risk-policy";
+import {
+  extractImportantDiffReferences,
+  type ImportantDiffReference
+} from "./important-diff-references";
 
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
@@ -228,6 +239,18 @@ export async function mergePullRequest(
   if (!mergedPullRequest) {
     throw new Error("Pull request disappeared after its branches were merged.");
   }
+  const memoryEntry = await markObjectiveMerged(repos, {
+    project,
+    pullRequest: mergedPullRequest,
+    mergeCommit: mergeResult.mergeCommit,
+    verifierJob: input.verifierJob ?? null,
+    importantDiffs: (automaticGateEvidence?.importantDiffs ?? []).map((reference) => ({
+      path: reference.path,
+      line: reference.line,
+      href: `/pulls/${pullRequest.id}#${diffLineAnchor(reference.path, reference.side, reference.line)}`
+    })),
+    mergeRetries
+  });
 
   const mergeBody = buildSystemComment({
     title: mode === "automatic" ? "Automatically merged" : "Merged",
@@ -250,6 +273,9 @@ export async function mergePullRequest(
       { label: "Target snapshot", value: commitReference(targetHead) },
       { label: "Merge base", value: commitReference(mergeBase) },
       { label: "Transient merge retries", value: mergeResult.retryCount },
+      memoryEntry
+        ? { label: "Loop Memory", value: `[Memory #${memoryEntry.id}](/loops#memory-${memoryEntry.id})` }
+        : null,
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: automaticGateEvidence ? automaticMergeEvidenceSections(automaticGateEvidence, pullRequest.id) : [],
@@ -274,6 +300,7 @@ export async function mergePullRequest(
       mergeBase,
       automaticGateEvidence,
       mergeRetries,
+      memoryEntryId: memoryEntry?.id ?? null,
       verifierJobId: input.verifierJob?.id ?? null
     }
   });
@@ -293,15 +320,9 @@ export async function mergePullRequest(
       targetHead,
       mergeBase,
       automaticGateEvidence,
-      mergeRetries
+      mergeRetries,
+      memoryEntryId: memoryEntry?.id ?? null
     }
-  });
-
-  await markObjectiveMerged(repos, {
-    project,
-    pullRequest: mergedPullRequest,
-    mergeCommit: mergeResult.mergeCommit,
-    mergeRetries
   });
   await closeLinkedIssue(repos, {
     project,
@@ -314,7 +335,8 @@ export async function mergePullRequest(
     mergeBase,
     verifierJob: input.verifierJob ?? null,
     automaticGateEvidence,
-    mergeRetries
+    mergeRetries,
+    memoryEntry
   });
 
   return {
@@ -331,6 +353,7 @@ type AutomaticGateEvidence = {
   targetHead: string;
   mergeBase: string;
   changedFiles: string[];
+  importantDiffs: ImportantDiffReference[];
   diffLineCount: number;
   commandResults: Array<Omit<VerificationCommandResult, "output"> & { outputExcerpt: string }>;
   riskSignals: Array<{ title: string; summary: string; payload: Record<string, unknown>; blocking: boolean }>;
@@ -366,6 +389,14 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullReq
         changedFileLinks(evidence.changedFiles, pullRequestId)
       ]
     },
+    ...(evidence.importantDiffs.length
+      ? [{
+          title: "Important diff",
+          items: evidence.importantDiffs.map((reference) =>
+            `[${markdownCode(`${reference.path}:${reference.line}`)}](/pulls/${pullRequestId}#${diffLineAnchor(reference.path, reference.side, reference.line)}) — first substantive ${reference.kind} in this file.`
+          )
+        }]
+      : []),
     {
       title: "Risk decision",
       items: evidence.riskSignals.length
@@ -420,6 +451,7 @@ async function verifyAutomaticMergeCandidate(
     targetHead,
     mergeBase,
     changedFiles: [],
+    importantDiffs: [],
     diffLineCount: 0,
     commandResults: [],
     riskSignals: [],
@@ -464,6 +496,7 @@ async function verifyAutomaticMergeCandidate(
       getDiffPatchSince(worktree.repoPath, pullRequest.targetBranch)
     ]);
     const scoreRiskSignals = scanScoreManipulationRisks(diffPatch);
+    const importantDiffs = extractImportantDiffReferences(diffPatch);
     const blockingScoreRiskSignals = riskSignalsAtOrAbove(scoreRiskSignals, riskThreshold);
     const loopRiskSignals = [
       ...commandPolicy.riskSignals,
@@ -479,6 +512,7 @@ async function verifyAutomaticMergeCandidate(
       ...emptyEvidence,
       capturedAt: new Date().toISOString(),
       changedFiles,
+      importantDiffs,
       diffLineCount,
       commandResults: commandResults.map(({ output, ...result }) => ({
         ...result,
@@ -1088,6 +1122,7 @@ async function closeLinkedIssue(
     verifierJob: AgentJobDto | null;
     automaticGateEvidence: AutomaticGateEvidence | null;
     mergeRetries: GitRetryEvent[];
+    memoryEntry: LoopMemoryEntryDto | null;
   }
 ): Promise<void> {
   const { project, pullRequest } = input;
@@ -1124,6 +1159,9 @@ async function closeLinkedIssue(
       { label: "Target snapshot", value: commitReference(input.targetHead) },
       { label: "Merge base", value: commitReference(input.mergeBase) },
       { label: "Transient merge retries", value: input.mergeRetries.length },
+      input.memoryEntry
+        ? { label: "Loop Memory", value: `[Memory #${input.memoryEntry.id}](/loops#memory-${input.memoryEntry.id})` }
+        : null,
       input.verifierJob ? { label: "Verifier job", value: `#${input.verifierJob.id}`, code: true } : null
     ],
     sections: [
@@ -1153,7 +1191,8 @@ async function closeLinkedIssue(
     mergeBase: input.mergeBase,
     verifierJobId: input.verifierJob?.id ?? null,
     automaticGateEvidence: input.automaticGateEvidence,
-    mergeRetries: input.mergeRetries
+    mergeRetries: input.mergeRetries,
+    memoryEntryId: input.memoryEntry?.id ?? null
   };
   await repos.comments.create({
     projectId: project.id,
