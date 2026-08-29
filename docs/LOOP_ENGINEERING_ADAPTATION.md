@@ -97,6 +97,8 @@ Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project to
 - file / line deep link と system comment からの参照
 
 全画面のkeyboard focusは共通の高contrast focus ringで可視化し、dark top barでは専用色を使う。`prefers-reduced-motion`ではanimationとtransitionを実質停止する。diffのkeyboard操作はChromium E2EでTab移動、focus ring、roving focus、ARIA stateまで検証する。
+
+Checks summaryはreview / QA roleごとに未解決findingをseverity順で評価し、最重要の行を実URLとして表示する。finding overview cardとsystem / merge commentも同じstable anchor contractを使う。rename後のfindingは`previousPath`を現在pathへ解決してからanchorを生成し、deep link先では必要な全文contextとvirtual windowを自動的に開く。
 - 行単位コメントと review finding の該当行表示
 - 大規模 diff の遅延読み込み、virtualization、表示上限
 - keyboard navigation と、色だけに依存しない accessibility
