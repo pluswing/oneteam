@@ -85,7 +85,7 @@ Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project to
 
 特に Pull Request の diff を最重要画面として扱う。
 
-通信失敗時は取得済みのIssue / PR / Agent runを消さず、共通`retrying` stateをARIA live regionで表示する。主要一覧には明示的な`Retry now`を置き、loading、retrying、empty、errorを視覚表現とテキストの両方で区別する。
+通信失敗時は取得済みのIssue / PR / Agent runを一覧・detailのどちらでも消さず、共通`retrying` stateをARIA live regionで表示する。diffはproject、PR、source / target commit、fileが一致する同一revisionのpatchだけを維持し、別revisionの古いpatchを表示しない。Settingsを含む未読込画面のerrorと、取得済みデータを維持したretryingを区別し、各状態に明示的な`Retry now`を置く。loading、retrying、empty、errorは視覚表現とテキストの両方で識別でき、画面遷移前の遅い応答が現在のdetailを上書きしないよう対象IDを検証する。
 
 - file tree / file list と sticky file header
 - unified / split diff 切り替え
