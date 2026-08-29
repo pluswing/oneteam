@@ -326,6 +326,7 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
     try {
@@ -338,6 +339,18 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
   }, [props.project.id]);
+
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load agent jobs.");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const hasActiveJobs = jobs.some(isActiveAgentJob);
   useEffect(() => {
@@ -355,7 +368,10 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
       <div className="section-header">
         <h1>{t("agents.title")}</h1>
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
       <div className="agent-job-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
         {!isLoading && !error && jobs.length === 0 ? <AsyncState kind="empty" message={t("agents.noJobs")} /> : null}

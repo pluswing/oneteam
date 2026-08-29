@@ -440,6 +440,7 @@ textarea {
   color: #57606a;
   background: #f6f8fa;
   text-align: center;
+  flex-wrap: wrap;
 }
 
 .async-state.compact {

@@ -390,6 +390,8 @@ export const en = {
     queued: "Queued",
     running: "Running",
     loading: "Loading…",
+    retrying: "Retrying while the last loaded data remains visible…",
+    retry: "Retry now",
     waiting: "Waiting",
     waitingProvider: "Provider wait",
     paused: "Paused",

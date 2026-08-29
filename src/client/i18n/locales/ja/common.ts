@@ -392,6 +392,8 @@ export const ja = {
     queued: "Queued",
     running: "実行中",
     loading: "読み込み中…",
+    retrying: "前回の表示を維持したまま再試行中…",
+    retry: "今すぐ再試行",
     waiting: "待機中",
     waitingProvider: "利用枠待機",
     paused: "一時停止中",

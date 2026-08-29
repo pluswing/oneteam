@@ -751,6 +751,7 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
   const [busyTriageItemId, setBusyTriageItemId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
     try {
@@ -768,6 +769,18 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issues."));
   }, [props.project.id]);
+
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load issues.");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function convertTriageItem(item: TriageItemDto): Promise<void> {
     setBusyTriageItemId(item.id);
@@ -808,7 +821,10 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
           </button>
         </div>
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
       {triageItems.length ? (
         <section aria-label={t("issues.triageInbox")} className="issue-triage-inbox">
           <div className="issue-triage-header">
@@ -1670,6 +1686,7 @@ function PullRequestsListScreen(props: {
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
     try {
@@ -1684,6 +1701,18 @@ function PullRequestsListScreen(props: {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull requests."));
   }, [props.project.id]);
 
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load pull requests.");
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <section className="page-section">
       <div className="section-header">
@@ -1695,7 +1724,10 @@ function PullRequestsListScreen(props: {
           </button>
         </div>
       </div>
-      {error ? <AsyncState kind="error" message={error} /> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
       <div className="work-item-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
         {!isLoading && !error && pullRequests.length === 0 ? <AsyncState kind="empty" message={t("pullRequests.noPullRequests")} /> : null}
