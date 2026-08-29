@@ -80,6 +80,7 @@
 - [x] conflictがある場合は`resolving-conflicts`へ戻し、conflict-resolution workflowをqueueする
 - [x] Gate通過後はOneTeamがmergeし、PR statusを`merged`、Objectiveを`succeeded`にする
 - [x] **Done**: conflictをcorrectable、不明・回復不能な失敗をHuman Gateへ分類し、既知のlocal Git lock / resource busyだけを500 ms、2秒、5秒で再試行する。再試行前にsource / target snapshotを再確認し、履歴をPR / Issue Activity、merge summary、Objective Evidenceへ保存する
+- [x] **Done**: Git merge成功後のObjective / Memory / PR comment / Activity / Issue closeをevent key、merge commit、Memory tagで冪等化し、500 ms、2秒、5秒で後処理だけを再試行する。上限到達時もmerged PRと成功済みObjective / Memoryを巻き戻さない
 - [x] automatic merge、required command pass / failure、stale Evidenceの自動再検証、target driftの自動再検証、conflict routingのintegration testを追加する
 
 ### Issue lifecycle

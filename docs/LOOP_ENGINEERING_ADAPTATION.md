@@ -47,6 +47,8 @@ source / target drift、24時間を超えたverifier Evidence、型付き`Eviden
 
 automatic merge gateはproject共通のdiff risk thresholdに加え、verifier Jobを所有するLoop RunからRisk Policyを解決して現在の候補へ再適用する。required commandはallow / deny判定後にだけ実行し、denyまたはallowlist外のcommandは`humanGateOnRisk`にかかわらず実行せずGateを止める。変更ファイル数、diff行数、protected path、protected source branchは`humanGateOnRisk=true`ならblock、`false`なら観測Evidenceとして残す。auto-merge対象として明示されたtarget branchは通常のlanding先なので、protected branch判定はsource branchへ適用する。snapshot driftによる再検証Loopは元LoopのRisk Policyを引き継ぎ、回復経路で安全基準が緩まないようにする。
 
+Git mergeが成功した後のObjective更新、Memory保存、PR / Issue comment、Activity、Issue closeは、merge commitとevent keyに基づく冪等なfinalizationとして扱う。一部だけ成功しても同じGit mergeを繰り返さず、500 ms、2秒、5秒のbackoffで不足レコードだけを再試行する。再試行履歴はActivityと最終summaryへ残す。上限到達時は`merge_finalization_failed`として不足したlocal recordを明示するが、PRの`merged`状態や、すでに`succeeded`になったObjective、作成済みMemoryを`waiting_human`へ巻き戻さない。
+
 ### Issue の自動更新
 
 Issue は依頼の入口であると同時に、後から経緯を追跡するための永続的な記録とする。
