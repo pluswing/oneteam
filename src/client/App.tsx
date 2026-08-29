@@ -35,6 +35,7 @@ import {
 } from "../shared/ai-providers";
 import type { SupportedLocale } from "../shared/locales";
 import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
+import { diffFileAnchor, diffLineAnchor } from "../shared/diff-anchors";
 import { repositoryCommitAnchor } from "../shared/repository-anchors";
 import type {
   ActivityDto,
@@ -156,7 +157,10 @@ function WorkItemDetailMeta(props: {
 function AutomationChecksSummary(props: {
   jobs: AgentJobDto[];
   objective: ObjectiveRunDto | null;
+  findings?: PullRequestFindingDto[];
+  findingHref?: (finding: PullRequestFindingDto) => string;
   onOpenAgentJob: (jobId: number) => void;
+  onOpenFinding?: (finding: PullRequestFindingDto) => void;
 }) {
   const latestJobs = props.jobs.filter(
     (job, index, jobs) => jobs.findIndex((candidate) => candidate.agentType === job.agentType) === index
@@ -169,6 +173,20 @@ function AutomationChecksSummary(props: {
 
   function hasOutputItems(job: AgentJobDto, key: "evidence" | "testResults" | "changedFiles"): boolean {
     return Array.isArray(job.output?.[key]) && job.output[key].length > 0;
+  }
+
+  function importantFinding(job: AgentJobDto): PullRequestFindingDto | null {
+    if (job.agentType !== "review" && job.agentType !== "qa") return null;
+    const severityOrder: Record<PullRequestFindingDto["severity"], number> = {
+      critical: 0,
+      high: 1,
+      medium: 2,
+      low: 3,
+      info: 4
+    };
+    return [...(props.findings ?? [])]
+      .filter((finding) => finding.status === "open" && finding.source === job.agentType && finding.line !== null)
+      .sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity])[0] ?? null;
   }
 
   return (
@@ -188,33 +206,49 @@ function AutomationChecksSummary(props: {
       ) : null}
       {latestJobs.length ? (
         <div className="automation-check-list">
-          {latestJobs.map((job) => (
-            <div className="automation-check-row" key={job.id}>
-              <button className="automation-check-main" onClick={() => props.onOpenAgentJob(job.id)} type="button">
-                {job.status === "succeeded" ? (
-                  <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
-                ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
-                  <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
-                ) : (
-                  <Bot aria-hidden="true" size={16} />
-                )}
-                <strong>{job.agentType}</strong>
-                <span className={`status-pill status-${job.status}`}>{job.status}</span>
-              </button>
-              <span className="automation-check-links">
-                {hasOutputItems(job, "evidence") ? (
-                  <button onClick={() => openJobSection(job.id, "job-evidence")} type="button">{t("agents.evidence")}</button>
-                ) : null}
-                {hasOutputItems(job, "testResults") ? (
-                  <button onClick={() => openJobSection(job.id, "job-checks")} type="button">{t("agents.tests")}</button>
-                ) : null}
-                {hasOutputItems(job, "changedFiles") ? (
-                  <button onClick={() => openJobSection(job.id, "job-changed-files")} type="button">{t("agents.changedFiles")}</button>
-                ) : null}
-                <button onClick={() => openJobSection(job.id, "job-activities")} type="button">{t("agents.activities")}</button>
-              </span>
-            </div>
-          ))}
+          {latestJobs.map((job) => {
+            const finding = importantFinding(job);
+            const findingHref = finding ? props.findingHref?.(finding) : undefined;
+            return (
+              <div className="automation-check-row" key={job.id}>
+                <button className="automation-check-main" onClick={() => props.onOpenAgentJob(job.id)} type="button">
+                  {job.status === "succeeded" ? (
+                    <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
+                  ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
+                    <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
+                  ) : (
+                    <Bot aria-hidden="true" size={16} />
+                  )}
+                  <strong>{job.agentType}</strong>
+                  <span className={`status-pill status-${job.status}`}>{job.status}</span>
+                </button>
+                <span className="automation-check-links">
+                  {hasOutputItems(job, "evidence") ? (
+                    <button onClick={() => openJobSection(job.id, "job-evidence")} type="button">{t("agents.evidence")}</button>
+                  ) : null}
+                  {hasOutputItems(job, "testResults") ? (
+                    <button onClick={() => openJobSection(job.id, "job-checks")} type="button">{t("agents.tests")}</button>
+                  ) : null}
+                  {hasOutputItems(job, "changedFiles") ? (
+                    <button onClick={() => openJobSection(job.id, "job-changed-files")} type="button">{t("agents.changedFiles")}</button>
+                  ) : null}
+                  {finding && findingHref && props.onOpenFinding ? (
+                    <a
+                      href={findingHref}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        props.onOpenFinding?.(finding);
+                      }}
+                      title={finding.title}
+                    >
+                      {finding.severity.toUpperCase()} {finding.path}:{finding.line}
+                    </a>
+                  ) : null}
+                  <button onClick={() => openJobSection(job.id, "job-activities")} type="button">{t("agents.activities")}</button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <p className="muted-text">{t("issues.noChecks")}</p>
@@ -2056,6 +2090,18 @@ function PullRequestDetailScreen(props: {
     void load().catch(handleLoadError);
   }
 
+  function findingHref(finding: PullRequestFindingDto): string {
+    const file = files.find((candidate) => candidate.path === finding.path || candidate.previousPath === finding.path);
+    const path = file?.path ?? finding.path;
+    const anchor = finding.line === null ? diffFileAnchor(path) : diffLineAnchor(path, finding.side, finding.line);
+    return `/pulls/${props.pullRequestId}#${anchor}`;
+  }
+
+  function openFinding(finding: PullRequestFindingDto): void {
+    window.history.replaceState(null, "", findingHref(finding));
+    setTab("files");
+  }
+
   useEffect(() => {
     activePullRequestProjectId.current = props.project.id;
     activePullRequestId.current = props.pullRequestId;
@@ -2291,7 +2337,14 @@ function PullRequestDetailScreen(props: {
         </section>
         <aside className="side-panel detail-sidebar">
           <h2>{t("issues.checks")}</h2>
-          <AutomationChecksSummary jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
+          <AutomationChecksSummary
+            findingHref={findingHref}
+            findings={findings}
+            jobs={relatedAgentJobs}
+            objective={objective}
+            onOpenAgentJob={props.onOpenAgentJob}
+            onOpenFinding={openFinding}
+          />
           <h2>{t("objectives.title")}</h2>
           <ObjectivePanel objective={objective} onControl={controlObjective} />
           <h2>{t("pullRequests.merge")}</h2>

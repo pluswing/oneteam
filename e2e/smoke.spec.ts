@@ -308,8 +308,44 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   });
   expect(pullRequestResponse.ok()).toBe(true);
   const createdPullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
+  const findingJobResponse = await page.request.post(`/api/projects/${projectId}/agent-jobs`, {
+    data: {
+      agentType: "review",
+      targetType: "pull_request",
+      targetId: createdPullRequest.pullRequest.id,
+      triggerType: "e2e_finding"
+    }
+  });
+  expect(findingJobResponse.ok()).toBe(true);
+  const findingJob = (await findingJobResponse.json()) as { job: { id: number } };
   const bilingualReportDatabase = createClient({ url: `file:${resolve(".tmp/e2e/oneteam.db")}` });
   const bilingualReportTimestamp = new Date().toISOString();
+  await bilingualReportDatabase.execute({
+    sql: "UPDATE agent_jobs SET status = 'succeeded', output_json = ?, started_at = ?, finished_at = ? WHERE id = ?",
+    args: [
+      JSON.stringify({
+        status: "succeeded",
+        message: "Review found an important line.",
+        metadata: {
+          review: {
+            verdict: "changes_requested",
+            findings: [{
+              severity: "high",
+              path: "large.ts",
+              line: 1_500,
+              side: "R",
+              title: "Keep generated value stable",
+              body: "The generated value is part of the compatibility fixture."
+            }],
+            checked: ["large diff stability"]
+          }
+        }
+      }),
+      bilingualReportTimestamp,
+      bilingualReportTimestamp,
+      findingJob.job.id
+    ]
+  });
   await bilingualReportDatabase.execute({
     sql: `INSERT INTO comments (
       project_id, target_type, target_id, author_type, agent_type, body, body_format, metadata_json, created_at, updated_at
@@ -343,7 +379,12 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
   await expect(page.locator(".automation-checks")).toContainText("review");
-  await page.getByRole("button", { name: "Files changed" }).click();
+  const findingLineLink = page.getByRole("link", { name: "HIGH large.ts:1500" });
+  await expect(findingLineLink).toHaveAttribute("href", new RegExp(`#${diffLineAnchor("large.ts", "R", 1_500)}$`));
+  await findingLineLink.click();
+  await expect(page).toHaveURL(new RegExp(`#${diffLineAnchor("large.ts", "R", 1_500)}$`));
+  await expect(page.locator(`#${diffLineAnchor("large.ts", "R", 1_500)}`)).toBeVisible();
+  await expect(page.locator("a.diff-finding-card")).toHaveAttribute("href", `#${diffLineAnchor("large.ts", "R", 1_500)}`);
   const diffFileNavigation = page.getByRole("navigation", { name: "Files changed" });
   const diffFileButtons = diffFileNavigation.getByRole("button");
   await expect(diffFileButtons).toHaveCount(2);

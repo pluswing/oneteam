@@ -129,7 +129,7 @@ function findingLineLabel(finding: PullRequestFindingDto): string {
   return finding.line ? `${finding.side}${finding.line}` : t("pullRequests.fileFinding");
 }
 
-function FindingCard(props: { finding: PullRequestFindingDto; onOpen?: () => void }) {
+function FindingCard(props: { finding: PullRequestFindingDto; href?: string; onOpen?: () => void }) {
   const content = (
     <>
       <span className={`diff-finding-severity severity-${props.finding.severity}`}>{props.finding.severity}</span>
@@ -142,10 +142,17 @@ function FindingCard(props: { finding: PullRequestFindingDto; onOpen?: () => voi
       <span className="diff-finding-line">{findingLineLabel(props.finding)}</span>
     </>
   );
-  return props.onOpen ? (
-    <button className={`diff-finding-card status-${props.finding.status}`} onClick={props.onOpen} type="button">
+  return props.onOpen && props.href ? (
+    <a
+      className={`diff-finding-card status-${props.finding.status}`}
+      href={props.href}
+      onClick={(event) => {
+        event.preventDefault();
+        props.onOpen?.();
+      }}
+    >
       {content}
-    </button>
+    </a>
   ) : (
     <div className={`diff-finding-card status-${props.finding.status}`}>{content}</div>
   );
@@ -987,7 +994,12 @@ export function DiffViewer(props: {
           {displayedFindings.length ? (
             <div className="diff-finding-overview" aria-label={t("pullRequests.findings")} role="region">
               {displayedFindings.map((finding) => (
-                <FindingCard finding={finding} key={finding.id} onOpen={finding.line ? () => openFinding(finding) : undefined} />
+                <FindingCard
+                  finding={finding}
+                  href={finding.line ? `#${diffLineAnchor(currentSummary!.path, finding.side, finding.line)}` : undefined}
+                  key={finding.id}
+                  onOpen={finding.line ? () => openFinding(finding) : undefined}
+                />
               ))}
             </div>
           ) : null}

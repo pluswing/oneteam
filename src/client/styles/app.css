@@ -1663,13 +1663,21 @@ textarea {
   padding: 0 8px 7px 32px;
 }
 
-.automation-check-links button {
+.automation-check-links button,
+.automation-check-links a {
   padding: 1px 4px;
   border: 0;
   color: #0969da;
   background: transparent;
   font-size: 11px;
   text-decoration: underline;
+}
+
+.automation-check-links a {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-sidebar .label-row,
@@ -3118,9 +3126,14 @@ textarea {
   text-align: left;
 }
 
-button.diff-finding-card:hover {
+button.diff-finding-card:hover,
+a.diff-finding-card:hover {
   border-color: #0969da;
   box-shadow: 0 0 0 1px #0969da;
+}
+
+a.diff-finding-card {
+  text-decoration: none;
 }
 
 .diff-finding-card.status-resolved {
