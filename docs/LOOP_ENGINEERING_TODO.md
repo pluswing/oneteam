@@ -57,7 +57,7 @@
 - [x] **Done**: Codex / Claude Code / LM Studio provider adapterとjobごとのprovider記録
 - [x] **Done**: Codex usage limit / rate limitを`waiting_provider`として永続化し、再開時刻とretry countを保持する
 - [x] **Done**: Workerのpersistent pollingで期限到来したProvider Waitを復元・自動queueし、再起動後も継続する
-- [ ] **Designed**: GitHub / CI / Linear / Slack / Discord Connectorは設計のみ
+- [ ] **Partial**: GitHub Actions status Connectorはruntime実装済み。GitHub Issue / PR、Linear、Slack / Discord Connectorは設計のみ
 - [x] **Done**: implementation / review / QA / verifierごとのrole-based provider / model設定。queue時の解決値をAgent Jobへ固定し、retry時に再現する
 
 ## P0: Issueからmergeまでを自動完遂する
@@ -189,8 +189,8 @@
 - [x] **Designed**: Linear Connector
 - [x] **Designed**: Slack / Discord notification Connector
 - [x] **Designed**: Connectorをoptional pluginとして扱う方針
-- [ ] **Todo**: 最初のruntime ConnectorとしてGitHub Actions statusをTriage / Evidenceへ接続する
-- [ ] **Todo**: Connector failureをAgent Job failureではなくActivity / Triageとして隔離する
+- [x] **Done**: 最初のruntime Connectorとしてopen PRのsource commitに対応するGitHub Actions workflow runsを取得し、状態遷移をObjective `ci_status` Evidence / PR Activity、失敗conclusionをTriageへ接続する。run / attempt / revision keyで再pollを冪等化する
+- [x] **Done**: Connector failureをAgent Job failureではなく重複排除されたActivity / Triageとして隔離し、次回pollで自動再試行する。tokenは環境変数からだけ読み永続化しない
 
 ## 完了判定
 

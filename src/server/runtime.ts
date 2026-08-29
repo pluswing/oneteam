@@ -9,6 +9,7 @@ import { createDatabaseContext, type DatabaseContext } from "./db/client";
 import { runMigrations } from "./db/migrations";
 import { createRepositories, type Repositories } from "./db/repositories";
 import type { CodexLoginOptions } from "./services/codex-auth";
+import { GitHubActionsConnector } from "./services/github-actions-connector";
 import { ObjectiveScheduler } from "./services/objective-scheduler";
 import { ensureProviderReady } from "./services/provider-readiness";
 import { recoverInterruptedAgentJobs } from "./services/runtime-recovery";
@@ -69,6 +70,7 @@ export async function createOneTeamRuntime(
   });
   let worker: AgentWorker | null = null;
   let objectiveScheduler: ObjectiveScheduler | null = null;
+  let githubActionsConnector: GitHubActionsConnector | null = null;
 
   async function switchDatabaseForRepository(repoPath: string, name?: string): Promise<KnownRepositoryDto | null> {
     if (process.env.ONETEAM_DATABASE_URL) {
@@ -134,6 +136,11 @@ export async function createOneTeamRuntime(
     objectiveScheduler.start();
     console.log("OneTeam objective scheduler started");
   }
+  if (config.connectors.githubActions.enabled) {
+    githubActionsConnector = new GitHubActionsConnector(repos, config.connectors.githubActions);
+    githubActionsConnector.start();
+    console.log("OneTeam GitHub Actions connector started");
+  }
 
   return {
     app,
@@ -142,6 +149,7 @@ export async function createOneTeamRuntime(
     stop() {
       worker?.stop();
       objectiveScheduler?.stop();
+      githubActionsConnector?.stop();
       activeDatabase.context.client.close();
     }
   };

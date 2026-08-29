@@ -281,12 +281,14 @@ function failedVerificationRecords(job: AgentJobDto): Array<Record<string, unkno
     .filter((item) => item.type === "ci_status")
     .map((item) => ({ item, payload: recordValue(item.payload) }))
     .filter(({ payload }) => {
-      const status = stringValue(payload?.status)?.toLowerCase() ?? stringValue(payload?.conclusion)?.toLowerCase();
-      return ["failed", "failure", "error", "timed_out", "cancelled"].includes(status ?? "");
+      const conclusion = stringValue(payload?.conclusion)?.toLowerCase();
+      const status = stringValue(payload?.status)?.toLowerCase();
+      return ["action_required", "failed", "failure", "error", "stale", "startup_failure", "timed_out", "cancelled"]
+        .includes(conclusion ?? status ?? "");
     })
     .map(({ item, payload }) => ({
       command: `CI: ${stringValue(payload?.name) ?? stringValue(item.title) ?? "status check"}`,
-      status: stringValue(payload?.status) ?? stringValue(payload?.conclusion) ?? "failed",
+      status: stringValue(payload?.conclusion) ?? stringValue(payload?.status) ?? "failed",
       exitCode: null,
       evidenceType: "ci_status"
     }));

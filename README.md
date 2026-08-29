@@ -74,6 +74,8 @@ On first launch, use the setup screen to import or create a repository project. 
 
 When the agent worker starts, OneTeam runs `codex login status`. If Codex is not authenticated yet, OneTeam starts `codex login` automatically.
 
+The optional read-only GitHub Actions Connector can attach workflow status to local PR Objectives and create Triage items for failed CI. It is disabled by default. See [Connector setup](./docs/CONNECTORS.md#github-actions--ci-status-connector) for token permissions and environment variables.
+
 Run the desktop app in development:
 
 ```sh

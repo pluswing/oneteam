@@ -149,7 +149,7 @@ Loop Engineering では、人間が都度プロンプトを書くのではなく
 | Worktrees | 複数 Agent の作業領域を分離する仕組み | 現在の branch 運用を per-loop-run worktree に拡張する |
 | Skills | プロジェクト知識、手順、制約、過去の罠を外部化する仕組み | Repository ごとの `skills` / `rules` / `playbooks` として管理する |
 | Sub-agents | 実装者と検証者を分ける仕組み | 要件定義、実装、レビュー、修正、QA を明示的な Agent Team として再編する |
-| Connectors | issue tracker、Git、CI、Slack など外部ツールとつなぐ仕組み | MVP はローカル完結、将来は GitHub / Linear / Slack / CI を Connector 化する |
+| Connectors | issue tracker、Git、CI、Slack など外部ツールとつなぐ仕組み | ローカル完結を既定に保ち、最初のoptional runtimeとしてGitHub Actions statusをObjective Evidence / PR Activity / Triageへ接続する。GitHub / Linear / Slackは次段階でConnector化する |
 | Memory | 会話外に残る進捗、判断、結果、次アクション | DB、Activity Log、Markdown state file、Loop Memory を統合する |
 
 重要なのは、Loop は「何度も回ること」ではなく「検証可能な停止条件まで進むこと」である。したがって OneTeam でも、完了判定、証拠、タイムアウト、コスト上限、人間への引き渡しを第一級の概念として扱う。
@@ -241,7 +241,7 @@ Issueを起点に、要件定義、実装、検証、Pull Request、レビュー
 - `main` との差分や直近 commit からリグレッション候補を探す
 - `needs-input` の回答投稿で停止中 Loop を再開する
 
-内部Schedulerはopen IssueのObjective補完とmissing command検出に加え、7日以上更新のないactive Objective、Agent Jobのfailed verification / `ci_status` Evidence、同じ対象で以前成功したQA / Verifierが後に失敗したregression候補、tracked source fileのTODO / FIXMEをTriageへ集約する。incident固有のscheduler keyまたはsource snapshotのfingerprintを保存し、同じ状態を繰り返し通知しない。外部CIからstatusを取得する処理はConnector runtimeの責務とし、Schedulerは取得済みEvidenceの失敗を他の検証失敗と同じcontractで扱う。
+内部Schedulerはopen IssueのObjective補完とmissing command検出に加え、7日以上更新のないactive Objective、Agent Jobのfailed verification / `ci_status` Evidence、同じ対象で以前成功したQA / Verifierが後に失敗したregression候補、tracked source fileのTODO / FIXMEをTriageへ集約する。incident固有のscheduler keyまたはsource snapshotのfingerprintを保存し、同じ状態を繰り返し通知しない。GitHub Actions Connector runtimeはopen PRのsource commitをGitHub REST APIの`head_sha`へ指定し、workflow runを型付き`ci_status` Objective Evidenceへ正規化する。状態遷移はPR Activity、失敗conclusionはTriageへ保存し、同じrun / attemptのEvidenceを置換更新する。Connector自身のremote / auth / rate limit / response / revisionエラーもAgent Jobから隔離し、重複排除したTriage / Activityとして自動再試行する。
 
 UI には `Loops` または `Automations` ページを追加する。
 
@@ -481,7 +481,7 @@ Loop Run の最後に `Experience Return` ステップを追加し、Skill / Mem
 
 ### 11. Connector 方針を定義する
 
-MVP はローカル完結が強みなので、すぐに外部連携を必須化しない。ただし Loop Engineering の文脈では Connector が重要になるため、将来拡張点として明示する。
+ローカル完結を既定に保ち、外部連携は明示的に有効化する。最初のruntime Connectorとしてread-onlyのGitHub Actions status pollingを実装し、その他は将来拡張点として維持する。
 
 優先度:
 
@@ -496,6 +496,8 @@ MVP はローカル完結が強みなので、すぐに外部連携を必須化�
 
 - Connector は optional plugin として扱う
 - ローカルだけでも Loop が成立する
+- tokenは環境変数またはhost keychainからだけ読み、DB、Activity、Triageへ保存しない
+- Connector failureはAgent Job failureへ伝播させず、Connector固有のActivity / Triageへ隔離する
 - 外部サービスの権限操作は Human Gate を必須にする
 - 本番環境に影響する操作は初期状態では禁止する
 
@@ -616,7 +618,7 @@ Design local AI development loops that start from issues, run through requiremen
 ### Phase 7: Connector / Plugin 拡張
 
 - GitHub Connector
-- GitHub Actions / CI status Connector
+- GitHub Actions / CI status Connector（read-only polling runtime、Objective Evidence / PR Activity / Triage接続まで完了）
 - Linear Connector
 - Slack notification Connector
 - optional plugin packaging

@@ -134,7 +134,14 @@ function evidenceMatchesType(item: Record<string, unknown>, type: ObjectiveEvide
 function evidenceIsAvailable(item: Record<string, unknown>, type: ObjectiveEvidenceType): boolean {
   const payload = objectValue(item.payload);
   const status = typeof payload?.status === "string" ? payload.status : null;
-  if (status && ["failed", "canceled", "unavailable", "waiting_human"].includes(status)) return false;
+  if (
+    status &&
+    ["action_required", "cancelled", "canceled", "error", "failed", "failure", "stale", "startup_failure", "timed_out", "unavailable", "waiting_human"]
+      .includes(status.toLowerCase())
+  ) return false;
+  if (type === "ci_status") {
+    return Boolean(status && ["neutral", "passed", "skipped", "succeeded", "success"].includes(status.toLowerCase()));
+  }
   if (type !== "screenshot") return true;
   const artifact = objectValue(payload?.artifact);
   return artifact?.kind === "image" && artifact.status === "available";

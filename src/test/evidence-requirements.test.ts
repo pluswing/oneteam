@@ -74,6 +74,47 @@ describe("typed Evidence Required gates", () => {
     ]);
   });
 
+  it("treats failed GitHub Actions conclusions as unavailable CI Evidence", () => {
+    const requirement: ObjectiveEvidenceRequirement[] = [
+      { type: "ci_status", required: true, commitScope: "source", maxAgeHours: 1 }
+    ];
+    const evaluation = evaluateEvidenceRequirements(requirement, [{
+      type: "ci_status",
+      title: "GitHub Actions: CI",
+      payload: {
+        status: "failure",
+        workflowStatus: "completed",
+        conclusion: "failure",
+        sourceCommit: "current",
+        capturedAt: "2026-08-29T01:00:00.000Z"
+      }
+    }], {
+      sourceCommit: "current",
+      targetCommit: null,
+      now: Date.parse("2026-08-29T01:05:00.000Z")
+    });
+
+    expect(evaluation.passed).toBe(false);
+    expect(evaluation.checks[0]?.status).toBe("unavailable");
+  });
+
+  it("keeps pending CI Evidence unavailable until the workflow succeeds", () => {
+    const requirement: ObjectiveEvidenceRequirement[] = [
+      { type: "ci_status", required: true, commitScope: "source", maxAgeHours: null }
+    ];
+    const evidence = (status: string) => [{
+      type: "ci_status",
+      title: "GitHub Actions: CI",
+      payload: { status, sourceCommit: "current" }
+    }];
+    const context = { sourceCommit: "current", targetCommit: null };
+
+    expect(evaluateEvidenceRequirements(requirement, evidence("in_progress"), context).checks[0]?.status)
+      .toBe("unavailable");
+    expect(evaluateEvidenceRequirements(requirement, evidence("success"), context).checks[0]?.status)
+      .toBe("passed");
+  });
+
   it("persists requirements-agent rules and blocks a verifier with missing required evidence", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-evidence-required-"));
     const context = createDatabaseContext(`file:${join(dir, "test.db")}`);

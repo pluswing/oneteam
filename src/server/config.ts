@@ -20,6 +20,16 @@ export type AppConfig = {
     objectiveSchedulerIntervalMs: number;
     ai: AiSettingsDto;
   };
+  connectors: {
+    githubActions: {
+      enabled: boolean;
+      intervalMs: number;
+      token: string | null;
+      apiBaseUrl: string;
+      apiVersion: string;
+      repository: string | null;
+    };
+  };
 };
 
 export function loadConfig(): AppConfig {
@@ -57,6 +67,16 @@ export function loadConfig(): AppConfig {
           temperature: finiteNumber(process.env.ONETEAM_LM_STUDIO_TEMPERATURE)
         }
       })
+    },
+    connectors: {
+      githubActions: {
+        enabled: process.env.ONETEAM_GITHUB_ACTIONS_CONNECTOR === "true",
+        intervalMs: Number(process.env.ONETEAM_GITHUB_ACTIONS_POLL_INTERVAL_MS ?? "60000"),
+        token: process.env.ONETEAM_GITHUB_TOKEN || null,
+        apiBaseUrl: process.env.ONETEAM_GITHUB_API_BASE_URL || "https://api.github.com",
+        apiVersion: process.env.ONETEAM_GITHUB_API_VERSION || "2026-03-10",
+        repository: process.env.ONETEAM_GITHUB_REPOSITORY || null
+      }
     }
   };
 }

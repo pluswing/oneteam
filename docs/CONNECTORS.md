@@ -6,9 +6,9 @@ OneTeam keeps Loop Engineering local-first. Connectors are optional plugins that
 
 Connectors must not bypass the local Loop model.
 
-- Inbound events create `triage_items`, issues, pull requests, labels, or loop runs through the public API.
-- Outbound events read issues, pull requests, loop runs, stop reasons, evidence, and memory through the public API.
-- Connector state is stored under `.oneteam/connectors/<connector-name>/`.
+- Inbound events create `triage_items`, issues, pull requests, labels, or loop runs through the public API or the same runtime service boundaries.
+- Outbound events read issues, pull requests, loop runs, stop reasons, evidence, and memory through the public API or the same runtime service boundaries.
+- Connector-specific delivery checkpoints are stored under `.oneteam/connectors/<connector-name>/` when needed. Normalized Evidence, Activity, and Triage remain in the local database.
 - Credentials are never committed. Plugins read secrets from environment variables or the host keychain.
 - Connectors must be disableable without changing core DB schema or agent behavior.
 
@@ -35,18 +35,42 @@ Outbound mapping:
 
 ## GitHub Actions / CI Status Connector
 
+Runtime status: implemented as an optional, read-only polling Connector.
+
 Purpose:
 
 - Treat CI status as Evidence for Verifier Agent decisions.
 - Stop or reopen loops based on failed CI.
 
-Inbound mapping:
+Current inbound mapping:
 
-- `check_suite.completed` / `workflow_run.completed` -> loop memory entry and PR activity.
-- Failed CI -> `triage_items` or `fixing` label.
-- Passed CI -> evidence attached to the latest Loop Run.
+- Resolve every open local PR source branch to its exact local commit.
+- Call `GET /repos/{owner}/{repo}/actions/runs?head_sha={commit}` and normalize each workflow run as `ci_status` Objective Evidence.
+- Record status transitions as rich Markdown PR Activity.
+- Create a high-priority Triage item for `action_required`, `cancelled`, `failure`, `stale`, `startup_failure`, or `timed_out` conclusions.
+- Replace Evidence for the same workflow run attempt when its status changes; stable Connector keys prevent duplicate Evidence, Activity, and Triage on later polls.
+- Isolate remote, authentication, rate-limit, response, and local revision failures as Connector Triage / PR Activity. These failures never fail or enqueue an Agent Job.
 
-Outbound mapping:
+The implementation follows GitHub's [List workflow runs for a repository](https://docs.github.com/en/rest/actions/workflow-runs?apiVersion=2026-03-10#list-workflow-runs-for-a-repository) endpoint. Public repository reads can run without a token. A private repository token needs read access; a fine-grained token needs `Actions: read`.
+
+Enable it with environment variables before starting OneTeam:
+
+```sh
+ONETEAM_GITHUB_ACTIONS_CONNECTOR=true \
+ONETEAM_GITHUB_TOKEN=github_pat_... \
+npm run dev
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ONETEAM_GITHUB_ACTIONS_CONNECTOR` | `false` | Set to `true` to start polling. |
+| `ONETEAM_GITHUB_TOKEN` | none | Optional for public repositories; required for private repositories. It is read from the process environment and never persisted. |
+| `ONETEAM_GITHUB_REPOSITORY` | inferred from `origin` | Override with `owner/repository`, especially when `origin` is not a GitHub URL. |
+| `ONETEAM_GITHUB_ACTIONS_POLL_INTERVAL_MS` | `60000` | Poll interval in milliseconds. |
+| `ONETEAM_GITHUB_API_BASE_URL` | `https://api.github.com` | REST API base URL, including a GitHub Enterprise API endpoint when applicable. |
+| `ONETEAM_GITHUB_API_VERSION` | `2026-03-10` | Value sent in `X-GitHub-Api-Version`. |
+
+Planned outbound mapping:
 
 - Local verifier result -> GitHub commit status or check run summary.
 
