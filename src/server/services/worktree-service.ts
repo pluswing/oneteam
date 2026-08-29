@@ -25,6 +25,8 @@ export type PreparedWorktree = {
   repoPath: string;
   branchName: string;
   worktreePath: string;
+  kind: "branch" | "snapshot";
+  snapshotCommit?: string;
   recovered?: boolean;
   recoveryReason?: string;
 };
@@ -136,6 +138,7 @@ async function resolveExistingBranchWorktree(
       repoPath: existing.path,
       branchName,
       worktreePath: existing.path,
+      kind: "branch",
       recovered: true,
       recoveryReason: "reused_existing_oneteam_worktree"
     };
@@ -168,6 +171,7 @@ async function createForkedWorktree(
       repoPath: path,
       branchName: forkBranchName,
       worktreePath: path,
+      kind: "branch",
       recovered: true,
       recoveryReason: `created_forked_branch_from_branch_in_use:${existingPath}`
     };
@@ -200,7 +204,8 @@ async function createWorktree(
     return {
       repoPath: path,
       branchName,
-      worktreePath: path
+      worktreePath: path,
+      kind: "branch"
     };
   } catch (error) {
     await rm(path, { recursive: true, force: true });
@@ -229,6 +234,49 @@ export async function preparePullRequestWorktree(
 ): Promise<PreparedWorktree> {
   const branchName = pullRequest.sourceBranch;
   return createWorktree(project, branchName, { allowFork: false });
+}
+
+export async function prepareLoopSnapshotWorktree(
+  project: Pick<ProjectDto, "id" | "repoPath" | "defaultBranch">,
+  ref: string,
+  existingPath?: string | null
+): Promise<PreparedWorktree> {
+  await mkdir(worktreeRoot(project.id), { recursive: true });
+  await git(project.repoPath, ["worktree", "prune"]).catch(() => undefined);
+
+  if (existingPath && isManagedWorktreePath(project.id, existingPath)) {
+    const existing = (await listWorktrees(project.repoPath)).find(
+      (worktree) => resolve(worktree.path) === resolve(existingPath) && !worktree.prunable
+    );
+    if (existing) {
+      const snapshotCommit = await git(existing.path, ["rev-parse", "HEAD"]);
+      return {
+        repoPath: existing.path,
+        branchName: ref,
+        worktreePath: existing.path,
+        kind: "snapshot",
+        snapshotCommit,
+        recovered: true,
+        recoveryReason: "reused_loop_snapshot_worktree"
+      };
+    }
+  }
+
+  const path = await mkdtemp(join(worktreeRoot(project.id), "run-"));
+  try {
+    await git(project.repoPath, ["worktree", "add", "--detach", path, ref]);
+    const snapshotCommit = await git(path, ["rev-parse", "HEAD"]);
+    return {
+      repoPath: path,
+      branchName: ref,
+      worktreePath: path,
+      kind: "snapshot",
+      snapshotCommit
+    };
+  } catch (error) {
+    await rm(path, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function cleanupWorktree(project: Pick<ProjectDto, "repoPath">, worktreePath: string): Promise<void> {

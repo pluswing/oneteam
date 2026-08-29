@@ -97,6 +97,7 @@ describe("linked Issue workflow milestones", () => {
       repoPath: join(dir, "worktree"),
       worktreePath: join(dir, "worktree"),
       branchName: "oneteam/issue-1-implement-safely",
+      kind: "branch" as const,
       recovered: true
     };
 

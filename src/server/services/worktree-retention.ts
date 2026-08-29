@@ -18,6 +18,8 @@ export type WorktreeDisposition = {
 export type WorktreeRetentionRecord = WorktreeDisposition & {
   worktreePath: string;
   branchName: string | null;
+  worktreeKind: PreparedWorktree["kind"] | null;
+  snapshotCommit: string | null;
 };
 
 export function decideWorktreeDisposition(state: WorktreeLifecycleState): WorktreeDisposition {
@@ -35,7 +37,7 @@ export async function applyWorktreeDisposition(
   input: {
     job: AgentJobDto;
     project: Pick<ProjectDto, "id" | "repoPath">;
-    worktree: Pick<PreparedWorktree, "worktreePath"> & Partial<Pick<PreparedWorktree, "branchName">>;
+    worktree: Pick<PreparedWorktree, "worktreePath"> & Partial<Pick<PreparedWorktree, "branchName" | "kind" | "snapshotCommit">>;
     state: WorktreeLifecycleState;
   }
 ): Promise<WorktreeRetentionRecord> {
@@ -43,7 +45,9 @@ export async function applyWorktreeDisposition(
   const record: WorktreeRetentionRecord = {
     ...disposition,
     worktreePath: input.worktree.worktreePath,
-    branchName: input.worktree.branchName ?? null
+    branchName: input.worktree.branchName ?? null,
+    worktreeKind: input.worktree.kind ?? null,
+    snapshotCommit: input.worktree.snapshotCommit ?? null
   };
   const retentionEvidence: AgentEvidenceResult = {
     type: "worktree_retention",

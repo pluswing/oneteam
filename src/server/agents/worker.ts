@@ -16,6 +16,7 @@ import { appendLoopMemoryNote } from "../services/knowledge-files";
 import { runVerificationCommands, type VerificationCommandResult } from "../services/verification-runner";
 import {
   prepareIssueWorktree,
+  prepareLoopSnapshotWorktree,
   preparePullRequestWorktree,
   RecoverableWorktreeError,
   type PreparedWorktree
@@ -283,6 +284,7 @@ export class AgentWorker {
           evidence: finalizedResult.evidence
         })
       };
+      finalizedResult = await this.enforceSnapshotWorktreePolicy(worktree, executionRepoPath, finalizedResult);
       finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
       if (agentDeadlineReached(timing)) {
         finalizedResult = agentTimeoutResult(runningJob, timing, finalizedResult);
@@ -709,7 +711,29 @@ export class AgentWorker {
       return worktree;
     }
 
-    return null;
+    const step = await this.repos.loopSteps.getByAgentJob(project.id, job.id);
+    if (!step) return null;
+    const run = await this.repos.loopRuns.get(project.id, step.loopRunId);
+    let snapshotRef = project.defaultBranch;
+    if (job.targetType === "pull_request") {
+      const pullRequest = await this.repos.pullRequests.get(project.id, job.targetId);
+      if (!pullRequest) {
+        throw new Error(`Pull request was not found: ${job.targetId}`);
+      }
+      snapshotRef = pullRequest.sourceBranch;
+    } else if (job.targetType === "issue") {
+      const issue = await this.repos.issues.get(project.id, job.targetId);
+      if (!issue) {
+        throw new Error(`Issue was not found: ${job.targetId}`);
+      }
+    }
+    const worktree = await prepareLoopSnapshotWorktree(project, snapshotRef, run?.worktreePath);
+    const target = normalizeActivityTarget(job);
+    if (target) {
+      await this.recordWorktreeActivity(job, target.targetType, target.targetId, worktree);
+    }
+    await this.recordLoopWorktree(job, worktree.worktreePath);
+    return worktree;
   }
 
   private async applyWorktreePolicy(
@@ -722,6 +746,47 @@ export class AgentWorker {
     if (!project || !worktree) return result;
     const record = await applyWorktreeDisposition(this.repos, { job, project, worktree, state });
     return result ? appendWorktreeRetentionEvidence(result, record) : null;
+  }
+
+  private async enforceSnapshotWorktreePolicy(
+    worktree: PreparedWorktree | null,
+    repoPath: string,
+    result: AgentRunResult
+  ): Promise<AgentRunResult> {
+    if (worktree?.kind !== "snapshot" || result.status !== "succeeded") return result;
+    const status = await getRepositoryStatus(repoPath);
+    if (status.clean) return result;
+    const changedFiles = status.changedFiles.slice(0, 50);
+    return {
+      ...result,
+      status: "waiting_human",
+      stopReason: "risk_detected",
+      message: `${result.message}\n\nHuman gate: a non-writing Loop role modified its detached snapshot.`,
+      questions: ["Review the unexpected snapshot changes and decide whether this work belongs in an implementation or fix step."],
+      evidence: [
+        ...(result.evidence ?? []),
+        {
+          type: "risk",
+          title: "Snapshot mutation blocked",
+          summary: `${changedFiles.length} unexpected changed file(s) were isolated from the source branch.`,
+          payload: {
+            worktreeKind: worktree.kind,
+            snapshotCommit: worktree.snapshotCommit ?? null,
+            changedFiles,
+            truncated: status.changedFiles.length > changedFiles.length
+          }
+        }
+      ],
+      metadata: {
+        ...(result.metadata ?? {}),
+        nextLabel: null,
+        snapshotMutation: {
+          snapshotCommit: worktree.snapshotCommit ?? null,
+          changedFiles,
+          truncated: status.changedFiles.length > changedFiles.length
+        }
+      }
+    };
   }
 
   private async recordLoopWorktree(job: AgentJobDto, worktreePath: string): Promise<void> {
@@ -744,9 +809,13 @@ export class AgentWorker {
       targetId,
       activityType: "progress",
       title: "Worktree ready",
-      body: worktree.recovered
-        ? `Recovered ${worktree.branchName} in ${worktree.worktreePath}.`
-        : `Prepared ${worktree.branchName} in ${worktree.worktreePath}.`,
+      body: worktree.kind === "snapshot"
+        ? worktree.recovered
+          ? `Recovered read-only snapshot ${worktree.snapshotCommit} for ${worktree.branchName} in ${worktree.worktreePath}.`
+          : `Prepared read-only snapshot ${worktree.snapshotCommit} for ${worktree.branchName} in ${worktree.worktreePath}.`
+        : worktree.recovered
+          ? `Recovered ${worktree.branchName} in ${worktree.worktreePath}.`
+          : `Prepared ${worktree.branchName} in ${worktree.worktreePath}.`,
       payload: worktree
     });
   }
