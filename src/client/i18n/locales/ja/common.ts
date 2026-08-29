@@ -128,6 +128,7 @@ export const ja = {
     files: "ファイル",
     commits: "コミット",
     commitsTab: "コミット",
+    tabsNavigation: "Pull Request セクション",
     noFiles: "変更ファイルはありません",
     searchFiles: "変更ファイルを検索",
     noMatchingFiles: "一致するファイルはありません",

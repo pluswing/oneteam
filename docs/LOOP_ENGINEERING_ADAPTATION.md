@@ -98,7 +98,9 @@ Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project to
 
 全画面のkeyboard focusは共通の高contrast focus ringで可視化し、dark top barでは専用色を使う。`prefers-reduced-motion`ではanimationとtransitionを実質停止する。diffのkeyboard操作はChromium E2EでTab移動、focus ring、roving focus、ARIA stateまで検証する。
 
-keyboard利用者はskip linkでrepository navigationを飛ばしてmain contentへ移動できる。client-side route変更後はmainへfocusを移して画面遷移を通知し、project tools menuは開いた時に先頭itemへfocusし、Arrow Up / Down、Home / End、Escapeで移動・復帰できる。これらのfocus遷移はChromium E2Eで検証する。
+keyboard利用者はskip linkでrepository navigationを飛ばしてmain contentへ移動できる。client-side route変更後はmainへfocusを移して画面遷移を通知し、project tools menuは開いた時に先頭itemへfocusし、Arrow Up / Down、Home / End、Escapeで移動・復帰できる。PRのConversation / Files changed / Commitsは`tablist` / `tab` / `tabpanel`とroving tab stopを使い、Arrow Left / Right、Home / Endで選択とfocusを同期する。Issue、PR、Agent run、Repository commitもEnterで開けることをChromium E2Eで検証する。
+
+contrastは目視だけでなく、Project picker、Setup、Issues、Issue detail、Agent runs、Agent run detail、Repository、Settings、Loops / Memory、PR list / conversation / diffと日本語表示で、viewport内の直接text nodeのcomputed foreground / ancestor backgroundを合成してWCAG比を検査する。通常文字は4.5:1、大きな文字は3:1を下限とし、違反時はselector、text、実測比をE2E failureへ出す。disabled controlと視覚的に非表示の要素は対象外にする。
 
 Checks summaryはreview / QA roleごとに未解決findingをseverity順で評価し、最重要の行を実URLとして表示する。finding overview cardとsystem / merge commentも同じstable anchor contractを使う。rename後のfindingは`previousPath`を現在pathへ解決してからanchorを生成し、deep link先では必要な全文contextとvirtual windowを自動的に開く。
 

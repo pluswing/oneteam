@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { diffLineAnchor } from "../src/shared/diff-anchors";
+import { expectScreenContrast } from "./accessibility";
 
 const repoPath = resolve(".tmp/e2e/repo");
 
@@ -19,13 +20,16 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Choose project" })).toBeVisible();
+  await expectScreenContrast(page, "project picker");
   await page.getByRole("button", { name: "Add repository" }).click();
   await expect(page.getByRole("heading", { name: "Setup" })).toBeVisible();
+  await expectScreenContrast(page, "repository setup");
   await page.getByLabel("Name").fill("E2E Project");
   await page.getByLabel("Path").fill(repoPath);
   await page.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
+  await expectScreenContrast(page, "issues list");
   await expect(page.locator(".repository-identity")).toContainText("E2E Project");
   await expect(page.locator(".repository-identity")).toContainText("Local");
   await expect(page.getByRole("navigation", { name: "Repository navigation" })).toBeVisible();
@@ -55,6 +59,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Create" }).click();
 
   await expect(page.getByRole("heading", { name: /#1 Add smoke workflow/ })).toBeVisible();
+  await expectScreenContrast(page, "issue detail");
   await expect(page.locator(".label-pill", { hasText: "requirements" })).toBeVisible();
   await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" })).toBeVisible();
   await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" }).locator(".conversation-permalink")).toHaveAttribute("href", /^#activity-\d+$/);
@@ -90,7 +95,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   });
   database.close();
   await page.getByRole("button", { name: "Issues", exact: true }).click();
-  await page.getByRole("button", { name: /Add smoke workflow/ }).click();
+  const smokeIssue = page.getByRole("button", { name: /Add smoke workflow/ });
+  await smokeIssue.focus();
+  await smokeIssue.press("Enter");
   const sanitizedReport = page.locator(".html-body section").filter({ hasText: "Sanitizer security report" });
   await expect(sanitizedReport).toBeVisible();
   await expect(sanitizedReport).not.toHaveAttribute("class");
@@ -177,6 +184,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   expect(triageResponses.every((response) => response.ok())).toBe(true);
   await page.getByRole("button", { name: "Agent runs" }).click();
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
+  await expectScreenContrast(page, "agent runs list");
   await page.getByRole("button", { name: "Issues", exact: true }).click();
   const triageInbox = page.getByRole("region", { name: "Triage notifications" });
   await expect(triageInbox).toBeVisible();
@@ -193,8 +201,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
   const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();
   await expect(requirementsJob).toContainText("queued");
-  await requirementsJob.click();
+  await requirementsJob.focus();
+  await requirementsJob.press("Enter");
   await expect(page.getByRole("heading", { name: /#\d+ requirements/ })).toBeVisible();
+  await expectScreenContrast(page, "agent run detail");
   await expect(page.locator("#job-activities")).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".page-title-block")).toContainText("canceled");
@@ -260,6 +270,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await page.getByRole("button", { name: "Repository", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Repository" })).toBeVisible();
+  await expectScreenContrast(page, "repository overview");
   await expect(page.getByText("npm run build")).toBeVisible();
   await expect(page.getByText("npm run test")).toBeVisible();
   await expect(page.getByText("npm run lint")).toBeVisible();
@@ -267,12 +278,14 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   const repositoryCommit = page.locator(".repository-commit").first();
   await expect(repositoryCommit).toBeVisible();
   await expect(repositoryCommit).toHaveAttribute("id", /^commit-[0-9a-f]{40}$/);
-  await repositoryCommit.locator(".repository-commit-hash").click();
+  await repositoryCommit.locator(".repository-commit-hash").focus();
+  await repositoryCommit.locator(".repository-commit-hash").press("Enter");
   await expect(page).toHaveURL(/\/repository#commit-[0-9a-f]{40}$/);
 
   await page.getByRole("button", { name: "Project and settings" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expectScreenContrast(page, "settings");
   await page.getByLabel("Automatic merge target branches").fill("main, release");
   await page.getByLabel("Merge strategy").selectOption("squash");
   await page.getByLabel("Diff risk threshold").selectOption("high");
@@ -294,6 +307,12 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.getByLabel("Implementation Model")).toHaveValue("claude-implementation");
   await expect(page.getByLabel("Verification AI provider")).toHaveValue("codex");
   await expect(page.getByLabel("Verification Model")).toHaveValue("gpt-verifier");
+  await page.getByRole("button", { name: "Project and settings" }).press("ArrowDown");
+  await page.getByRole("menuitem", { name: "Projects" }).press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Loops" })).toBeFocused();
+  await page.getByRole("menuitem", { name: "Loops" }).press("Enter");
+  await expect(page.getByRole("heading", { name: "Loops", exact: true })).toBeVisible();
+  await expectScreenContrast(page, "loops and memory");
 
   execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
   const longDiffPath = [
@@ -389,12 +408,31 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   bilingualReportDatabase.close();
 
   await page.getByRole("button", { name: "Pull Requests" }).click();
+  await expectScreenContrast(page, "pull requests list");
   const pullRequestSummary = page.locator(".work-item-rich").filter({ hasText: "Review a large generated diff" });
   await expect(pullRequestSummary).toContainText("feature/large-diff");
   await expect(pullRequestSummary.locator(".work-item-author")).toHaveText("user");
   await expect(pullRequestSummary.locator(".work-item-stats")).toContainText("2");
-  await page.getByRole("button", { name: /Review a large generated diff/ }).click();
+  const pullRequestListButton = page.getByRole("button", { name: /Review a large generated diff/ });
+  await pullRequestListButton.focus();
+  await pullRequestListButton.press("Enter");
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
+  await expectScreenContrast(page, "pull request conversation");
+  const pullRequestTabs = page.getByRole("tablist", { name: "Pull request sections" });
+  const conversationTab = pullRequestTabs.getByRole("tab", { name: "Conversation" });
+  const filesTab = pullRequestTabs.getByRole("tab", { name: "Files changed" });
+  const commitsTab = pullRequestTabs.getByRole("tab", { name: "Commits" });
+  await expect(conversationTab).toHaveAttribute("aria-selected", "true");
+  await conversationTab.focus();
+  await conversationTab.press("ArrowRight");
+  await expect(filesTab).toBeFocused();
+  await expect(filesTab).toHaveAttribute("aria-selected", "true");
+  await filesTab.press("End");
+  await expect(commitsTab).toBeFocused();
+  await expect(commitsTab).toHaveAttribute("aria-selected", "true");
+  await commitsTab.press("Home");
+  await expect(conversationTab).toBeFocused();
+  await expect(conversationTab).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".automation-checks")).toContainText("review");
   const findingLineLink = page.getByRole("link", { name: "HIGH large.ts:1500" });
   await expect(findingLineLink).toHaveAttribute("href", new RegExp(`#${diffLineAnchor("large.ts", "R", 1_500)}$`));
@@ -402,6 +440,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`#${diffLineAnchor("large.ts", "R", 1_500)}$`));
   await expect(page.locator(`#${diffLineAnchor("large.ts", "R", 1_500)}`)).toBeVisible();
   await expect(page.locator("a.diff-finding-card")).toHaveAttribute("href", `#${diffLineAnchor("large.ts", "R", 1_500)}`);
+  await expectScreenContrast(page, "pull request diff");
   await expect.poll(async () => page.evaluate(() => {
     const load = performance.getEntriesByName("oneteam:diff-load").at(-1);
     const render = performance.getEntriesByName("oneteam:diff-render").at(-1);
@@ -452,7 +491,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".diff-virtual-status")).toContainText("2,001");
   await page.getByRole("button", { name: "Pull Requests" }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
-  await page.getByRole("button", { name: "Files changed" }).click();
+  await page.getByRole("tab", { name: "Files changed" }).click();
   await expect(page.locator(".diff-line-comment")).toContainText("Review note: keep this generated value stable.");
   const linkedLineAnchor = diffLineAnchor("large.ts", "R", 1_500);
   await page.goto(`/pulls/${createdPullRequest.pullRequest.id}#${linkedLineAnchor}`);
@@ -466,13 +505,15 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
   await expect(page.getByText("設定を保存しました")).toBeVisible();
+  await expectScreenContrast(page, "Japanese settings");
 
   await page.getByRole("button", { name: "Pull Request", exact: true }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
-  await expect(page.getByRole("button", { name: "変更ファイル", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "変更ファイル", exact: true })).toBeVisible();
   await expect(page.locator(".automation-checks")).toContainText("review");
   const bilingualReport = page.locator(".html-body section").filter({ hasText: "日英表示検証レポート" });
   await expect(bilingualReport).toBeVisible();
+  await expectScreenContrast(page, "Japanese pull request conversation");
   const bilingualTable = bilingualReport.locator("table");
   await expect(bilingualTable).toBeVisible();
   await expect(bilingualTable).toContainText("Gate / 判定");
@@ -490,7 +531,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   }));
   expect(conversationPageMetrics.scrollWidth).toBeLessThanOrEqual(conversationPageMetrics.clientWidth + 1);
 
-  await page.getByRole("button", { name: "変更ファイル", exact: true }).click();
+  await page.getByRole("tab", { name: "変更ファイル", exact: true }).click();
   await expect(page.locator(".diff-viewer")).toContainText("2 ファイル");
   await expect(page.getByPlaceholder("変更ファイルを検索")).toBeVisible();
   const longPathEntry = page.locator(".diff-file-list > button").filter({ hasText: longDiffPath });
@@ -501,4 +542,5 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
     scrollWidth: document.documentElement.scrollWidth
   }));
   expect(diffPageMetrics.scrollWidth).toBeLessThanOrEqual(diffPageMetrics.clientWidth + 1);
+  await expectScreenContrast(page, "Japanese pull request diff");
 });

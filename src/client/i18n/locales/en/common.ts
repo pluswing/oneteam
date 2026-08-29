@@ -126,6 +126,7 @@ export const en = {
     files: "files",
     commits: "commits",
     commitsTab: "Commits",
+    tabsNavigation: "Pull request sections",
     noFiles: "No changed files",
     searchFiles: "Search changed files",
     noMatchingFiles: "No matching files",

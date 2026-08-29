@@ -26,6 +26,7 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { AiProvider, RoleAiAgentType, RoleAiOverrides } from "../shared/ai-providers";
 import {
   aiProviderLabel,
@@ -2104,6 +2105,26 @@ function PullRequestDetailScreen(props: {
     setTab("files");
   }
 
+  function handleSubtabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const currentIndex = tabs.indexOf(event.target as HTMLButtonElement);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight"
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    const nextTab = next?.dataset.tab as typeof tab | undefined;
+    if (!next || !nextTab) return;
+    setTab(nextTab);
+    next.focus();
+  }
+
   useEffect(() => {
     activePullRequestProjectId.current = props.project.id;
     activePullRequestId.current = props.pullRequestId;
@@ -2280,64 +2301,106 @@ function PullRequestDetailScreen(props: {
               </div>
             </div>
           ) : null}
-          <div className="subtabs">
-            <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
+          <div
+            aria-label={t("pullRequests.tabsNavigation")}
+            className="subtabs"
+            onKeyDown={handleSubtabKeyDown}
+            role="tablist"
+          >
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "conversation"}
+              className={tab === "conversation" ? "active" : ""}
+              data-tab="conversation"
+              id="pull-request-tab-conversation"
+              onClick={() => setTab("conversation")}
+              role="tab"
+              tabIndex={tab === "conversation" ? 0 : -1}
+              type="button"
+            >
               {t("issues.conversation")}
             </button>
-            <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "files"}
+              className={tab === "files" ? "active" : ""}
+              data-tab="files"
+              id="pull-request-tab-files"
+              onClick={() => setTab("files")}
+              role="tab"
+              tabIndex={tab === "files" ? 0 : -1}
+              type="button"
+            >
               {t("pullRequests.filesChanged")}
             </button>
-            <button className={tab === "commits" ? "active" : ""} onClick={() => setTab("commits")} type="button">
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "commits"}
+              className={tab === "commits" ? "active" : ""}
+              data-tab="commits"
+              id="pull-request-tab-commits"
+              onClick={() => setTab("commits")}
+              role="tab"
+              tabIndex={tab === "commits" ? 0 : -1}
+              type="button"
+            >
               {t("pullRequests.commitsTab")}
             </button>
           </div>
-          {tab === "conversation" ? (
-            <>
-              <PullRequestRelatedLinks
-                issueId={pullRequest?.issueId ?? null}
-                linkedIssue={linkedIssue}
-                onOpenIssue={props.onOpenIssue}
-              />
-              <ConversationTimeline
-                activities={activities}
-                agentJobs={relatedAgentJobs}
-                comments={comments}
-                onLoadCommentRevisions={loadCommentRevisions}
-                onOpenAgentJob={props.onOpenAgentJob}
-                onUpdateComment={updateComment}
-              />
-              <CommentForm onSubmit={addComment} />
-            </>
-          ) : null}
-          {tab === "files" ? (
-            <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
-              <DiffViewer
-                files={files}
-                findings={findings}
-                lineComments={lineComments}
-                projectId={props.project.id}
-                pullRequestId={props.pullRequestId}
-                sourceCommit={diffRevision?.sourceCommit ?? null}
-                targetCommit={diffRevision?.targetCommit ?? null}
-              />
-            </Suspense>
-          ) : null}
-          {tab === "commits" ? (
-            <div className="commit-list">
-              {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
-              {commits.map((commit) => (
-                <article className="file-row commit-row" key={commit.hash}>
-                  <header>
-                    <strong>{commit.subject}</strong>
-                    <code>{commit.hash.slice(0, 8)}</code>
-                  </header>
-                  <p>
-                    {commit.authorName} - {formatDateTime(commit.date)}
-                  </p>
-                </article>
-              ))}
-            </div>
-          ) : null}
+          <div
+            aria-labelledby={`pull-request-tab-${tab}`}
+            id="pull-request-tabpanel"
+            role="tabpanel"
+            tabIndex={0}
+          >
+            {tab === "conversation" ? (
+              <>
+                <PullRequestRelatedLinks
+                  issueId={pullRequest?.issueId ?? null}
+                  linkedIssue={linkedIssue}
+                  onOpenIssue={props.onOpenIssue}
+                />
+                <ConversationTimeline
+                  activities={activities}
+                  agentJobs={relatedAgentJobs}
+                  comments={comments}
+                  onLoadCommentRevisions={loadCommentRevisions}
+                  onOpenAgentJob={props.onOpenAgentJob}
+                  onUpdateComment={updateComment}
+                />
+                <CommentForm onSubmit={addComment} />
+              </>
+            ) : null}
+            {tab === "files" ? (
+              <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+                <DiffViewer
+                  files={files}
+                  findings={findings}
+                  lineComments={lineComments}
+                  projectId={props.project.id}
+                  pullRequestId={props.pullRequestId}
+                  sourceCommit={diffRevision?.sourceCommit ?? null}
+                  targetCommit={diffRevision?.targetCommit ?? null}
+                />
+              </Suspense>
+            ) : null}
+            {tab === "commits" ? (
+              <div className="commit-list">
+                {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
+                {commits.map((commit) => (
+                  <article className="file-row commit-row" key={commit.hash}>
+                    <header>
+                      <strong>{commit.subject}</strong>
+                      <code>{commit.hash.slice(0, 8)}</code>
+                    </header>
+                    <p>
+                      {commit.authorName} - {formatDateTime(commit.date)}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </section>
         <aside className="side-panel detail-sidebar">
           <h2>{t("issues.checks")}</h2>
