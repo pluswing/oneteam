@@ -101,6 +101,8 @@ Agent / system comment は、その場の進捗通知だけでなく、数週間
 - 通常は Markdown、表、callout、check summary、比較表示が有効な場合は sanitized HTML を使う
 - 結論と現在状態を先頭に置き、その後に変更内容、Evidence、判断理由、リスク、次の工程を並べる
 - 実行コマンド、exit code、変更ファイル、review finding、該当 diff、commit hash、Agent / Provider、時刻を構造化して表示する
+- merge完了summaryは各ファイルの最初の実質的な変更行を最大8件deep linkし、コード本文を転載せずdiff viewerを正本として参照する
+- 最終判断、merge commit、主要diff linkをDBと`.oneteam/memory/loop-notes.md`へ保存し、PR / Issue / Objective Evidenceから同じLoop Memory entryへリンクする
 - 同じ内容の細かな進捗コメントを連投せず、節目ごとに圧縮した summary を投稿する
 - 詳細な逐次ログは Activity に残し、Comment は読み返す価値のある decision / handoff artifact にする
 - HTML は allowlist sanitizer を通し、script、event handler、unsafe URL / CSS、iframe などを禁止する

@@ -87,7 +87,7 @@
 - [x] 要件確定、実装開始、PR作成、review、fix、QA、最終検証、Provider Gate、merge結果をIssueへ構造化Markdownで自動記録する
 - [x] ユーザー本文を破壊的に上書きせず、system-managed label / status / relationと節目commentで状態を表す
 - [x] active ObjectiveのGoal Contract変更時は理由を必須化し、旧条件・新条件・hash・Markdown diffをIssue / PR / Evidence / Activity / Memoryへ残す
-- [ ] **Partial**: merge後にPR / Issueへfull commit / branch snapshot / merge base / strategy / Verifier / required commands / risk decision / changed file deep linkを含むMarkdown summaryを投稿済み。行単位の主要diffとMemory参照の集約は未完了
+- [x] **Done**: merge後にPR / Issueへfull commit / branch snapshot / merge base / strategy / Verifier / required commands / risk decision / changed file deep link、最大8件の主要diff行、永続化したLoop Memory entryを含むMarkdown summaryを投稿する。Objective EvidenceとMemory本文にも同じ参照を保存する
 - [x] merge後にIssueを自動closeして`done` labelを付け、再open時は完了Objectiveを保全したfollow-up Objective作成または既存active Objective再選択を行う
 
 ## P0: Codex usage remaining待機と自動再開
