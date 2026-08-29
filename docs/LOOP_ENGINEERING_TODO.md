@@ -46,7 +46,7 @@
 - [x] **Done**: open IssueのObjective補完とrequired command不足のTriage作成を行う内部Scheduler
 - [x] **Done**: stale Objective、failed verification / CI Evidence、以前成功したQA / Verifierからのregression、tracked sourceのTODO / FIXMEをSchedulerがTriage化し、scheduler key / fingerprintで重複を防止する
 - [x] **Done**: `.oneteam/skills` / `.oneteam/memory`、prompt contextへの投入、Loop / Objective節目のMemory更新
-- [ ] **Internal / Hidden**: Loops、Loop Run detail、Skills管理UIは実装されているがroute / navigationから非表示。TriageはIssues一覧の通知セクションへ統合済み
+- [x] **Done**: Loops、Loop Run detail、Skills / Memory管理UIを正式routeへ接続し、GitHub相当の主要repository tabを増やさずproject toolsメニューからAutomation画面として開ける。Memory entryはstable anchorを持ち、system summaryからdeep linkできる。TriageはIssues一覧の通知セクションにも統合済み
 - [x] **Done**: Issue / PR detailのObjective summary、Agent Job detailのStop Reason / Evidence
 - [x] **Done**: Agent commentのMarkdown / sanitized HTML
 - [ ] **Partial**: internal system commentと通常Markdown Agent milestoneをOutcome / Record / Agent summary / Evidence or Decision / Findings / Next step / timestampの共通contractへserver-side再構成済み。明示的なsanitized HTML reportは原文を保持

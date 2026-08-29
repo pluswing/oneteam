@@ -79,6 +79,8 @@ Codex capacity probeはthreadを作らずprovider turnも消費しない。未�
 
 UI は GitHub 相当の情報設計と操作感を目標にする。Loop の内部構造を前面に出すのではなく、Issues、Pull Requests、Agent runs / checks、Repository、Settings を中心にし、Objective、Evidence、Provider 待機、Human Gate は対象ページの文脈内に表示する。
 
+Loops、Loop Run、Skills、Memoryは内部実装だけに留めず、project toolsメニューから開くAutomation画面として提供する。Issues / Pull Requests / Agent runs / Repositoryという主要tabは増やさずGitHub相当の情報設計を維持しつつ、system summaryのMemory参照やLoop Risk Policyから詳細へdeep linkできる正式routeとstable anchorを持たせる。
+
 特に Pull Request の diff を最重要画面として扱う。
 
 - file tree / file list と sticky file header
