@@ -316,7 +316,7 @@ export function classifyCodexRateLimitSnapshot(
 async function probeCodexCapacity(command: string, timeoutMs = 10_000): Promise<ProviderCapacityProbeResult> {
   const checkedAt = new Date();
   return new Promise((resolveProbe) => {
-    const child = spawn(command, ["app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
     let stdoutBuffer = "";
     let stderr = "";
     let settled = false;

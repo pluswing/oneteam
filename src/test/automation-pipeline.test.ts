@@ -192,11 +192,11 @@ describe("automatic delivery pipeline", () => {
     const resumeResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ aiProvider: "claude_code" })
+      body: JSON.stringify({ aiProvider: "codex" })
     });
     expect(resumeResponse.status).toBe(200);
     expect((await resumeResponse.json()) as { job: { status: string; aiProvider: string } }).toMatchObject({
-      job: { status: "queued", aiProvider: "claude_code" }
+      job: { status: "queued", aiProvider: "codex" }
     });
     const manuallyResumedComments = await repos.comments.list(project.id, "issue", issue.id);
     expect(
@@ -208,14 +208,14 @@ describe("automatic delivery pipeline", () => {
       manuallyResumedComments.some(
         (comment) =>
           comment.metadata?.previousProvider === "codex" &&
-          comment.metadata?.provider === "claude_code" &&
-          comment.body.includes("## AI provider switched and retry queued")
+          comment.metadata?.provider === "codex" &&
+          comment.body.includes("## AI provider retry queued")
       )
     ).toBe(true);
 
     await worker.tick();
     const waitingAgain = await repos.agentJobs.get(project.id, job.id);
-    expect(waitingAgain).toMatchObject({ status: "waiting_provider", attempt: 2, aiProvider: "claude_code" });
+    expect(waitingAgain).toMatchObject({ status: "waiting_provider", attempt: 2, aiProvider: "codex" });
     expect(waitingAgain?.waitMetadata?.retryCount).toBe(2);
 
     const cancelResponse = await app.request(`/api/projects/${project.id}/agent-jobs/${job.id}/cancel`, {

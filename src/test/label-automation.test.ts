@@ -92,7 +92,7 @@ describe("label automation", () => {
     context.client.close();
   });
 
-  it("hooks issue and pull request API writes into label automation", async () => {
+  it("uses DevelopmentLoop for Issues without scheduling legacy label jobs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-label-api-"));
     const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
     await runMigrations(context.client);
@@ -133,11 +133,12 @@ describe("label automation", () => {
 
     expect(issueResponse.status).toBe(201);
     expect(issueBody.issue.labels.map((label) => label.name)).toContain("requirements");
-    expect(issueBody.automationJobIds).toHaveLength(1);
+    expect(issueBody.automationJobIds).toHaveLength(0);
     expect(pullRequestResponse.status).toBe(201);
-    expect(pullRequestBody.automationJobIds).toHaveLength(1);
-    expect(jobs.map((job) => job.agentType)).toEqual(expect.arrayContaining(["requirements", "review"]));
-    expect(loopRuns).toHaveLength(2);
+    expect(pullRequestBody.automationJobIds).toHaveLength(0);
+    expect(jobs).toEqual([]);
+    expect(await repos.development.list(project.id)).toHaveLength(1);
+    expect(loopRuns).toHaveLength(0);
 
     context.client.close();
   });

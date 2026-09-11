@@ -13,7 +13,8 @@ export type AgentType =
   | "fix"
   | "qa"
   | "verifier"
-  | "command_detection";
+  | "command_detection"
+  | "retrospective";
 export type AgentJobStatus =
   | "queued"
   | "running"

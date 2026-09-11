@@ -1,167 +1,95 @@
-# OneTeam: Local Loop Engineering for solo developers
+# OneTeam
 
-OneTeam is a local web application for solo developers who want to design, run, verify, and remember autonomous AI development loops from local issues.
+OneTeam is a local Loop Engineering app powered by Codex. It keeps GitHub-style Issues, Pull Requests, comments, diffs and Agent logs in one folder.
 
-It provides a GitHub-like local control plane for issues, pull requests, labels, comments, activity logs, and agent jobs. From an issue, OneTeam defines a Goal Contract, prepares isolated worktrees, runs the selected AI provider, collects Evidence, creates a local pull request, reviews and fixes changes, performs QA and final verification, and merges automatically when every policy gate passes. Human and provider-capacity gates preserve the complete execution state for later resumption.
+**One loop = Issue → implementation → PR → review / fix → verification → merge → retrospective → reusable knowledge.**
 
-## Website
+After merging, Codex reviews the work, test results, retries and model choices. OneTeam saves the retrospective and applies proposed knowledge changes under `.oneteam/`. The next task receives that knowledge. A merged PR remains “Reflecting” until its knowledge update is saved.
 
-- [English](https://pluswing.github.io/oneteam/)
-- [日本語](https://pluswing.github.io/oneteam/ja.html)
+## Start
 
-## What It Does
-
-- Manage one local Git repository per OneTeam instance.
-- Create local issues and pull requests without GitHub integration.
-- Turn issues into verifiable AI development loops with goal contracts, evidence, and stop reasons.
-- Drive workflow with labels such as `requirements`, `ready-for-implementation`, `reviewing`, `fixing`, `testing`, `done`, and `ready-to-merge`.
-- Run role-routed AI agent jobs through Codex CLI, Claude Code, or LM Studio.
-- Switch the UI and AI agent output language between English and Japanese.
-- Save AI progress, thinking summaries, command results, changed files, and errors as Activity Log entries.
-- Auto-detect install/dev/build/test/lint commands from the repository.
-- Pause safely for human input with Human Gate and resume when the user comments.
-- Isolate writing Agents in branch worktrees and read-only Agents in commit-pinned snapshot worktrees.
-- Re-run required commands and risk checks immediately before policy-gated local merge.
-- Persist Codex usage-limit waits and resume the same Job, Objective, thread, and worktree after capacity recovers.
-- Optionally poll GitHub Actions workflow status into Objective Evidence, PR Activity, and Triage without coupling Connector failures to Agent Jobs.
-- Run Playwright browser coverage for workflow controls, large diff performance, keyboard behavior, and screen-level text contrast.
-
-## Tech Stack
-
-- Package manager: npm
-- Language: TypeScript
-- Runtime: Node.js
-- UI: React + Vite
-- API: Hono
-- Database: libSQL
-- ORM / query builder: Drizzle ORM
-- Unit and integration tests: Vitest
-- E2E smoke tests: Playwright
-- AI execution: Codex CLI via `node_modules/.bin/codex`, Claude Code, or LM Studio
-
-## Requirements
-
-- Node.js
-- npm
-- git
-- Codex CLI authentication. OneTeam checks this on launch and starts `codex login` when needed.
-
-## Getting Started
-
-Install dependencies:
+Requirements: Node.js 20.19+ or 22.12+, npm, Git, and a Codex login. The Codex CLI is included in the dependencies.
 
 ```sh
 npm install
-```
-
-Start the development server:
-
-```sh
-npm run dev
-```
-
-Open the app:
-
-```text
-http://127.0.0.1:3579
-```
-
-The API runs at:
-
-```text
-http://127.0.0.1:3580
-```
-
-On first launch, use the setup screen to import or create a repository project. OneTeam will run command detection, store project settings in `<imported-repo>/.oneteam/data/oneteam.db`, and create skills/memory files under `<imported-repo>/.oneteam/`. To force a repository database on startup, set `ONETEAM_REPOSITORY_PATH=/path/to/repo`.
-
-When the agent worker starts, OneTeam runs `codex login status`. If Codex is not authenticated yet, OneTeam starts `codex login` automatically.
-
-The optional read-only GitHub Actions Connector can attach workflow status to local PR Objectives and create Triage items for failed CI. It is disabled by default. See [Connector setup](./docs/CONNECTORS.md#github-actions--ci-status-connector) for token permissions and environment variables.
-
-Run the desktop app in development:
-
-```sh
 npm run app:dev
 ```
 
-Create a local packaged app directory:
+Drop a Git repository folder onto the desktop app or choose a folder. The repository must already have its first commit. OneTeam initializes `.oneteam` when needed and opens an empty Issue list. **Initialization creates no Issue or Agent job.** Later launches reopen the last folder; the folder button opens another one.
 
-```sh
-npm run app:dir
-```
+Create an Issue describing the requested change and acceptance criteria. OneTeam queues it automatically. Loops execute one at a time in that folder. No project registration, provider selector, model selector or detailed settings screen is needed.
 
-## Common Commands
+For browser development:
 
 ```sh
 npm run dev
-npm run build
-npm run app:dev
-npm run app:dir
-npm run app:pack
-npm run start
+# UI:  http://127.0.0.1:3579
+# API: http://127.0.0.1:3580
+```
+
+Use the path form on the browser setup screen. Folder drag-and-drop is provided by the Electron app. If authentication is needed, the desktop app opens Codex login when execution starts. You can also run `npm run codex:login`, then resume the Loop.
+
+## Development workflow
+
+- **Issues / Pull Requests:** descriptions, comments and their edit history, review findings, Git diffs, line comments and commit history.
+- **Development Loop panel:** current phase, pause / resume / cancel, related PR and Agent jobs, retrospective and knowledge changes. A paused or failed Loop holds the queue until it is resumed or canceled.
+- **Agent tab:** progress, commands, changed files, test evidence and execution history. Each attempt records the selected model, model returned by Codex, reasoning effort, selection reason, thread / turn IDs, timestamps and available usage.
+- **Repository tab:** detected commands, working-tree status and commit history.
+
+Implementation and fixes use branch worktrees. Other roles use commit snapshots. OneTeam runs detected verification commands and checks the source and target commits again before merging. Changed commits require fresh verification; conflicts return to fixing. Missing evidence, execution errors or unresolved input stop the Loop with an explanation. Reply to an Agent's question in the Issue or PR to resume it.
+
+Closing an Issue before merge cancels its Loop. Reopening creates follow-up work while preserving earlier deliveries. A merge requested from the PR screen uses the same Loop engine and verification checks. Standalone local PRs can still be managed manually.
+
+## Automatic Codex models
+
+OneTeam asks the bundled Codex App Server for its model catalog. A versioned internal policy chooses a model and supported reasoning effort from task scope, changed files, review findings and previous quality failures:
+
+- Small documentation or wording changes prefer a lightweight model.
+- Normal development uses a standard coding model.
+- Architecture, data migration, security, concurrency or repeated quality failures prefer stronger reasoning.
+
+Model availability also depends on the account. If a catalog entry is rejected before any tool work, OneTeam records the failed attempt and retries with another available model. Capacity limits use persisted waiting and retry, rather than treating them as code-quality failures. Codex model reroutes are recorded. Unknown historical models and missing usage remain unknown; token counts are not presented as billing costs.
+
+## Knowledge and local data
+
+```text
+.oneteam/
+  workspace.json               Workspace identity and initialization state
+  AGENTS.md                    Shared guidance and knowledge index
+  knowledge/*.md               Reusable practices maintained by retrospectives
+  retrospectives/loop-<id>.md   Reports tied to the actual merge commit
+  data/oneteam.db               Issues, PRs, Loops, jobs, logs and revisions
+  data/artifacts/               Verification artifacts
+  backups/                     Backup before the Loop schema migration
+```
+
+Knowledge changes can create, edit, consolidate or delete Markdown files inside `knowledge/`; the common `AGENTS.md` index cannot be deleted. A retrospective may report that no reusable change is needed. The Agent proposes changes; OneTeam validates paths and file hashes, saves the before/after journal and applies the files. Concurrent user edits stop application instead of being overwritten. Interrupted application resumes from the saved journal.
+
+Open “Retrospective & history” in an Issue, PR or Agent Loop panel to inspect the report and file versions. An applied knowledge change can be restored to its previous version, provided the file has not subsequently changed. Pause an active Loop before restoring knowledge. For a conflicting pending proposal, reconcile the named file with the recorded version before resuming; the failed proposal is retained for inspection.
+
+`.oneteam/` is excluded through the repository's local Git exclude file. It is local application data, so back up this directory when moving the workspace. Isolated worktrees live under `~/.oneteam/worktrees/`.
+
+## Existing workspaces
+
+The first open after this rewrite backs up the database and knowledge before applying the new schema. Issues, PRs, comments, activities, job IDs and verification records remain intact. Active legacy Objectives become paused Development Loops. Resume them explicitly; continued execution uses a new Codex job and preserves the old provider history. Completed legacy work is not assigned invented retrospectives.
+
+Old `skills/` files remain readable as context, and old `memory/` files remain on disk. New Loops use the retrospective knowledge store. The old configurable Loop scheduler, Triage workflow, other provider executors and GitHub Actions polling are no longer active.
+
+## Development and verification
+
+```sh
 npm run typecheck
 npm run lint
 npm test
+npm run build
+npm run e2e:install  # once on a new machine
 npm run e2e
+npm run app:dir     # unpacked desktop app
+npm run app:pack    # packaged desktop app
 ```
 
-Install the Playwright browser once before running E2E tests on a fresh machine:
+Vitest covers Loop sequencing, real Git merges, migration, restart recovery, knowledge application/restoration, workspace isolation and model routing. Playwright creates two Issues and runs the production Loop engine with a deterministic Agent fixture, then checks learning transfer, model logs, large diffs, line comments, keyboard navigation and English/Japanese contrast. Codex authentication and live execution are checked separately from reproducible tests.
 
-```sh
-npm run e2e:install
-```
+Runtime overrides for development: `ONETEAM_HOME`, `ONETEAM_REPOSITORY_PATH`, `ONETEAM_DATABASE_URL`, `ONETEAM_AGENT_WORKER=false`, `ONETEAM_AGENT_POLL_INTERVAL_MS`, `ONETEAM_CODEX_COMMAND`, `ONETEAM_CODEX_AUTO_LOGIN=false`, `HOST`, and `PORT`. A fixed database override is intended for tests and cannot switch between repositories. Provider and model environment overrides are no longer used.
 
-Check Codex CLI availability:
-
-```sh
-npm run codex:version
-```
-
-## Loop Workflow
-
-1. Create an issue.
-2. OneTeam automatically starts `requirements`.
-3. Requirements Agent turns the request into a goal contract with acceptance criteria, evidence requirements, and stop conditions.
-4. Implementation Agent prepares a branch, runs Codex, verifies commands, and creates a local pull request.
-5. Review Agent checks requirement coverage, evidence, and risk, then sends the pull request to `fixing` or `testing`.
-6. Fix Agent resolves review, QA, or conflict findings and returns to `reviewing`.
-7. QA Agent records evidence and sends defects to `fixing` or hands the pull request to final verification with `done`.
-8. Verifier Agent checks the stop condition and typed Evidence, then marks the pull request `ready-to-merge`.
-9. The automatic merge gate rechecks source / target snapshots, conflicts, commands, Evidence freshness, and risk policy before merging locally.
-10. OneTeam finalizes the PR, Objective, Issue, comments, Activity, and Loop Memory idempotently. It stops at a Human Gate only when policy or missing Evidence requires a decision.
-
-## Project Structure
-
-```text
-src/client      React + Vite UI
-src/server      Hono API, agent worker, Git integration
-src/server/db   libSQL schema, migrations, repositories
-src/server/agents
-                prompt rendering, Codex adapter, agent worker
-src/server/services
-                command detection, label automation, Git helpers, verification
-src/shared      shared DTOs and utilities
-src/test        Vitest unit and integration tests
-e2e             Playwright smoke tests
-docs            requirements and implementation documents
-```
-
-## Documentation
-
-- [Requirements](./docs/REQUIREMENTS.md)
-- [Implementation docs](./docs/README.md)
-- [Agent prompts](./docs/03-agent-prompt-templates.md)
-- [Agent job state machine](./docs/04-agent-job-state-machine.md)
-- [API schemas](./docs/05-api-schemas.md)
-- [MVP completion status](./docs/10-mvp-remaining-tasks.md)
-- [Manual E2E checklist](./docs/11-manual-e2e-checklist.md)
-- [Local Codex CLI setup](./docs/09-local-codex-setup.md)
-- [Connector setup](./docs/CONNECTORS.md)
-- [Loop Engineering adaptation](./docs/LOOP_ENGINEERING_ADAPTATION.md)
-- [Loop Engineering TODO](./docs/LOOP_ENGINEERING_TODO.md)
-
-## Current Status
-
-The autonomous local workflow target is implemented: Issue → requirements → implementation → local PR → review / fix → QA → verification → policy-gated merge → Issue and Memory finalization. Codex capacity waits recover automatically, every Loop Step is isolated from the primary workspace, the diff viewer is optimized for review, and durable Markdown or sanitized HTML records retain the decision trail.
-
-All concrete implementation items in the current plan are complete. The remaining `Partial` area is optional future integration beyond the implemented GitHub Actions status runtime: GitHub Issue / PR synchronization, Linear, and Slack / Discord Connectors. See [the design](./docs/LOOP_ENGINEERING_ADAPTATION.md) and [implementation status](./docs/LOOP_ENGINEERING_TODO.md).
+The implementation uses TypeScript, Electron, React/Vite, Hono, libSQL/Drizzle, Vitest and Playwright. See the [rewrite plan](docs/LOOP_ENGINEERING_REBUILD_PLAN.md) for the architecture and migration decisions. Earlier documents under `docs/` describe the previous design unless marked otherwise.

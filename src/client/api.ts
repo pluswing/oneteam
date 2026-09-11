@@ -1,31 +1,6 @@
 import type { AiProvider } from "../shared/ai-providers";
-import type {
-  AgentJobDto,
-  ActivityDto,
-  CommentDto,
-  CommentRevisionDto,
-  IssueDto,
-  KnownRepositoryDto,
-  LabelDto,
-  LoopDto,
-  LoopMemoryEntryDto,
-  LoopRunDto,
-  LoopStepDto,
-  MergeConflictDto,
-  ObjectiveRunDto,
-  ProjectCommandDto,
-  ProjectDto,
-  ProjectSettingsDto,
-  PullRequestDto,
-  PullRequestFindingDto,
-  PullRequestLineCommentDto,
-  RepositoryCommitDto,
-  RepositoryDiffSummaryDto,
-  RepositoryFileChangeDto,
-  RepositoryStatusDto,
-  SkillFileDto,
-  TriageItemDto
-} from "../shared/types";
+import type { AgentExecutionDto, DevelopmentLoopDto, KnowledgeRevisionDto, RetrospectiveDto } from "../shared/development-loop";
+import type { AgentJobDto, ActivityDto, CommentDto, CommentRevisionDto, IssueDto, LabelDto, MergeConflictDto, ObjectiveRunDto, ProjectCommandDto, ProjectDto, PullRequestDto, PullRequestFindingDto, PullRequestLineCommentDto, RepositoryCommitDto, RepositoryDiffSummaryDto, RepositoryFileChangeDto, RepositoryStatusDto, SkillFileDto } from "../shared/types";
 
 type ListResponse<T> = {
   items: T[];
@@ -59,32 +34,22 @@ type PullRequestMutationResponse = {
 
 type PullRequestMergeResponse = {
   pullRequest: PullRequestDto;
-  mergeCommit: string;
+  mergeCommit: string | null;
+  queued?: boolean;
   output: string;
 };
 
-type LoopDetailResponse = {
-  loop: LoopDto;
-  runs: LoopRunDto[];
-};
 
-type LoopRunDetailResponse = {
-  run: LoopRunDto;
-  steps: LoopStepDto[];
-};
 
 type ObjectiveResponse = {
   objective: ObjectiveRunDto | null;
 };
 
-type ObjectiveControlResponse = {
-  objective: ObjectiveRunDto;
-  jobs: AgentJobDto[];
-};
 
-type RepositorySwitchResponse = {
-  repository: KnownRepositoryDto;
-  projects: ProjectDto[];
+
+export type ProjectOpenResult = {
+  project: ProjectDto;
+  onboardingIssueId: number | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -105,16 +70,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  async listRepositories(): Promise<KnownRepositoryDto[]> {
-    const response = await request<ListResponse<KnownRepositoryDto>>("/api/repositories");
-    return response.items;
+  async codexStatus(): Promise<{ status: "connected" | "login_required" }> { return request("/api/codex/status"); },
+  async restoreKnowledgeRevision(projectId: string, revisionId: number): Promise<void> {
+    await request(`/api/projects/${projectId}/knowledge-revisions/${revisionId}/restore`, { method: "POST" });
   },
-
-  async switchRepository(input: { repoPath: string; name?: string }): Promise<RepositorySwitchResponse> {
-    return request<RepositorySwitchResponse>("/api/repositories/switch", {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
+  async listDevelopmentLoops(projectId: string): Promise<DevelopmentLoopDto[]> {
+    return (await request<ListResponse<DevelopmentLoopDto>>(`/api/projects/${projectId}/development-loops`)).items;
+  },
+  async getDevelopmentLoop(projectId: string, loopId: number): Promise<{ loop: DevelopmentLoopDto; retrospective: RetrospectiveDto | null; revisions: KnowledgeRevisionDto[]; jobs: AgentJobDto[] }> {
+    return request(`/api/projects/${projectId}/development-loops/${loopId}`);
+  },
+  async controlDevelopmentLoop(projectId: string, loopId: number, action: "pause" | "resume" | "cancel"): Promise<void> {
+    await request(`/api/projects/${projectId}/development-loops/${loopId}/${action}`, { method: "POST" });
+  },
+  async listAgentExecutions(projectId: string, jobId: number): Promise<AgentExecutionDto[]> {
+    return (await request<ListResponse<AgentExecutionDto>>(`/api/projects/${projectId}/agent-jobs/${jobId}/executions`)).items;
   },
 
   async listProjects(): Promise<ProjectDto[]> {
@@ -123,18 +93,18 @@ export const api = {
   },
 
   async createProject(input: {
-    mode: "import" | "create";
-    name: string;
     repoPath: string;
-    defaultBranch: string;
     locale: string;
-    aiProvider: AiProvider;
-  }): Promise<ProjectDto> {
-    const response = await request<{ project: ProjectDto }>("/api/projects", {
+  }): Promise<ProjectOpenResult> {
+    return request<ProjectOpenResult>("/api/projects", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify({
+        mode: "import",
+        repoPath: input.repoPath,
+        locale: input.locale,
+        aiProvider: "codex"
+      })
     });
-    return response.project;
   },
 
   async listLabels(projectId: string): Promise<LabelDto[]> {
@@ -236,29 +206,6 @@ export const api = {
     });
   },
 
-  async getSettings(projectId: string): Promise<ProjectSettingsDto> {
-    return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`);
-  },
-
-  async updateSettings(
-    projectId: string,
-    input: {
-      locale: string;
-      ai?: {
-        provider?: ProjectSettingsDto["ai"]["provider"];
-        roleOverrides?: Partial<ProjectSettingsDto["ai"]["roleOverrides"]>;
-        claudeCode?: Partial<ProjectSettingsDto["ai"]["claudeCode"]>;
-        lmStudio?: Partial<ProjectSettingsDto["ai"]["lmStudio"]>;
-      };
-      automation?: Partial<ProjectSettingsDto["automation"]>;
-    }
-  ): Promise<ProjectSettingsDto> {
-    return request<ProjectSettingsDto>(`/api/projects/${projectId}/settings`, {
-      method: "PUT",
-      body: JSON.stringify(input)
-    });
-  },
-
   async listPullRequests(
     projectId: string,
     filters: { status?: PullRequestDto["status"] | null; issueId?: number } = { status: "open" }
@@ -286,16 +233,6 @@ export const api = {
       `/api/projects/${projectId}/pull-requests/${pullRequestId}/objective`
     );
     return response.objective;
-  },
-
-  async controlObjective(
-    projectId: string,
-    objectiveId: number,
-    action: "pause" | "resume" | "cancel"
-  ): Promise<ObjectiveControlResponse> {
-    return request<ObjectiveControlResponse>(`/api/projects/${projectId}/objectives/${objectiveId}/${action}`, {
-      method: "POST"
-    });
   },
 
   async createPullRequest(
@@ -480,149 +417,6 @@ export const api = {
     return response.items;
   },
 
-  async listLoops(projectId: string): Promise<LoopDto[]> {
-    const response = await request<ListResponse<LoopDto>>(`/api/projects/${projectId}/loops`);
-    return response.items;
-  },
-
-  async createLoop(
-    projectId: string,
-    input: {
-      name: string;
-      purpose?: string;
-      triggerType?: string;
-      cadence?: string | null;
-      targetScope?: string;
-      status?: LoopDto["status"];
-      maxRounds?: number;
-      timeBudgetMinutes?: number | null;
-      costBudget?: number | null;
-      stopCondition?: Record<string, unknown> | null;
-      riskPolicy?: Record<string, unknown> | null;
-    }
-  ): Promise<LoopDto> {
-    const response = await request<{ loop: LoopDto }>(`/api/projects/${projectId}/loops`, {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-    return response.loop;
-  },
-
-  async getLoop(projectId: string, loopId: number): Promise<LoopDetailResponse> {
-    return request<LoopDetailResponse>(`/api/projects/${projectId}/loops/${loopId}`);
-  },
-
-  async startLoopRun(
-    projectId: string,
-    loopId: number,
-    input: {
-      agentType: AgentJobDto["agentType"];
-      targetType: AgentJobDto["targetType"];
-      targetId: number;
-      triggerType?: string;
-      input?: Record<string, unknown>;
-    }
-  ): Promise<{ run: LoopRunDto; job: AgentJobDto; step: LoopStepDto }> {
-    return request<{ run: LoopRunDto; job: AgentJobDto; step: LoopStepDto }>(
-      `/api/projects/${projectId}/loops/${loopId}/runs`,
-      {
-        method: "POST",
-        body: JSON.stringify(input)
-      }
-    );
-  },
-
-  async listLoopRuns(projectId: string, loopId?: number): Promise<LoopRunDto[]> {
-    const params = new URLSearchParams();
-    if (typeof loopId === "number") {
-      params.set("loopId", String(loopId));
-    }
-    const response = await request<ListResponse<LoopRunDto>>(
-      `/api/projects/${projectId}/loop-runs${params.toString() ? `?${params.toString()}` : ""}`
-    );
-    return response.items;
-  },
-
-  async getLoopRun(projectId: string, loopRunId: number): Promise<LoopRunDetailResponse> {
-    return request<LoopRunDetailResponse>(`/api/projects/${projectId}/loop-runs/${loopRunId}`);
-  },
-
-  async listLoopMemory(projectId: string): Promise<LoopMemoryEntryDto[]> {
-    const response = await request<ListResponse<LoopMemoryEntryDto>>(`/api/projects/${projectId}/loop-memory`);
-    return response.items;
-  },
-
-  async createLoopMemory(
-    projectId: string,
-    input: {
-      loopId?: number | null;
-      loopRunId?: number | null;
-      sourceType?: LoopMemoryEntryDto["sourceType"];
-      sourceId?: number | null;
-      title: string;
-      body?: string;
-      tags?: string[];
-    }
-  ): Promise<LoopMemoryEntryDto> {
-    const response = await request<{ entry: LoopMemoryEntryDto }>(`/api/projects/${projectId}/loop-memory`, {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-    return response.entry;
-  },
-
-  async listTriageItems(projectId: string, status?: TriageItemDto["status"]): Promise<TriageItemDto[]> {
-    const params = new URLSearchParams();
-    if (status) {
-      params.set("status", status);
-    }
-    const response = await request<ListResponse<TriageItemDto>>(
-      `/api/projects/${projectId}/triage-items${params.toString() ? `?${params.toString()}` : ""}`
-    );
-    return response.items;
-  },
-
-  async createTriageItem(
-    projectId: string,
-    input: {
-      sourceType: string;
-      sourceId?: number | null;
-      title: string;
-      body?: string;
-      priority?: string;
-      metadata?: Record<string, unknown> | null;
-    }
-  ): Promise<TriageItemDto> {
-    const response = await request<{ item: TriageItemDto }>(`/api/projects/${projectId}/triage-items`, {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-    return response.item;
-  },
-
-  async updateTriageItem(
-    projectId: string,
-    triageItemId: number,
-    input: { status?: TriageItemDto["status"]; issueId?: number | null }
-  ): Promise<TriageItemDto> {
-    const response = await request<{ item: TriageItemDto }>(
-      `/api/projects/${projectId}/triage-items/${triageItemId}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(input)
-      }
-    );
-    return response.item;
-  },
-
-  async convertTriageItemToIssue(projectId: string, triageItemId: number): Promise<IssueDto> {
-    const response = await request<{ issue: IssueDto }>(
-      `/api/projects/${projectId}/triage-items/${triageItemId}/convert-to-issue`,
-      { method: "POST" }
-    );
-    return response.issue;
-  },
-
   async listKnowledgeFiles(projectId: string): Promise<SkillFileDto[]> {
     const response = await request<ListResponse<SkillFileDto>>(`/api/projects/${projectId}/knowledge`);
     return response.items;
@@ -674,22 +468,6 @@ export const api = {
       `/api/projects/${projectId}/agent-jobs/${jobId}/activities`
     );
     return response.items;
-  },
-
-  async createAgentJob(
-    projectId: string,
-    input: {
-      agentType: AgentJobDto["agentType"];
-      targetType: AgentJobDto["targetType"];
-      targetId: number;
-      triggerType?: string;
-    }
-  ): Promise<AgentJobDto> {
-    const response = await request<{ job: AgentJobDto }>(`/api/projects/${projectId}/agent-jobs`, {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-    return response.job;
   },
 
   async cancelAgentJob(projectId: string, jobId: number): Promise<AgentJobDto> {

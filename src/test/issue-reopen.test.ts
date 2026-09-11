@@ -77,7 +77,7 @@ describe("Issue reopen lifecycle", () => {
     expect(response.status).toBe(200);
     expect(payload.issue.labels.map((label) => label.name)).toContain(workflowLabelNames.requirements);
     expect(payload.issue.labels.map((label) => label.name)).not.toContain(workflowLabelNames.done);
-    expect(payload.automationJobIds).toHaveLength(1);
+    expect(payload.automationJobIds).toHaveLength(0);
     expect(objectives).toHaveLength(2);
     expect(followUp).toMatchObject({
       status: "open",
@@ -90,7 +90,8 @@ describe("Issue reopen lifecycle", () => {
     });
     expect(originalAfter).toMatchObject({ status: "succeeded", workflowStage: "merged", pullRequestId: pullRequest.id });
     expect(linkedPullRequestObjective?.id).toBe(originalObjective.id);
-    expect(jobs.some((job) => job.agentType === "requirements" && job.input.objectiveRunId === followUp?.id)).toBe(true);
+    expect(jobs).toHaveLength(0);
+    expect(await repos.development.forIssue(project.id, issue.id)).toMatchObject({ status: "queued", objectiveId: followUp?.id });
     expect(comments.some((comment) => comment.body.includes("## Follow-up Objective created"))).toBe(true);
     expect(comments.some((comment) => comment.metadata?.previousObjectiveRunId === originalObjective.id)).toBe(true);
     expect(memory.some((entry) => entry.tags.includes("reopened") && entry.tags.includes("follow_up"))).toBe(true);

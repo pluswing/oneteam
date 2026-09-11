@@ -1,3 +1,4 @@
+import { createDevelopmentRepositories } from "./development-repositories";
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
@@ -526,6 +527,7 @@ export function createRepositories(db: Database) {
   }
 
   return {
+    development: createDevelopmentRepositories(db),
     projects: {
       async list(): Promise<ProjectDto[]> {
         const rows = await db.select().from(projects).orderBy(desc(projects.updatedAt));
@@ -563,7 +565,7 @@ export function createRepositories(db: Database) {
         return mapProject(rows[0]);
       },
 
-      async update(projectId: string, input: Partial<Pick<ProjectDto, "name" | "defaultBranch" | "locale">>) {
+      async update(projectId: string, input: Partial<Pick<ProjectDto, "name" | "repoPath" | "defaultBranch" | "locale">>) {
         const rows = await db
           .update(projects)
           .set({
@@ -1304,7 +1306,7 @@ export function createRepositories(db: Database) {
           filters.push(eq(agentJobs.status, input.status));
         }
 
-        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(desc(agentJobs.createdAt));
+        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(desc(agentJobs.createdAt), desc(agentJobs.id));
         return rows.map(mapAgentJob);
       },
 

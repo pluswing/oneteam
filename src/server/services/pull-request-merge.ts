@@ -26,7 +26,7 @@ import {
 import { riskSignalsAtOrAbove, scanScoreManipulationRisks } from "./diff-risk-scanner";
 import { runLabelAutomation } from "./label-automation";
 import { appendObjectiveEvidence, markObjectiveMerged } from "./objective-runs";
-import { readAutomationSettings } from "./automation-settings";
+import { defaultAutomationSettings, readAutomationSettings } from "./automation-settings";
 import { buildSystemComment, markdownCode, type SystemCommentSection } from "./system-comment";
 import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
 import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
@@ -77,7 +77,8 @@ export async function mergePullRequest(
   }
 ): Promise<PullRequestMergeResult> {
   const { project, pullRequest, mode } = input;
-  const automation = await readAutomationSettings(repos);
+  const managedLoop = await repos.development.forPullRequest(project.id, pullRequest.id);
+  const automation = managedLoop ? defaultAutomationSettings : await readAutomationSettings(repos);
   if (mode === "automatic") {
     const gate = await checkAutomaticMergeGate(repos, project, pullRequest, automation, input.verifierJob);
     if (gate) {
@@ -189,6 +190,8 @@ export async function mergePullRequest(
     return { state: "blocked", reason };
   }
 
+  const developmentLoop = await repos.development.forPullRequest(project.id, pullRequest.id);
+  if (developmentLoop) await repos.development.update(project.id, developmentLoop.id, { phase: "merging", sourceCommit: sourceHead, targetCommit: targetHead });
   const mergeRetries: GitRetryEvent[] = [];
   let mergeResult: Awaited<ReturnType<typeof mergeBranch>>;
   try {
@@ -235,6 +238,7 @@ export async function mergePullRequest(
     }
     throw error;
   }
+  if (developmentLoop) await repos.development.update(project.id, developmentLoop.id, { mergeCommit: mergeResult.mergeCommit, phase: "reflecting", nextAgent: "retrospective", currentJobId: null, status: "running" });
   const doneLabel = await repos.labels.findByName(project.id, workflowLabelNames.done);
   const mergedPullRequest = await repos.pullRequests.update(project.id, pullRequest.id, {
     status: "merged",
@@ -695,11 +699,12 @@ async function checkAutomaticMergeGate(
   currentSourceHead?: string;
   currentTargetHead?: string;
 } | null> {
-  if (!automation.autoMergeEnabled) {
+  const managed = await repos.development.forPullRequest(project.id, pullRequest.id);
+  if (!managed && !automation.autoMergeEnabled) {
     return { state: "skipped", reason: "Automatic merge is disabled in project settings.", conflicts: false };
   }
   if (
-    automation.autoMergeTargetBranches.length > 0 &&
+    !managed && automation.autoMergeTargetBranches.length > 0 &&
     !automation.autoMergeTargetBranches.includes(pullRequest.targetBranch)
   ) {
     return {
@@ -787,6 +792,12 @@ async function requestAutomaticMergeReverification(
     const blockedReason = `${reason} No Objective is available to queue fresh verification.`;
     await recordAutomaticMergeBlock(repos, project, pullRequest, verifierJob, blockedReason, false);
     return { state: "blocked", reason: blockedReason };
+  }
+  const development = await repos.development.forPullRequest(project.id, pullRequest.id);
+  if (development) {
+    const nextVerifier = await repos.agentJobs.create({ projectId: project.id, aiProvider: "codex", agentType: "verifier", targetType: "pull_request", targetId: pullRequest.id, input: { developmentLoopId: development.id, objectiveRunId: objective.id, reason, automaticMergeReverification: true }, triggerType: "development_reverification" });
+    await repos.objectives.update(project.id, objective.id, { status: "running", workflowStage: "verification", judgeAgentJobId: null, stopReason: null });
+    return { state: "requeued", reason, verifierJob: nextVerifier };
   }
   const priorVerifierSnapshot = verifierEvidenceSnapshot(objective, verifierJob);
   const priorLoopContext = await resolveAutomaticMergeLoopContext(repos, verifierJob);

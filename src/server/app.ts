@@ -1,13 +1,14 @@
-import { mkdir, readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { developmentApi } from "./development-api";
+import { controlDevelopmentLoop } from "./services/development-loop";
+import { ensureDevelopmentLoop } from "./services/development-loop";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import type { AiSettingsDto } from "../shared/ai-providers";
-import { aiProviders, normalizeAiSettings, roleAiAgentTypes } from "../shared/ai-providers";
+import { aiProviders } from "../shared/ai-providers";
 import type {
   AgentJobDto,
   AgentJobStatus,
@@ -23,8 +24,6 @@ import type {
 import { supportedLocales } from "../shared/locales";
 import { issueWorkflowLabelNames, workflowLabelNames } from "../shared/workflow-labels";
 import type { Repositories } from "./db/repositories";
-import { listSelectableRepositories, repositoryDatabaseUrl } from "./config";
-import { resolveAgentJobLockKey } from "./services/agent-job-locks";
 import { buildMissingCommandIssue, detectRepositoryCommands } from "./services/command-detection";
 import {
   detectMergeConflicts,
@@ -38,11 +37,7 @@ import {
   getRevisionHash
 } from "./services/git-service";
 import { ensureKnowledgeFiles, listKnowledgeFiles, writeKnowledgeFile } from "./services/knowledge-files";
-import { runLabelAutomation } from "./services/label-automation";
-import { startLoopRun } from "./services/loop-runner";
 import { ensureObjectiveForTarget } from "./services/objective-runs";
-import { cancelObjective, pauseObjective, resumeObjective } from "./services/objective-control";
-import { readAutomationSettings, saveAutomationSettings } from "./services/automation-settings";
 import { mergePullRequest } from "./services/pull-request-merge";
 import { collectPullRequestFindings } from "./services/pull-request-findings";
 import {
@@ -56,8 +51,7 @@ import { cleanupInactiveJobWorktree } from "./services/worktree-retention";
 import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issue-reopen";
 import { recordGoalContractChange } from "./services/goal-contract-change";
 import { agentJobReferencesArtifact, readStoredEvidenceArtifact } from "./services/evidence-artifacts";
-
-const execFileAsync = promisify(execFile);
+import { inspectWorkspace } from "./services/workspace";
 
 export type AppDependencies = {
   ai?: ProjectSettingsDto["ai"];
@@ -69,16 +63,11 @@ export type AppDependencies = {
 
 const createProjectSchema = z.object({
   mode: z.enum(["import", "create"]).default("import"),
-  name: z.string().min(1),
+  name: z.string().min(1).optional(),
   repoPath: z.string().min(1),
-  defaultBranch: z.string().min(1).default("main"),
+  defaultBranch: z.string().min(1).optional(),
   locale: z.enum(supportedLocales).default("en"),
-  aiProvider: z.enum(aiProviders).default("codex")
-});
-
-const switchRepositorySchema = z.object({
-  repoPath: z.string().min(1),
-  name: z.string().optional()
+  aiProvider: z.literal("codex").default("codex")
 });
 
 const createIssueSchema = z.object({
@@ -128,126 +117,12 @@ const updatePullRequestSchema = createPullRequestSchema
     status: z.enum(["open", "closed", "merged"]).optional()
   });
 
-const createAgentJobSchema = z.object({
-  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "verifier", "command_detection"]),
-  targetType: z.enum(["issue", "pull_request", "project"]),
-  targetId: z.number(),
-  triggerType: z.string().default("manual"),
-  input: z.record(z.string(), z.unknown()).optional()
-});
-
 const resumeProviderWaitSchema = z.object({
   aiProvider: z.enum(aiProviders).optional()
 });
 
 const detectCommandsSchema = z.object({
   createIssuesForMissingCommands: z.boolean().default(true)
-});
-
-const roleAiOverrideSchema = z.object({
-  provider: z.enum(aiProviders).nullable().optional(),
-  model: z.string().nullable().optional()
-}).strict();
-
-const updateProjectSettingsSchema = z
-  .object({
-    locale: z.enum(supportedLocales),
-    ai: z
-      .object({
-        provider: z.enum(aiProviders).optional(),
-        roleOverrides: z
-          .object({
-            implementation: roleAiOverrideSchema.optional(),
-            review: roleAiOverrideSchema.optional(),
-            qa: roleAiOverrideSchema.optional(),
-            verifier: roleAiOverrideSchema.optional()
-          })
-          .strict()
-          .optional(),
-        claudeCode: z
-          .object({
-            command: z.string().min(1).optional(),
-            model: z.string().nullable().optional(),
-            permissionMode: z.enum(["default", "auto", "dontAsk", "bypassPermissions"]).optional(),
-            maxTurns: z.number().int().positive().nullable().optional()
-          })
-          .strict()
-          .optional(),
-        lmStudio: z
-          .object({
-            baseUrl: z.string().url().optional(),
-            model: z.string().nullable().optional(),
-            maxToolRounds: z.number().int().positive().optional(),
-            temperature: z.number().nullable().optional()
-          })
-          .strict()
-          .optional()
-      })
-      .strict()
-      .optional(),
-    automation: z
-      .object({
-        autoMergeEnabled: z.boolean().optional(),
-        autoMergeTargetBranches: z.array(z.string().min(1)).optional(),
-        autoMergeStrategy: z.enum(["merge", "squash"]).optional(),
-        autoMergeRiskThreshold: z.enum(["medium", "high", "none"]).optional(),
-        objectiveMaxRounds: z.number().int().min(1).max(1_000).optional(),
-        objectiveTokenBudget: z.number().int().positive().nullable().optional(),
-        objectiveCostBudgetUsd: z.number().positive().nullable().optional(),
-        agentTimeBudgetMinutes: z.number().positive().nullable().optional(),
-        verificationCommandTimeoutMinutes: z.number().positive().optional()
-      })
-      .strict()
-      .optional()
-  })
-  .strict();
-
-const createLoopSchema = z.object({
-  name: z.string().min(1),
-  purpose: z.string().optional(),
-  triggerType: z.string().default("manual"),
-  cadence: z.string().nullable().optional(),
-  targetScope: z.string().default("project"),
-  status: z.enum(["enabled", "disabled"]).default("enabled"),
-  maxRounds: z.number().int().positive().default(3),
-  timeBudgetMinutes: z.number().int().positive().nullable().optional(),
-  costBudget: z.number().int().positive().nullable().optional(),
-  stopCondition: z.record(z.string(), z.unknown()).nullable().optional(),
-  riskPolicy: z.record(z.string(), z.unknown()).nullable().optional()
-});
-
-const updateLoopSchema = createLoopSchema.partial();
-
-const startLoopRunSchema = z.object({
-  agentType: z.enum(["requirements", "implementation", "review", "fix", "qa", "verifier", "command_detection"]),
-  targetType: z.enum(["issue", "pull_request", "project"]),
-  targetId: z.number(),
-  triggerType: z.string().default("manual"),
-  input: z.record(z.string(), z.unknown()).optional()
-});
-
-const createLoopMemorySchema = z.object({
-  loopId: z.number().nullable().optional(),
-  loopRunId: z.number().nullable().optional(),
-  sourceType: z.enum(["manual", "loop_run", "agent_job", "triage"]).default("manual"),
-  sourceId: z.number().nullable().optional(),
-  title: z.string().min(1),
-  body: z.string().optional(),
-  tags: z.array(z.string()).optional()
-});
-
-const createTriageItemSchema = z.object({
-  sourceType: z.string().min(1),
-  sourceId: z.number().nullable().optional(),
-  title: z.string().min(1),
-  body: z.string().optional(),
-  priority: z.string().default("normal"),
-  metadata: z.record(z.string(), z.unknown()).nullable().optional()
-});
-
-const updateTriageItemSchema = z.object({
-  status: z.enum(["open", "converted", "ignored"]).optional(),
-  issueId: z.number().nullable().optional()
 });
 
 const updateKnowledgeFileSchema = z.object({
@@ -323,81 +198,6 @@ async function enrichPullRequestWithGitStats(project: ProjectDto, pullRequest: P
   } catch {
     return pullRequest;
   }
-}
-
-function runtimeDefaults(project: ProjectDto, runtime?: ProjectSettingsDto["runtime"]): ProjectSettingsDto["runtime"] {
-  return {
-    server: {
-      host: runtime?.server.host ?? "127.0.0.1",
-      port: runtime?.server.port ?? 3580
-    },
-    database: {
-      url: runtime?.database.url ?? repositoryDatabaseUrl(project.repoPath)
-    }
-  };
-}
-
-function aiDefaults(ai?: AiSettingsDto): AiSettingsDto {
-  return normalizeAiSettings(ai);
-}
-
-async function readProjectSettings(
-  repos: Repositories,
-  project: ProjectDto,
-  runtime?: ProjectSettingsDto["runtime"],
-  ai?: ProjectSettingsDto["ai"]
-): Promise<ProjectSettingsDto> {
-  const [storedAi, automation] = await Promise.all([repos.settings.get("ai"), readAutomationSettings(repos)]);
-  return {
-    project: {
-      locale: project.locale
-    },
-    ai: normalizeAiSettings(storedAi, aiDefaults(ai)),
-    automation,
-    runtime: runtimeDefaults(project, runtime)
-  };
-}
-
-function patchAiSettings(current: AiSettingsDto, patch: z.infer<typeof updateProjectSettingsSchema>["ai"]): AiSettingsDto {
-  if (!patch) {
-    return current;
-  }
-
-  return normalizeAiSettings(
-    {
-      provider: patch.provider ?? current.provider,
-      roleOverrides: Object.fromEntries(roleAiAgentTypes.map((agentType) => [
-        agentType,
-        {
-          ...current.roleOverrides[agentType],
-          ...(patch.roleOverrides?.[agentType] ?? {})
-        }
-      ])),
-      codex: current.codex,
-      claudeCode: {
-        ...current.claudeCode,
-        ...(patch.claudeCode ?? {})
-      },
-      lmStudio: {
-        ...current.lmStudio,
-        ...(patch.lmStudio ?? {})
-      }
-    },
-    current
-  );
-}
-
-async function saveAiSettings(repos: Repositories, settings: AiSettingsDto): Promise<void> {
-  await repos.settings.set("ai", settings as unknown as Record<string, unknown>);
-}
-
-async function ensureRepository(input: { mode: "import" | "create"; repoPath: string; defaultBranch: string }): Promise<void> {
-  if (input.mode === "import") {
-    return;
-  }
-
-  await mkdir(input.repoPath, { recursive: true });
-  await execFileAsync("git", ["init", "-b", input.defaultBranch], { cwd: input.repoPath });
 }
 
 async function detectAndPersistCommands(
@@ -532,18 +332,44 @@ async function resumeWaitingJobForComment(
     return null;
   }
 
+  const managed = typeof waitingJob.input.developmentLoopId === "number" ? await repos.development.get(input.projectId, waitingJob.input.developmentLoopId) : null;
+  if (managed && (["paused", "canceled", "succeeded"].includes(managed.status) || managed.currentJobId !== waitingJob.id)) return null;
   await restoreHumanGateLabels(repos, waitingJob);
-  return repos.agentJobs.resume(input.projectId, waitingJob.id);
+  const resumedJob = await repos.agentJobs.resume(input.projectId, waitingJob.id);
+  if (!resumedJob) {
+    return null;
+  }
+  const objectiveRunId = typeof resumedJob.input.objectiveRunId === "number"
+    ? resumedJob.input.objectiveRunId
+    : null;
+  const step = await repos.loopSteps.getByAgentJob(input.projectId, resumedJob.id);
+  await Promise.all([
+    objectiveRunId
+      ? repos.objectives.update(input.projectId, objectiveRunId, {
+          status: "running",
+          stopReason: null,
+          summary: "A user comment was received. Automatic execution has resumed."
+        })
+      : Promise.resolve(null),
+    repos.loopSteps.updateForAgentJob(input.projectId, resumedJob.id, { status: "queued" }),
+    step
+      ? repos.loopRuns.updateStatus(input.projectId, step.loopRunId, "running", {
+          summary: "A user comment was received. Automatic execution has resumed.",
+          stopReason: null
+        })
+      : Promise.resolve(null)
+  ]);
+  if (managed) await repos.development.update(input.projectId, managed.id, { status: "running", summary: "User input received. Resuming." });
+  return resumedJob;
 }
 
 export function createApp({
-  ai,
   repos,
-  runtime,
   staticRoot = "./dist/client",
   switchDatabaseForRepository
 }: AppDependencies): Hono {
   const app = new Hono();
+  app.route("/", developmentApi(repos));
 
   app.onError((error, c) => {
     if (error instanceof HTTPException) {
@@ -582,34 +408,28 @@ export function createApp({
     return c.json({ items });
   });
 
-  app.get("/api/repositories", async (c) => {
-    return c.json({ items: listSelectableRepositories() });
-  });
-
-  app.post("/api/repositories/switch", zValidator("json", switchRepositorySchema), async (c) => {
-    const input = c.req.valid("json");
-    const repository =
-      (await switchDatabaseForRepository?.(input.repoPath, input.name)) ?? {
-        repoPath: input.repoPath,
-        name: input.name ?? input.repoPath,
-        databaseUrl: repositoryDatabaseUrl(input.repoPath),
-        lastOpenedAt: new Date().toISOString()
-      };
-    const projects = await repos.projects.list();
-    return c.json({ repository, projects });
-  });
-
   app.post("/api/projects", zValidator("json", createProjectSchema), async (c) => {
     const input = c.req.valid("json");
-    await ensureRepository(input);
-    await switchDatabaseForRepository?.(input.repoPath, input.name);
-    await saveAiSettings(repos, normalizeAiSettings({ provider: input.aiProvider }, aiDefaults(ai)));
-    const project = await repos.projects.create(input);
+    const inspected = await inspectWorkspace(input.repoPath).catch((error: Error) => badRequest(error.message));
+    const { repoPath, defaultBranch, name } = inspected;
+    await switchDatabaseForRepository?.(repoPath, name);
+    const existingProject = (await repos.projects.list()).find((project) => resolve(project.repoPath) === repoPath);
+    if (existingProject) {
+      return c.json({ project: existingProject, onboardingIssueId: null, commandDetection: null });
+    }
+    const project = await repos.projects.create({
+      name,
+      repoPath,
+      defaultBranch,
+      locale: input.locale
+    });
     await ensureKnowledgeFiles(project.repoPath);
-    const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, true);
+
+    const detection = await detectAndPersistCommands(repos, project.id, project.repoPath, false);
     return c.json(
       {
         project,
+        onboardingIssueId: null,
         commandDetection: detection
       },
       201
@@ -622,46 +442,6 @@ export function createApp({
       notFound("Project was not found.");
     }
     return c.json({ project });
-  });
-
-  app.patch("/api/projects/:projectId", zValidator("json", createProjectSchema.partial()), async (c) => {
-    const project = await repos.projects.update(c.req.param("projectId"), c.req.valid("json"));
-    if (!project) {
-      notFound("Project was not found.");
-    }
-    return c.json({ project });
-  });
-
-  app.get("/api/projects/:projectId/settings", async (c) => {
-    const project = await getProjectOr404(repos, c.req.param("projectId"));
-    return c.json(await readProjectSettings(repos, project, runtime, ai));
-  });
-
-  app.put("/api/projects/:projectId/settings", zValidator("json", updateProjectSettingsSchema), async (c) => {
-    const project = await getProjectOr404(repos, c.req.param("projectId"));
-    const input = c.req.valid("json");
-    const updatedProject = await repos.projects.update(project.id, { locale: input.locale });
-    if (!updatedProject) {
-      notFound("Project was not found.");
-    }
-    const currentSettings = await readProjectSettings(repos, updatedProject, runtime, ai);
-    const nextAiSettings = patchAiSettings(currentSettings.ai, input.ai);
-    const nextAutomationSettings: ProjectSettingsDto["automation"] = {
-      ...currentSettings.automation,
-      ...input.automation,
-      autoMergeTargetBranches: input.automation?.autoMergeTargetBranches
-        ? Array.from(new Set(input.automation.autoMergeTargetBranches.map((branch) => branch.trim()).filter(Boolean)))
-        : currentSettings.automation.autoMergeTargetBranches
-    };
-    await Promise.all([
-      saveAiSettings(repos, nextAiSettings),
-      saveAutomationSettings(repos, nextAutomationSettings)
-    ]);
-    return c.json({
-      ...currentSettings,
-      ai: nextAiSettings,
-      automation: nextAutomationSettings
-    });
   });
 
   app.get("/api/projects/:projectId/labels", async (c) => {
@@ -730,13 +510,8 @@ export function createApp({
       createdByType: "user",
       labelIds
     });
-    const automationJobs = await runLabelAutomation(repos, {
-      projectId,
-      targetType: "issue",
-      targetId: issue.id,
-      labels: issue.labels,
-      triggerType: "label_applied"
-    });
+    await ensureDevelopmentLoop(repos, projectId, issue.id);
+    const automationJobs: AgentJobDto[] = [];
     return c.json({ issue, automationJobIds: automationJobs.map((job) => job.id) }, 201);
   });
 
@@ -791,12 +566,19 @@ export function createApp({
       const workflowLabel = await repos.labels.findByName(projectId, reopenedIssueWorkflowLabel(previousObjective));
       patch = { ...input, labelIds: workflowLabel ? [...preservedLabelIds, workflowLabel.id] : preservedLabelIds };
     }
+    if (input.status === "closed") {
+      const loop = await repos.development.forIssue(projectId, issueId);
+      if (loop && !loop.mergeCommit) {
+        try { await controlDevelopmentLoop(repos, loop, "cancel"); } catch (error) { conflict(errorMessage(error, "Loop cannot stop yet.")); }
+      }
+    }
     const issue = await repos.issues.update(projectId, issueId, patch);
     if (!issue) {
       notFound("Issue was not found.");
     }
     if (isReopening) {
       await recordIssueReopened(repos, { projectId, issue, previousObjective });
+      await ensureDevelopmentLoop(repos, projectId, issue.id);
     } else if (changesActiveGoal && previousObjective && goalChangeReason) {
       await recordGoalContractChange(repos, {
         projectId,
@@ -806,18 +588,13 @@ export function createApp({
         reason: goalChangeReason
       });
     }
-    const automationJobs = await runLabelAutomation(repos, {
-      projectId,
-      targetType: "issue",
-      targetId: issue.id,
-      labels: issue.labels,
-      previousLabels: previousIssue?.labels ?? [],
-      triggerType: "label_applied"
-    });
+    const automationJobs = ([] as AgentJobDto[]);
     return c.json({ issue, automationJobIds: automationJobs.map((job) => job.id) });
   });
 
   app.delete("/api/projects/:projectId/issues/:issueId", async (c) => {
+    const loop = await repos.development.forIssue(c.req.param("projectId"), Number(c.req.param("issueId")));
+    if (loop) await controlDevelopmentLoop(repos, loop, "cancel");
     const deleted = await repos.issues.softDelete(c.req.param("projectId"), Number(c.req.param("issueId")));
     if (!deleted) {
       notFound("Issue was not found.");
@@ -921,13 +698,7 @@ export function createApp({
       createdByType: "user",
       labelIds: c.req.valid("json").labelIds ?? (reviewLabel ? [reviewLabel.id] : [])
     });
-    const automationJobs = await runLabelAutomation(repos, {
-      projectId,
-      targetType: "pull_request",
-      targetId: pullRequest.id,
-      labels: pullRequest.labels,
-      triggerType: "label_applied"
-    });
+    const automationJobs = ([] as AgentJobDto[]);
     return c.json({ pullRequest, automationJobIds: automationJobs.map((job) => job.id) }, 201);
   });
 
@@ -955,87 +726,17 @@ export function createApp({
     return c.json({ objective });
   });
 
-  app.post("/api/projects/:projectId/objectives/:objectiveId/pause", async (c) => {
-    const projectId = c.req.param("projectId");
-    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
-    if (!objective) {
-      notFound("Objective was not found.");
-    }
-    if (["paused", "ready_to_merge", "succeeded", "canceled"].includes(objective.status)) {
-      conflict(`Objective cannot be paused while it is ${objective.status}.`);
-    }
-    return c.json(await pauseObjective(repos, objective));
-  });
-
-  app.post("/api/projects/:projectId/objectives/:objectiveId/resume", async (c) => {
-    const projectId = c.req.param("projectId");
-    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
-    if (!objective) {
-      notFound("Objective was not found.");
-    }
-    if (objective.status !== "paused") {
-      conflict("Only a paused Objective can be resumed.");
-    }
-    const result = await resumeObjective(repos, objective);
-    if (!result.jobs.length) {
-      if (result.objective.pullRequestId) {
-        const pullRequest = await repos.pullRequests.get(projectId, result.objective.pullRequestId);
-        if (pullRequest) {
-          result.jobs.push(...await runLabelAutomation(repos, {
-            projectId,
-            targetType: "pull_request",
-            targetId: pullRequest.id,
-            labels: pullRequest.labels,
-            triggerType: "objective_resumed"
-          }));
-        }
-      } else if (result.objective.issueId) {
-        const issue = await repos.issues.get(projectId, result.objective.issueId);
-        if (issue) {
-          result.jobs.push(...await runLabelAutomation(repos, {
-            projectId,
-            targetType: "issue",
-            targetId: issue.id,
-            labels: issue.labels,
-            triggerType: "objective_resumed"
-          }));
-        }
-      }
-    }
-    return c.json(result);
-  });
-
-  app.post("/api/projects/:projectId/objectives/:objectiveId/cancel", async (c) => {
-    const projectId = c.req.param("projectId");
-    const objective = await repos.objectives.get(projectId, Number(c.req.param("objectiveId")));
-    if (!objective) {
-      notFound("Objective was not found.");
-    }
-    if (["succeeded", "canceled"].includes(objective.status)) {
-      conflict(`Objective cannot be canceled while it is ${objective.status}.`);
-    }
-    return c.json(await cancelObjective(repos, objective));
-  });
-
   app.patch(
     "/api/projects/:projectId/pull-requests/:pullRequestId",
     zValidator("json", updatePullRequestSchema),
     async (c) => {
       const projectId = c.req.param("projectId");
       const pullRequestId = Number(c.req.param("pullRequestId"));
-      const previousPullRequest = await repos.pullRequests.get(projectId, pullRequestId);
       const pullRequest = await repos.pullRequests.update(projectId, pullRequestId, c.req.valid("json"));
       if (!pullRequest) {
         notFound("Pull request was not found.");
       }
-      const automationJobs = await runLabelAutomation(repos, {
-        projectId,
-        targetType: "pull_request",
-        targetId: pullRequest.id,
-        labels: pullRequest.labels,
-        previousLabels: previousPullRequest?.labels ?? [],
-        triggerType: "label_applied"
-      });
+      const automationJobs = ([] as AgentJobDto[]);
       return c.json({ pullRequest, automationJobIds: automationJobs.map((job) => job.id) });
     }
   );
@@ -1270,6 +971,14 @@ export function createApp({
     if (!pullRequest) {
       notFound("Pull request was not found.");
     }
+    const loop = await repos.development.forPullRequest(project.id, pullRequestId);
+    if (loop && pullRequest.status === "open") {
+      if (["succeeded", "canceled"].includes(loop.status)) conflict("This Loop has ended.");
+      const verifier = loop.currentJobId ? await repos.agentJobs.get(project.id, loop.currentJobId) : null;
+      if (verifier?.agentType !== "verifier" || verifier.status !== "succeeded") conflict("Complete verification before merging this Loop.");
+      await repos.development.update(project.id, loop.id, { phase: "merging", status: "running", summary: "Merge requested. Rechecking the verified changes." });
+      return c.json({ pullRequest, mergeCommit: null, output: "Merge queued", queued: true }, 202);
+    }
     let mergeResult: Awaited<ReturnType<typeof mergePullRequest>>;
     try {
       mergeResult = await mergePullRequest(repos, { project, pullRequest, mode: "manual" });
@@ -1294,34 +1003,20 @@ export function createApp({
     if (!previousPullRequest) {
       notFound("Pull request was not found.");
     }
-    const conflictLabel = await repos.labels.findByName(projectId, workflowLabelNames.resolvingConflicts);
-    let pullRequest = previousPullRequest;
-    if (conflictLabel) {
-      pullRequest =
-        (await repos.pullRequests.update(projectId, pullRequestId, { labelIds: [conflictLabel.id] })) ??
-        previousPullRequest;
+    const managed = await repos.development.forPullRequest(projectId, pullRequestId);
+    if (managed) {
+      if (["succeeded", "canceled"].includes(managed.status) || !["waiting_input", "failed", "paused"].includes(managed.status)) conflict("Pause the Loop before requesting conflict resolution.");
+      await repos.development.update(projectId, managed.id, { phase: "fixing", nextAgent: "fix", currentJobId: null, sourceCommit: null, targetCommit: null, status: "running" });
     }
-    const automationJobs = await runLabelAutomation(repos, {
-      projectId,
-      targetType: "pull_request",
-      targetId: pullRequestId,
-      labels: pullRequest.labels,
-      triggerType: "conflict_detected"
-    });
+    const conflictLabel = await repos.labels.findByName(projectId, workflowLabelNames.resolvingConflicts);
+    if (conflictLabel) await repos.pullRequests.update(projectId, pullRequestId, { labelIds: [conflictLabel.id] });
+    const automationJobs = ([] as AgentJobDto[]);
     return c.json({ jobId: automationJobs[0]?.id ?? null, label: workflowLabelNames.resolvingConflicts });
   });
 
   app.get("/api/projects/:projectId/loops", async (c) => {
     const items = await repos.loops.list(c.req.param("projectId"));
     return c.json({ items });
-  });
-
-  app.post("/api/projects/:projectId/loops", zValidator("json", createLoopSchema), async (c) => {
-    const loop = await repos.loops.create({
-      projectId: c.req.param("projectId"),
-      ...c.req.valid("json")
-    });
-    return c.json({ loop }, 201);
   });
 
   app.get("/api/projects/:projectId/loops/:loopId", async (c) => {
@@ -1333,46 +1028,6 @@ export function createApp({
     }
     const runs = await repos.loopRuns.list(projectId, loopId);
     return c.json({ loop, runs });
-  });
-
-  app.patch("/api/projects/:projectId/loops/:loopId", zValidator("json", updateLoopSchema), async (c) => {
-    const loop = await repos.loops.update(c.req.param("projectId"), Number(c.req.param("loopId")), c.req.valid("json"));
-    if (!loop) {
-      notFound("Loop was not found.");
-    }
-    return c.json({ loop });
-  });
-
-  app.post("/api/projects/:projectId/loops/:loopId/runs", zValidator("json", startLoopRunSchema), async (c) => {
-    const projectId = c.req.param("projectId");
-    const loopId = Number(c.req.param("loopId"));
-    const loop = await repos.loops.get(projectId, loopId);
-    if (!loop) {
-      notFound("Loop was not found.");
-    }
-    if (loop.status === "disabled") {
-      conflict("Disabled loops cannot be started.");
-    }
-
-    const input = c.req.valid("json");
-    const { run, job, step } = await startLoopRun(repos, {
-      projectId,
-      loopId,
-      agentType: input.agentType,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      triggerType: input.triggerType,
-      objectiveRunId:
-        (typeof input.input?.objectiveRunId === "number" ? input.input.objectiveRunId : null) ??
-        (await ensureObjectiveForTarget(repos, {
-          projectId,
-          targetType: input.targetType,
-          targetId: input.targetId
-        }))?.id ??
-        null,
-      jobInput: input.input
-    });
-    return c.json({ run, job, step }, 201);
   });
 
   app.get("/api/projects/:projectId/loop-runs", async (c) => {
@@ -1398,74 +1053,11 @@ export function createApp({
     return c.json({ items });
   });
 
-  app.post("/api/projects/:projectId/loop-memory", zValidator("json", createLoopMemorySchema), async (c) => {
-    const entry = await repos.loopMemory.create({
-      projectId: c.req.param("projectId"),
-      ...c.req.valid("json")
-    });
-    return c.json({ entry }, 201);
-  });
-
   app.get("/api/projects/:projectId/triage-items", async (c) => {
     const url = new URL(c.req.url);
     const status = url.searchParams.get("status") as "open" | "converted" | "ignored" | null;
     const items = await repos.triage.list(c.req.param("projectId"), status ?? undefined);
     return c.json({ items });
-  });
-
-  app.post("/api/projects/:projectId/triage-items", zValidator("json", createTriageItemSchema), async (c) => {
-    const item = await repos.triage.create({
-      projectId: c.req.param("projectId"),
-      ...c.req.valid("json")
-    });
-    return c.json({ item }, 201);
-  });
-
-  app.patch("/api/projects/:projectId/triage-items/:triageItemId", zValidator("json", updateTriageItemSchema), async (c) => {
-    const item = await repos.triage.update(
-      c.req.param("projectId"),
-      Number(c.req.param("triageItemId")),
-      c.req.valid("json")
-    );
-    if (!item) {
-      notFound("Triage item was not found.");
-    }
-    return c.json({ item });
-  });
-
-  app.post("/api/projects/:projectId/triage-items/:triageItemId/convert-to-issue", async (c) => {
-    const projectId = c.req.param("projectId");
-    const triageItemId = Number(c.req.param("triageItemId"));
-    const items = await repos.triage.list(projectId);
-    const triageItem = items.find((item) => item.id === triageItemId);
-    if (!triageItem) {
-      notFound("Triage item was not found.");
-    }
-    const requirementsLabel = await repos.labels.findByName(projectId, workflowLabelNames.requirements);
-    const issue = await repos.issues.create({
-      projectId,
-      title: triageItem.title,
-      body: triageItem.body,
-      createdByType: "user",
-      labelIds: requirementsLabel ? [requirementsLabel.id] : []
-    });
-    await runLabelAutomation(repos, {
-      projectId,
-      targetType: "issue",
-      targetId: issue.id,
-      labels: issue.labels,
-      triggerType: "triage_converted"
-    });
-    const updatedItem = await repos.triage.update(projectId, triageItemId, { status: "converted", issueId: issue.id });
-    await repos.loopMemory.create({
-      projectId,
-      sourceType: "triage",
-      sourceId: triageItem.id,
-      title: `Triage converted to issue #${issue.id}`,
-      body: triageItem.title,
-      tags: ["triage", "issue"]
-    });
-    return c.json({ issue, triageItem: updatedItem });
   });
 
   app.get("/api/projects/:projectId/knowledge", async (c) => {
@@ -1493,38 +1085,6 @@ export function createApp({
       status: status ?? undefined
     });
     return c.json({ items });
-  });
-
-  app.post("/api/projects/:projectId/agent-jobs", zValidator("json", createAgentJobSchema), async (c) => {
-    const input = c.req.valid("json");
-    const projectId = c.req.param("projectId");
-    const agentType = input.agentType as AgentType;
-    const objective = await ensureObjectiveForTarget(repos, {
-      projectId,
-      targetType: input.targetType,
-      targetId: input.targetId
-    });
-    if (objective && ["paused", "canceled", "succeeded"].includes(objective.status)) {
-      conflict(`Agent work cannot be queued while Objective #${objective.id} is ${objective.status}.`);
-    }
-    const job = await repos.agentJobs.create({
-      projectId,
-      agentType,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      triggerType: input.triggerType,
-      input: {
-        ...(input.input ?? {}),
-        objectiveRunId: objective?.id ?? null
-      },
-      lockKey: resolveAgentJobLockKey({
-        projectId,
-        agentType,
-        targetType: input.targetType,
-        targetId: input.targetId
-      })
-    });
-    return c.json({ job }, 201);
   });
 
   app.get("/api/projects/:projectId/agent-jobs/:jobId/artifacts/:fileName", async (c) => {
@@ -1566,6 +1126,10 @@ export function createApp({
       return c.json({ canceled: false, job });
     }
 
+    if (typeof job.input.developmentLoopId === "number") {
+      const loop = await repos.development.get(projectId, job.input.developmentLoopId);
+      if (loop && loop.currentJobId === job.id) await controlDevelopmentLoop(repos, loop, "cancel");
+    }
     const canceledJob = await repos.agentJobs.updateStatus(projectId, job.id, "canceled", {
       error: job.status === "running" ? "Cancellation requested." : null
     });
@@ -1598,6 +1162,14 @@ export function createApp({
   });
 
   app.post("/api/projects/:projectId/agent-jobs/:jobId/retry", async (c) => {
+    const managedJob = await repos.agentJobs.get(c.req.param("projectId"), Number(c.req.param("jobId")));
+    if (typeof managedJob?.input.developmentLoopId === "number") {
+      const loop = await repos.development.get(managedJob.projectId, managedJob.input.developmentLoopId);
+      if (!loop || loop.currentJobId !== managedJob.id || ["succeeded", "canceled"].includes(loop.status)) conflict("Only the current incomplete Loop job can be retried.");
+      await controlDevelopmentLoop(repos, loop, "resume");
+      return c.json({ jobId: managedJob.id });
+    }
+
     const job = await repos.agentJobs.retry(c.req.param("projectId"), Number(c.req.param("jobId")));
     if (!job) {
       notFound("Agent job was not found.");
@@ -1618,10 +1190,11 @@ export function createApp({
         conflict("Only jobs waiting for an AI provider can be resumed here.");
       }
       const input = c.req.valid("json");
-      const resumed = await resumeProviderWait(repos, job, "manual", input.aiProvider ?? job.aiProvider);
+      const resumed = await resumeProviderWait(repos, job, "manual", input.aiProvider === undefined || input.aiProvider === "codex" ? "codex" : (conflict("Only Codex is supported."), "codex"));
       if (!resumed) {
         conflict("The provider wait changed before it could be resumed.");
       }
+      if (typeof job.input.developmentLoopId === "number") await repos.development.update(projectId, job.input.developmentLoopId, { status: "running", summary: "Codex retry requested." });
       return c.json({ job: resumed });
     }
   );

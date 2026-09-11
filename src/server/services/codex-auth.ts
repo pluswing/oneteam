@@ -93,7 +93,7 @@ export async function ensureCodexLogin(
   };
 }
 
-async function checkCodexLoginStatus(command: string): Promise<ProcessResult> {
+export async function checkCodexLoginStatus(command: string): Promise<ProcessResult> {
   return runCodexCommand(command, ["login", "status"], 10_000);
 }
 

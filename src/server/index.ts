@@ -3,8 +3,8 @@ import { startOneTeamServer } from "./runtime";
 
 const server = await startOneTeamServer(loadConfig());
 
-function shutdown() {
-  server.stop();
+async function shutdown() {
+  await server.stop();
   process.exit(0);
 }
 

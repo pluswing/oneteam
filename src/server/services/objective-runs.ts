@@ -82,6 +82,8 @@ export async function ensureObjectiveForTarget(
 }
 
 export async function preflightObjectiveJob(repos: Repositories, job: AgentJobDto): Promise<AgentRunResult | null> {
+  // New workflows are controlled and bounded by LoopEngine. Objective remains evidence only.
+  if (job.input.developmentLoopId) return null;
   const objective = await objectiveForJob(repos, job);
   if (!objective) {
     return null;
@@ -347,7 +349,7 @@ export async function recordObjectiveJobResult(
   const signature = result.status === "failed" ? failureSignature(result) : null;
   const repeatedFailureCount =
     signature && signature === objective.lastFailureSignature ? objective.repeatedFailureCount + 1 : signature ? 1 : 0;
-  const status = deriveObjectiveStatus(input.job, result, repeatedFailureCount, roundCount, objective.maxRounds);
+  const status = deriveObjectiveStatus(input.job, result, repeatedFailureCount, roundCount, input.job.input.developmentLoopId ? Number.POSITIVE_INFINITY : objective.maxRounds);
   const stopReason =
     repeatedFailureCount >= 2
       ? "waiting_human"
@@ -390,7 +392,7 @@ export async function recordObjectiveJobResult(
     finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? new Date().toISOString() : objective.finishedAt
   });
 
-  if (updated && shouldRememberObjectiveStatus(status, repeatedFailureCount)) {
+  if (!input.job.input.developmentLoopId && updated && shouldRememberObjectiveStatus(status, repeatedFailureCount)) {
     await rememberObjectiveEvent(repos, input.job.projectId, {
       title: `Objective #${updated.id} ${status}`,
       body: result.message,
@@ -410,6 +412,7 @@ async function resolveObjectiveBudgetPolicy(
   repos: Repositories,
   job: AgentJobDto
 ): Promise<ObjectiveBudgetPolicy> {
+  if (job.input.developmentLoopId) return { tokenBudget: null, costBudgetUsd: null };
   const automation = await readAutomationSettings(repos);
   const step = await repos.loopSteps.getByAgentJob(job.projectId, job.id);
   const run = step ? await repos.loopRuns.get(job.projectId, step.loopRunId) : null;
@@ -452,6 +455,10 @@ export async function markObjectiveMerged(
 ): Promise<LoopMemoryEntryDto | null> {
   const objective = await repos.objectives.findByPullRequest(input.project.id, input.pullRequest.id);
   if (!objective) {
+    return null;
+  }
+  if (await repos.development.forPullRequest(input.project.id, input.pullRequest.id)) {
+    await repos.objectives.update(input.project.id, objective.id, { workflowStage: "merged", status: "succeeded", summary: "PR merged; development Loop awaits retrospective.", finishedAt: new Date().toISOString() });
     return null;
   }
   const existingMemory = (await repos.loopMemory.list(input.project.id)).find(

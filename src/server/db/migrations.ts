@@ -462,10 +462,43 @@ const migrations: Migration[] = [
       "alter table objective_runs add column cost_budget_usd real",
       "alter table objective_runs add column provider_usage_json text not null default '{}'"
     ]
+  },
+  {
+    id: "0016_development_loops",
+    statements: [
+      `create table development_loops (
+        id integer primary key autoincrement, project_id text not null references projects(id), issue_id integer not null references issues(id),
+        pull_request_id integer references pull_requests(id), objective_id integer references objective_runs(id),
+        phase text not null, status text not null, current_job_id integer references agent_jobs(id),
+        merge_commit text, source_commit text, target_commit text, next_agent text not null default 'requirements', failures integer not null default 0, summary text not null default '', rounds integer not null default 0,
+        created_at text not null, updated_at text not null, finished_at text
+      )`,
+      `create unique index development_loop_active_issue on development_loops(project_id, issue_id)
+        where status not in ('succeeded', 'canceled')`,
+      `create unique index development_loop_pr on development_loops(project_id, pull_request_id) where pull_request_id is not null`,
+      `create table agent_executions (
+        id integer primary key autoincrement, project_id text not null references projects(id), job_id integer not null references agent_jobs(id),
+        selected_model text not null, resolved_model text, effort text, selection_reason text not null, policy_version text not null,
+        thread_id text, turn_id text, status text not null, usage_json text, started_at text not null, finished_at text
+      )`,
+      `create index agent_executions_job on agent_executions(project_id, job_id)`,
+      `create table retrospectives (
+        id integer primary key autoincrement, project_id text not null references projects(id), loop_id integer not null references development_loops(id),
+        merge_commit text not null, summary text not null, body text not null, changes_json text not null,
+        status text not null, error text, created_at text not null, applied_at text, unique(project_id, loop_id)
+      )`,
+      `create table knowledge_revisions (
+        id integer primary key autoincrement, project_id text not null references projects(id), loop_id integer not null references development_loops(id),
+        path text not null, before_body text, after_body text, reason text not null, status text not null, created_at text not null,
+        unique(project_id, loop_id, path)
+      )`
+    ]
   }
 ];
 
 export async function runMigrations(client: Client): Promise<void> {
+  await client.execute("pragma busy_timeout = 5000");
+  await client.execute("pragma journal_mode = WAL");
   await client.execute("pragma foreign_keys = on");
   await client.execute(`create table if not exists schema_migrations (
     id text primary key,
@@ -482,13 +515,9 @@ export async function runMigrations(client: Client): Promise<void> {
       continue;
     }
 
-    for (const statement of migration.statements) {
-      await client.execute(statement);
-    }
-
-    await client.execute({
-      sql: "insert into schema_migrations (id, applied_at) values (?, ?)",
-      args: [migration.id, new Date().toISOString()]
-    });
+    await client.batch([
+      ...migration.statements.map((sql) => ({ sql, args: [] })),
+      { sql: "insert into schema_migrations (id, applied_at) values (?, ?)", args: [migration.id, new Date().toISOString()] }
+    ], "write");
   }
 }

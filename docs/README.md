@@ -1,6 +1,6 @@
 # OneTeam 実装資料
 
-このディレクトリは、`REQUIREMENTS.md` を実装へ渡すための詳細資料をまとめる。
+現在の仕様は [README](../README.md) と [Loop Engineering 再構築計画](./LOOP_ENGINEERING_REBUILD_PLAN.md) を参照してください。以下の資料は旧実装の設計・移行資料です。旧provider切替・設定画面・Triage・Connectorは新runtimeでは使用しません。
 
 読む順番は次の通り。
 

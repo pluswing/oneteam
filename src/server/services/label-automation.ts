@@ -37,6 +37,10 @@ export async function runLabelAutomation(
   repos: Repositories,
   input: LabelAutomationInput
 ): Promise<AgentJobDto[]> {
+  const managed = input.targetType === "issue"
+    ? await repos.development.forIssue(input.projectId, input.targetId)
+    : await repos.development.forPullRequest(input.projectId, input.targetId);
+  if (managed) return [];
   const previousNames = new Set(input.previousLabels?.map((label) => label.name) ?? []);
   const addedLabels = input.previousLabels
     ? input.labels.filter((label) => !previousNames.has(label.name))

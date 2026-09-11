@@ -76,6 +76,7 @@ export type AgentRunResult = {
     providerExecution?: {
       model?: string | null;
       sessionId?: string | null;
+      turnId?: string | null;
       resumedSession?: boolean | null;
       usage?: Record<string, unknown> | null;
     } | null;

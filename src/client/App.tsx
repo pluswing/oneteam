@@ -1,71 +1,15 @@
-import {
-  ArrowLeft,
-  Bot,
-  CheckCircle2,
-  CircleAlert,
-  CircleDot,
-  Clock3,
-  Files,
-  FolderOpen,
-  GitCommitHorizontal,
-  GitMerge,
-  GitPullRequest,
-  Link2,
-  ListTodo,
-  MessageCircle,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  RefreshCw,
-  Save,
-  Settings,
-  Tag,
-  Terminal,
-  UserRound,
-  XCircle
-} from "lucide-react";
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, CircleDot, Clock3, Files, GitCommitHorizontal, GitMerge, GitPullRequest, Link2, MessageCircle, Pencil, Plus, RefreshCw, Save, Settings, Tag, UserRound } from "lucide-react";
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { AiProvider, RoleAiAgentType, RoleAiOverrides } from "../shared/ai-providers";
-import {
-  aiProviderLabel,
-  aiProviders,
-  defaultRoleAiOverrides,
-  roleAiAgentTypes
-} from "../shared/ai-providers";
-import type { SupportedLocale } from "../shared/locales";
-import { localeLabel, normalizeLocale, supportedLocales } from "../shared/locales";
 import { diffFileAnchor, diffLineAnchor } from "../shared/diff-anchors";
 import { repositoryCommitAnchor } from "../shared/repository-anchors";
-import type {
-  ActivityDto,
-  AgentJobDto,
-  CommentDto,
-  CommentRevisionDto,
-  IssueDto,
-  KnownRepositoryDto,
-  LabelDto,
-  MergeConflictDto,
-  ObjectiveRunDto,
-  ObjectiveWorkflowStage,
-  ProjectCommandDto,
-  ProjectDto,
-  ProjectSettingsDto,
-  PullRequestFindingDto,
-  PullRequestLineCommentDto,
-  PullRequestDto,
-  RepositoryCommitDto,
-  RepositoryFileChangeDto,
-  RepositoryStatusDto,
-  TriageItemDto
-} from "../shared/types";
+import type { ActivityDto, AgentJobDto, CommentDto, CommentRevisionDto, IssueDto, LabelDto, MergeConflictDto, ObjectiveRunDto, ObjectiveWorkflowStage, ProjectCommandDto, ProjectDto, PullRequestFindingDto, PullRequestLineCommentDto, PullRequestDto, RepositoryCommitDto, RepositoryFileChangeDto, RepositoryStatusDto } from "../shared/types";
 import {
   issueWorkflowLabelNames as issueWorkflowLabels,
   pullRequestWorkflowLabelNames as pullRequestWorkflowLabels,
   workflowLabelNames
 } from "../shared/workflow-labels";
-import { api } from "./api";
+import { api, type ProjectOpenResult } from "./api";
 import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
 import { summarizeAgentJobs } from "./agent-status";
 import { AppShell } from "./components/AppShell";
@@ -76,11 +20,11 @@ import { formatDateTime, formatPullRequestStatus } from "./formatters";
 import { setLocale as setUiLocale, t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
-import type { LoopsScreen } from "./views/LoopsView";
+import { DevelopmentLoopPanel } from "./components/DevelopmentLoopPanel";
+import type { DevelopmentLoopDto } from "../shared/development-loop";
 
 const AgentJobsView = lazy(async () => ({ default: (await import("./views/AgentJobsView")).AgentJobsView }));
 const DiffViewer = lazy(async () => ({ default: (await import("./components/DiffViewer")).DiffViewer }));
-const LoopsView = lazy(async () => ({ default: (await import("./views/LoopsView")).LoopsView }));
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -756,7 +700,7 @@ function LabelPicker(props: {
   );
 }
 
-function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
+function CommentForm(props: { autoFocus?: boolean; onSubmit: (body: string) => Promise<void>; placeholder?: string }) {
   const [body, setBody] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -767,7 +711,14 @@ function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
 
   return (
     <form className="comment-form" onSubmit={handleSubmit}>
-      <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={4} required />
+      <textarea
+        autoFocus={props.autoFocus}
+        onChange={(event) => setBody(event.target.value)}
+        placeholder={props.placeholder}
+        required
+        rows={4}
+        value={body}
+      />
       <button className="primary-button" type="submit">
         <Save size={16} />
         {t("issues.addComment")}
@@ -784,20 +735,13 @@ type IssueScreen =
 
 function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpen: (issueId: number) => void }) {
   const [issues, setIssues] = useState<IssueDto[]>([]);
-  const [triageItems, setTriageItems] = useState<TriageItemDto[]>([]);
-  const [busyTriageItemId, setBusyTriageItemId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
   const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
     try {
-      const [issueResponse, triageResponse] = await Promise.all([
-        api.listIssues(props.project.id),
-        api.listTriageItems(props.project.id, "open")
-      ]);
-      setIssues(issueResponse.items);
-      setTriageItems(triageResponse);
+      setIssues((await api.listIssues(props.project.id)).items);
     } finally {
       setLoading(false);
     }
@@ -819,34 +763,6 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
     }
   }
 
-  async function convertTriageItem(item: TriageItemDto): Promise<void> {
-    setBusyTriageItemId(item.id);
-    setError(null);
-    try {
-      const issue = await api.convertTriageItemToIssue(props.project.id, item.id);
-      setTriageItems((current) => current.filter((candidate) => candidate.id !== item.id));
-      setIssues((current) => [issue, ...current]);
-      props.onOpen(issue.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("issues.triageActionFailed"));
-    } finally {
-      setBusyTriageItemId(null);
-    }
-  }
-
-  async function ignoreTriageItem(item: TriageItemDto): Promise<void> {
-    setBusyTriageItemId(item.id);
-    setError(null);
-    try {
-      await api.updateTriageItem(props.project.id, item.id, { status: "ignored" });
-      setTriageItems((current) => current.filter((candidate) => candidate.id !== item.id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("issues.triageActionFailed"));
-    } finally {
-      setBusyTriageItemId(null);
-    }
-  }
-
   return (
     <section className="page-section">
       <div className="section-header">
@@ -861,53 +777,6 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
       {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
       {error ? (
         <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
-      ) : null}
-      {triageItems.length ? (
-        <section aria-label={t("issues.triageInbox")} className="issue-triage-inbox">
-          <div className="issue-triage-header">
-            <div>
-              <h2>{t("issues.triageInbox")}</h2>
-              <p>{t("issues.triageDescription")}</p>
-            </div>
-            <span className="counter-badge">{triageItems.length}</span>
-          </div>
-          <div className="job-list">
-            {triageItems.map((item) => {
-              const discovery = typeof item.metadata?.discovery === "string" ? item.metadata.discovery : item.sourceType;
-              return (
-                <article className="job-row issue-triage-item" key={item.id}>
-                  <div className="job-row-header">
-                    <strong><CircleAlert aria-hidden="true" size={16} /> {item.title}</strong>
-                    <span className={`status-pill triage-priority-${item.priority}`}>{item.priority}</span>
-                  </div>
-                  <div className="issue-triage-meta">
-                    <code>{discovery}</code>
-                    <span>{formatDateTime(item.createdAt)}</span>
-                  </div>
-                  {item.body ? <div className="issue-triage-body"><MarkdownContent content={item.body} /></div> : null}
-                  <div className="action-row">
-                    <button
-                      className="primary-button"
-                      disabled={busyTriageItemId !== null}
-                      onClick={() => void convertTriageItem(item)}
-                      type="button"
-                    >
-                      {busyTriageItemId === item.id ? t("issues.triageConverting") : t("issues.triageConvert")}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      disabled={busyTriageItemId !== null}
-                      onClick={() => void ignoreTriageItem(item)}
-                      type="button"
-                    >
-                      {t("issues.triageIgnore")}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
       ) : null}
       <div className="work-item-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
@@ -1060,17 +929,6 @@ function objectiveEvidenceCount(objective: ObjectiveRunDto | null): number {
   return Array.isArray(items) ? items.length : 0;
 }
 
-const objectiveWorkflowStages: ObjectiveWorkflowStage[] = [
-  "requirements",
-  "implementation",
-  "review",
-  "fix",
-  "qa",
-  "verification",
-  "ready_to_merge",
-  "merged"
-];
-
 function objectiveWorkflowStageLabel(stage: ObjectiveWorkflowStage): string {
   if (stage === "requirements") return t("objectives.stageRequirements");
   if (stage === "implementation") return t("objectives.stageImplementation");
@@ -1080,126 +938,6 @@ function objectiveWorkflowStageLabel(stage: ObjectiveWorkflowStage): string {
   if (stage === "verification") return t("objectives.stageVerification");
   if (stage === "ready_to_merge") return t("objectives.stageReadyToMerge");
   return t("objectives.stageMerged");
-}
-
-function ObjectivePanel(props: {
-  objective: ObjectiveRunDto | null;
-  onControl: (action: "pause" | "resume" | "cancel") => Promise<void>;
-}) {
-  const objective = props.objective;
-  const [busyAction, setBusyAction] = useState<"pause" | "resume" | "cancel" | null>(null);
-  const [controlError, setControlError] = useState<string | null>(null);
-  if (!objective) {
-    return <div className="empty-state">{t("objectives.noObjective")}</div>;
-  }
-
-  async function control(action: "pause" | "resume" | "cancel"): Promise<void> {
-    if (action === "cancel" && !window.confirm(t("objectives.cancelConfirm"))) return;
-    setBusyAction(action);
-    setControlError(null);
-    try {
-      await props.onControl(action);
-    } catch (error) {
-      setControlError(error instanceof Error ? error.message : t("objectives.controlFailed"));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  const canPause = ["open", "running", "waiting_provider", "waiting_human", "failed"].includes(objective.status);
-  const canCancel = !["succeeded", "canceled"].includes(objective.status);
-  const stageIndex = objectiveWorkflowStages.indexOf(objective.workflowStage);
-  const stageProgress = ((stageIndex + 1) / objectiveWorkflowStages.length) * 100;
-
-  return (
-    <div className="objective-panel">
-      <div className="objective-panel-header">
-        <span className={`status-pill status-${objective.status}`}>{objective.status}</span>
-        <span>{objective.roundCount}/{objective.maxRounds}</span>
-      </div>
-      <div className="objective-stage-summary">
-        <div>
-          <span>{t("objectives.workflowStage")}</span>
-          <strong>{objectiveWorkflowStageLabel(objective.workflowStage)}</strong>
-        </div>
-        <span
-          aria-label={`${t("objectives.workflowProgress")} ${stageIndex + 1}/${objectiveWorkflowStages.length}`}
-          className="objective-stage-track"
-          role="progressbar"
-          aria-valuemax={objectiveWorkflowStages.length}
-          aria-valuemin={1}
-          aria-valuenow={stageIndex + 1}
-        >
-          <span style={{ width: `${stageProgress}%` }} />
-        </span>
-      </div>
-      <dl className="compact-facts">
-        <div>
-          <dt>{t("objectives.stopReason")}</dt>
-          <dd>{objective.stopReason ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("objectives.evidence")}</dt>
-          <dd>{objectiveEvidenceCount(objective)}</dd>
-        </div>
-        <div>
-          <dt>{t("objectives.requiredEvidence")}</dt>
-          <dd>
-            {objective.evidenceRequirements.length
-              ? `${objective.evidenceRequirements.filter((requirement) => requirement.required).length}/${objective.evidenceRequirements.length}`
-              : "-"}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("objectives.providerTokens")}</dt>
-          <dd>
-            {objective.providerUsage.totalTokens.toLocaleString()} / {objective.tokenBudget?.toLocaleString() ?? "∞"}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("objectives.reportedCost")}</dt>
-          <dd>
-            ${objective.providerUsage.costUsd.toFixed(6)} / {objective.costBudgetUsd === null
-              ? "∞"
-              : `$${objective.costBudgetUsd.toFixed(6)}`}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("objectives.generator")}</dt>
-          <dd>{objective.generatorAiProvider ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("objectives.judge")}</dt>
-          <dd>{objective.judgeAiProvider ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("objectives.updated")}</dt>
-          <dd>{formatDateTime(objective.updatedAt)}</dd>
-        </div>
-      </dl>
-      {objective.summary ? <p className="muted-text">{objective.summary}</p> : null}
-      {controlError ? <div className="objective-control-error" role="alert">{controlError}</div> : null}
-      <div className="objective-controls">
-        {objective.status === "paused" ? (
-          <button className="secondary-button" disabled={busyAction !== null} onClick={() => void control("resume")} type="button">
-            <Play aria-hidden="true" size={14} />
-            {busyAction === "resume" ? t("objectives.resuming") : t("objectives.resume")}
-          </button>
-        ) : canPause ? (
-          <button className="secondary-button" disabled={busyAction !== null} onClick={() => void control("pause")} type="button">
-            <Pause aria-hidden="true" size={14} />
-            {busyAction === "pause" ? t("objectives.pausing") : t("objectives.pause")}
-          </button>
-        ) : null}
-        {canCancel ? (
-          <button className="danger-button" disabled={busyAction !== null} onClick={() => void control("cancel")} type="button">
-            <XCircle aria-hidden="true" size={14} />
-            {busyAction === "cancel" ? t("objectives.canceling") : t("objectives.cancel")}
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function IssueDetailScreen(props: {
@@ -1293,22 +1031,7 @@ function IssueDetailScreen(props: {
     return api.listCommentRevisions(props.project.id, commentId);
   }
 
-  async function queueAgent(agentType: "requirements" | "implementation") {
-    await api.createAgentJob(props.project.id, {
-      agentType,
-      targetType: "issue",
-      targetId: props.issueId,
-      triggerType: "manual"
-    });
-    await load();
-  }
 
-  async function controlObjective(action: "pause" | "resume" | "cancel") {
-    if (!objective) return;
-    const result = await api.controlObjective(props.project.id, objective.id, action);
-    setObjective(result.objective);
-    await load();
-  }
 
   async function updateIssueStatus(status: IssueDto["status"]) {
     if (!issue || issue.status === status) {
@@ -1326,6 +1049,10 @@ function IssueDetailScreen(props: {
       setUpdatingStatus(false);
     }
   }
+
+  const awaitingInitialRequest = relatedAgentJobs.some(
+    (job) => job.status === "waiting_human" && job.triggerType === "repository_imported" && job.input.onboarding === true
+  ) && !comments.some((comment) => comment.authorType === "user");
 
   return (
     <div className="detail-page">
@@ -1389,13 +1116,25 @@ function IssueDetailScreen(props: {
             onOpenAgentJob={props.onOpenAgentJob}
             onUpdateComment={updateComment}
           />
-          <CommentForm onSubmit={addComment} />
+          {awaitingInitialRequest ? (
+            <div className="initial-request-callout">
+              <MessageCircle aria-hidden="true" size={20} />
+              <div>
+                <strong>{t("issues.initialRequestTitle")}</strong>
+                <p>{t("issues.initialRequestDescription")}</p>
+              </div>
+            </div>
+          ) : null}
+          <CommentForm
+            autoFocus={awaitingInitialRequest}
+            onSubmit={addComment}
+            placeholder={awaitingInitialRequest ? t("issues.initialRequestPlaceholder") : undefined}
+          />
         </section>
         <aside className="side-panel detail-sidebar">
           <h2>{t("issues.checks")}</h2>
           <AutomationChecksSummary jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
-          <h2>{t("objectives.title")}</h2>
-          <ObjectivePanel objective={objective} onControl={controlObjective} />
+          <DevelopmentLoopPanel projectId={props.project.id} issueId={props.issueId} />
           <h2>{t("labels.title")}</h2>
           <div className="label-row">
             {issue?.labels.length ? (
@@ -1407,17 +1146,6 @@ function IssueDetailScreen(props: {
             ) : (
               <span className="muted-text">{t("labels.none")}</span>
             )}
-          </div>
-          <h2>{t("agents.title")}</h2>
-          <div className="action-row">
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("requirements")} type="button">
-              <ListTodo size={16} />
-              {t("agents.queueRequirements")}
-            </button>
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("implementation")} type="button">
-              <Terminal size={16} />
-              {t("agents.queueImplementation")}
-            </button>
           </div>
         </aside>
       </div>
@@ -2174,22 +1902,7 @@ function PullRequestDetailScreen(props: {
     return api.listCommentRevisions(props.project.id, commentId);
   }
 
-  async function queueAgent(agentType: "review" | "fix" | "qa" | "verifier") {
-    await api.createAgentJob(props.project.id, {
-      agentType,
-      targetType: "pull_request",
-      targetId: props.pullRequestId,
-      triggerType: "manual"
-    });
-    await load();
-  }
 
-  async function controlObjective(action: "pause" | "resume" | "cancel") {
-    if (!objective) return;
-    const result = await api.controlObjective(props.project.id, objective.id, action);
-    setObjective(result.objective);
-    await load();
-  }
 
   async function resolveConflicts() {
     setResolvingConflicts(true);
@@ -2218,7 +1931,7 @@ function PullRequestDetailScreen(props: {
     try {
       const response = await api.mergePullRequest(props.project.id, pullRequest.id);
       setPullRequest(response.pullRequest);
-      setMergeMessage(`${t("pullRequests.mergeSucceeded")} ${response.mergeCommit.slice(0, 12)}`);
+      setMergeMessage(response.queued ? t("development.mergeQueued") : `${t("pullRequests.mergeSucceeded")} ${response.mergeCommit?.slice(0, 12) ?? ""}`);
       setTab("conversation");
       await load();
     } catch (err) {
@@ -2412,8 +2125,7 @@ function PullRequestDetailScreen(props: {
             onOpenAgentJob={props.onOpenAgentJob}
             onOpenFinding={openFinding}
           />
-          <h2>{t("objectives.title")}</h2>
-          <ObjectivePanel objective={objective} onControl={controlObjective} />
+          <DevelopmentLoopPanel projectId={props.project.id} pullRequestId={props.pullRequestId} />
           <h2>{t("pullRequests.merge")}</h2>
           <div className="merge-panel">
             {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}
@@ -2439,25 +2151,6 @@ function PullRequestDetailScreen(props: {
             ) : (
               <span className="muted-text">{t("labels.none")}</span>
             )}
-          </div>
-          <h2>{t("agents.title")}</h2>
-          <div className="action-row">
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("review")} type="button">
-              <GitPullRequest size={16} />
-              {t("agents.queueReview")}
-            </button>
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("fix")} type="button">
-              <CircleAlert size={16} />
-              {t("agents.queueFix")}
-            </button>
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("qa")} type="button">
-              <CheckCircle2 size={16} />
-              {t("agents.queueQa")}
-            </button>
-            <button className="secondary-button" disabled={Boolean(objective && ["paused", "canceled", "succeeded"].includes(objective.status))} onClick={() => void queueAgent("verifier")} type="button">
-              <CheckCircle2 size={16} />
-              {t("agents.queueVerifier")}
-            </button>
           </div>
         </aside>
       </div>
@@ -2825,533 +2518,10 @@ function PullRequestsView(props: {
   );
 }
 
-function roleAiAgentLabel(agentType: RoleAiAgentType): string {
-  if (agentType === "implementation") return t("objectives.stageImplementation");
-  if (agentType === "review") return t("objectives.stageReview");
-  if (agentType === "qa") return t("objectives.stageQa");
-  return t("objectives.stageVerification");
-}
-
-function SettingsView(props: { project: ProjectDto; onProjectLocaleChange: (locale: SupportedLocale) => void }) {
-  const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
-  const [locale, setLocale] = useState<SupportedLocale>(normalizeLocale(props.project.locale));
-  const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
-  const [roleAiOverrides, setRoleAiOverrides] = useState<RoleAiOverrides>(defaultRoleAiOverrides());
-  const [claudeCommand, setClaudeCommand] = useState("claude");
-  const [claudeModel, setClaudeModel] = useState("");
-  const [claudePermissionMode, setClaudePermissionMode] =
-    useState<ProjectSettingsDto["ai"]["claudeCode"]["permissionMode"]>("bypassPermissions");
-  const [claudeMaxTurns, setClaudeMaxTurns] = useState("");
-  const [lmStudioBaseUrl, setLmStudioBaseUrl] = useState("http://127.0.0.1:1234/v1");
-  const [lmStudioModel, setLmStudioModel] = useState("");
-  const [lmStudioMaxToolRounds, setLmStudioMaxToolRounds] = useState("8");
-  const [lmStudioTemperature, setLmStudioTemperature] = useState("");
-  const [autoMergeEnabled, setAutoMergeEnabled] = useState(true);
-  const [autoMergeTargetBranches, setAutoMergeTargetBranches] = useState("");
-  const [autoMergeStrategy, setAutoMergeStrategy] = useState<ProjectSettingsDto["automation"]["autoMergeStrategy"]>("merge");
-  const [autoMergeRiskThreshold, setAutoMergeRiskThreshold] =
-    useState<ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]>("medium");
-  const [objectiveMaxRounds, setObjectiveMaxRounds] = useState("12");
-  const [objectiveTokenBudget, setObjectiveTokenBudget] = useState("");
-  const [objectiveCostBudgetUsd, setObjectiveCostBudgetUsd] = useState("");
-  const [agentTimeBudgetMinutes, setAgentTimeBudgetMinutes] = useState("");
-  const [verificationCommandTimeoutMinutes, setVerificationCommandTimeoutMinutes] = useState("5");
-  const [error, setError] = useState<string | null>(null);
-  const [errorSource, setErrorSource] = useState<"load" | "save" | null>(null);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [isSaving, setSaving] = useState(false);
-  const [isLoading, setLoading] = useState(true);
-  const [isRetrying, setRetrying] = useState(false);
-  const loadedSettingsProjectId = useRef<string | null>(null);
-  const activeSettingsProjectId = useRef(props.project.id);
-
-  async function load() {
-    const response = await api.getSettings(props.project.id);
-    if (activeSettingsProjectId.current !== props.project.id) return;
-    setSettings(response);
-    setLocale(normalizeLocale(response.project.locale));
-    setAiProvider(response.ai.provider);
-    setRoleAiOverrides(response.ai.roleOverrides);
-    setClaudeCommand(response.ai.claudeCode.command);
-    setClaudeModel(response.ai.claudeCode.model ?? "");
-    setClaudePermissionMode(response.ai.claudeCode.permissionMode);
-    setClaudeMaxTurns(response.ai.claudeCode.maxTurns ? String(response.ai.claudeCode.maxTurns) : "");
-    setLmStudioBaseUrl(response.ai.lmStudio.baseUrl);
-    setLmStudioModel(response.ai.lmStudio.model ?? "");
-    setLmStudioMaxToolRounds(String(response.ai.lmStudio.maxToolRounds));
-    setLmStudioTemperature(response.ai.lmStudio.temperature === null ? "" : String(response.ai.lmStudio.temperature));
-    setAutoMergeEnabled(response.automation.autoMergeEnabled);
-    setAutoMergeTargetBranches(response.automation.autoMergeTargetBranches.join(", "));
-    setAutoMergeStrategy(response.automation.autoMergeStrategy);
-    setAutoMergeRiskThreshold(response.automation.autoMergeRiskThreshold);
-    setObjectiveMaxRounds(String(response.automation.objectiveMaxRounds));
-    setObjectiveTokenBudget(response.automation.objectiveTokenBudget === null
-      ? ""
-      : String(response.automation.objectiveTokenBudget));
-    setObjectiveCostBudgetUsd(response.automation.objectiveCostBudgetUsd === null
-      ? ""
-      : String(response.automation.objectiveCostBudgetUsd));
-    setAgentTimeBudgetMinutes(response.automation.agentTimeBudgetMinutes === null
-      ? ""
-      : String(response.automation.agentTimeBudgetMinutes));
-    setVerificationCommandTimeoutMinutes(String(response.automation.verificationCommandTimeoutMinutes));
-    loadedSettingsProjectId.current = props.project.id;
-    setError(null);
-    setErrorSource(null);
-    setRetrying(false);
-  }
-
-  function handleLoadError(err: unknown): void {
-    if (loadedSettingsProjectId.current === props.project.id) {
-      setError(null);
-      setErrorSource(null);
-      setRetrying(true);
-      return;
-    }
-    setError(err instanceof Error ? err.message : "Failed to load settings.");
-    setErrorSource("load");
-    setRetrying(false);
-  }
-
-  function retrySettingsLoad(): void {
-    const hasStaleSettings = loadedSettingsProjectId.current === props.project.id;
-    setError(null);
-    setErrorSource(null);
-    setLoading(!hasStaleSettings);
-    setRetrying(hasStaleSettings);
-    void load()
-      .catch(handleLoadError)
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    activeSettingsProjectId.current = props.project.id;
-    loadedSettingsProjectId.current = null;
-    setSettings(null);
-    setLoading(true);
-    setRetrying(false);
-    setError(null);
-    setErrorSource(null);
-    void load()
-      .catch(handleLoadError)
-      .finally(() => setLoading(false));
-  }, [props.project.id]);
-
-  async function saveSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    setErrorSource(null);
-    setSavedMessage(null);
-    try {
-      const response = await api.updateSettings(props.project.id, {
-        locale,
-        ai: {
-          provider: aiProvider,
-          roleOverrides: roleAiOverrides,
-          claudeCode: {
-            command: claudeCommand,
-            model: claudeModel.trim() || null,
-            permissionMode: claudePermissionMode,
-            maxTurns: claudeMaxTurns.trim() ? Number(claudeMaxTurns) : null
-          },
-          lmStudio: {
-            baseUrl: lmStudioBaseUrl,
-            model: lmStudioModel.trim() || null,
-            maxToolRounds: Number(lmStudioMaxToolRounds || "8"),
-            temperature: lmStudioTemperature.trim() ? Number(lmStudioTemperature) : null
-          }
-        },
-        automation: {
-          autoMergeEnabled,
-          autoMergeTargetBranches: autoMergeTargetBranches.split(",").map((branch) => branch.trim()).filter(Boolean),
-          autoMergeStrategy,
-          autoMergeRiskThreshold,
-          objectiveMaxRounds: Number(objectiveMaxRounds || "12"),
-          objectiveTokenBudget: objectiveTokenBudget.trim() ? Number(objectiveTokenBudget) : null,
-          objectiveCostBudgetUsd: objectiveCostBudgetUsd.trim() ? Number(objectiveCostBudgetUsd) : null,
-          agentTimeBudgetMinutes: agentTimeBudgetMinutes.trim() ? Number(agentTimeBudgetMinutes) : null,
-          verificationCommandTimeoutMinutes: Number(verificationCommandTimeoutMinutes || "5")
-        }
-      });
-      setSettings(response);
-      setAiProvider(response.ai.provider);
-      setRoleAiOverrides(response.ai.roleOverrides);
-      const savedLocale = setUiLocale(response.project.locale);
-      setLocale(savedLocale);
-      props.onProjectLocaleChange(savedLocale);
-      setSavedMessage(t("settings.saved"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings.");
-      setErrorSource("save");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <section className="page-section">
-      <div className="section-header">
-        <h1>{t("settings.title")}</h1>
-      </div>
-      {isRetrying ? (
-        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retrySettingsLoad} />
-      ) : null}
-      {error ? (
-        <AsyncState
-          actionLabel={errorSource === "load" ? t("status.retry") : undefined}
-          kind="error"
-          message={error}
-          onAction={errorSource === "load" ? retrySettingsLoad : undefined}
-        />
-      ) : null}
-      {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
-      {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
-      {!isLoading && settings ? (
-      <>
-        <form className="settings-form" onSubmit={saveSettings}>
-        <label>
-          {t("settings.locale")}
-          <select value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>
-            {supportedLocales.map((item) => (
-              <option key={item} value={item}>
-                {localeLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {t("settings.provider")}
-          <select value={aiProvider} onChange={(event) => setAiProvider(event.target.value as AiProvider)}>
-            {aiProviders.map((provider) => (
-              <option key={provider} value={provider}>
-                {aiProviderLabel(provider)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset>
-          <legend>{t("settings.roleRouting")}</legend>
-          <p className="muted-text">{t("settings.roleRoutingDescription")}</p>
-          <div className="role-routing-grid">
-            {roleAiAgentTypes.map((agentType) => {
-              const roleLabel = roleAiAgentLabel(agentType);
-              const override = roleAiOverrides[agentType];
-              return (
-                <div className="role-routing-row" key={agentType}>
-                  <strong>{roleLabel}</strong>
-                  <label>
-                    <span>{t("settings.provider")}</span>
-                    <select
-                      aria-label={`${roleLabel} ${t("settings.provider")}`}
-                      onChange={(event) => setRoleAiOverrides((current) => ({
-                        ...current,
-                        [agentType]: {
-                          ...current[agentType],
-                          provider: event.target.value ? event.target.value as AiProvider : null
-                        }
-                      }))}
-                      value={override.provider ?? ""}
-                    >
-                      <option value="">{t("settings.inheritProvider")}</option>
-                      {aiProviders.map((provider) => (
-                        <option key={provider} value={provider}>{aiProviderLabel(provider)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>{t("settings.model")}</span>
-                    <input
-                      aria-label={`${roleLabel} ${t("settings.model")}`}
-                      onChange={(event) => setRoleAiOverrides((current) => ({
-                        ...current,
-                        [agentType]: {
-                          ...current[agentType],
-                          model: event.target.value || null
-                        }
-                      }))}
-                      placeholder={t("settings.inheritModel")}
-                      value={override.model ?? ""}
-                    />
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>{t("settings.automation")}</legend>
-          <label className="checkbox-row">
-            <input
-              checked={autoMergeEnabled}
-              onChange={(event) => setAutoMergeEnabled(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              {t("settings.autoMerge")}
-              <small>{t("settings.autoMergeDescription")}</small>
-            </span>
-          </label>
-          <label>
-            {t("settings.autoMergeTargetBranches")}
-            <input
-              onChange={(event) => setAutoMergeTargetBranches(event.target.value)}
-              placeholder={t("settings.autoMergeTargetBranchesPlaceholder")}
-              value={autoMergeTargetBranches}
-            />
-            <small>{t("settings.autoMergeTargetBranchesDescription")}</small>
-          </label>
-          <label>
-            {t("settings.autoMergeStrategy")}
-            <select
-              onChange={(event) =>
-                setAutoMergeStrategy(event.target.value as ProjectSettingsDto["automation"]["autoMergeStrategy"])
-              }
-              value={autoMergeStrategy}
-            >
-              <option value="merge">{t("settings.autoMergeStrategyMerge")}</option>
-              <option value="squash">{t("settings.autoMergeStrategySquash")}</option>
-            </select>
-          </label>
-          <label>
-            {t("settings.autoMergeRiskThreshold")}
-            <select
-              onChange={(event) =>
-                setAutoMergeRiskThreshold(
-                  event.target.value as ProjectSettingsDto["automation"]["autoMergeRiskThreshold"]
-                )
-              }
-              value={autoMergeRiskThreshold}
-            >
-              <option value="medium">{t("settings.riskThresholdMedium")}</option>
-              <option value="high">{t("settings.riskThresholdHigh")}</option>
-              <option value="none">{t("settings.riskThresholdNone")}</option>
-            </select>
-            <small>{t("settings.autoMergeRiskThresholdDescription")}</small>
-          </label>
-          <label>
-            {t("settings.objectiveMaxRounds")}
-            <input
-              max="1000"
-              min="1"
-              onChange={(event) => setObjectiveMaxRounds(event.target.value)}
-              required
-              step="1"
-              type="number"
-              value={objectiveMaxRounds}
-            />
-            <small>{t("settings.objectiveMaxRoundsDescription")}</small>
-          </label>
-          <label>
-            {t("settings.objectiveTokenBudget")}
-            <input
-              min="1"
-              onChange={(event) => setObjectiveTokenBudget(event.target.value)}
-              placeholder={t("settings.unlimitedBudget")}
-              step="1"
-              type="number"
-              value={objectiveTokenBudget}
-            />
-            <small>{t("settings.objectiveTokenBudgetDescription")}</small>
-          </label>
-          <label>
-            {t("settings.objectiveCostBudget")}
-            <input
-              min="0.000001"
-              onChange={(event) => setObjectiveCostBudgetUsd(event.target.value)}
-              placeholder={t("settings.unlimitedBudget")}
-              step="0.01"
-              type="number"
-              value={objectiveCostBudgetUsd}
-            />
-            <small>{t("settings.objectiveCostBudgetDescription")}</small>
-          </label>
-          <label>
-            {t("settings.agentTimeBudget")}
-            <input
-              min="0.01"
-              onChange={(event) => setAgentTimeBudgetMinutes(event.target.value)}
-              placeholder={t("settings.unlimitedBudget")}
-              step="0.01"
-              type="number"
-              value={agentTimeBudgetMinutes}
-            />
-            <small>{t("settings.agentTimeBudgetDescription")}</small>
-          </label>
-          <label>
-            {t("settings.verificationCommandTimeout")}
-            <input
-              min="0.01"
-              onChange={(event) => setVerificationCommandTimeoutMinutes(event.target.value)}
-              required
-              step="0.01"
-              type="number"
-              value={verificationCommandTimeoutMinutes}
-            />
-            <small>{t("settings.verificationCommandTimeoutDescription")}</small>
-          </label>
-        </fieldset>
-        <fieldset>
-          <legend>{t("settings.claudeCode")}</legend>
-          <label>
-            {t("settings.command")}
-            <input value={claudeCommand} onChange={(event) => setClaudeCommand(event.target.value)} required />
-          </label>
-          <label>
-            {t("settings.model")}
-            <input value={claudeModel} onChange={(event) => setClaudeModel(event.target.value)} />
-          </label>
-          <label>
-            {t("settings.permissionMode")}
-            <select
-              value={claudePermissionMode}
-              onChange={(event) =>
-                setClaudePermissionMode(event.target.value as ProjectSettingsDto["ai"]["claudeCode"]["permissionMode"])
-              }
-            >
-              <option value="bypassPermissions">bypassPermissions</option>
-              <option value="auto">auto</option>
-              <option value="dontAsk">dontAsk</option>
-              <option value="default">default</option>
-            </select>
-          </label>
-          <label>
-            {t("settings.maxTurns")}
-            <input
-              min="1"
-              onChange={(event) => setClaudeMaxTurns(event.target.value)}
-              type="number"
-              value={claudeMaxTurns}
-            />
-          </label>
-        </fieldset>
-        <fieldset>
-          <legend>{t("settings.lmStudio")}</legend>
-          <label>
-            {t("settings.baseUrl")}
-            <input value={lmStudioBaseUrl} onChange={(event) => setLmStudioBaseUrl(event.target.value)} required />
-          </label>
-          <label>
-            {t("settings.model")}
-            <input value={lmStudioModel} onChange={(event) => setLmStudioModel(event.target.value)} />
-          </label>
-          <label>
-            {t("settings.maxToolRounds")}
-            <input
-              min="1"
-              onChange={(event) => setLmStudioMaxToolRounds(event.target.value)}
-              required
-              type="number"
-              value={lmStudioMaxToolRounds}
-            />
-          </label>
-          <label>
-            {t("settings.temperature")}
-            <input
-              onChange={(event) => setLmStudioTemperature(event.target.value)}
-              step="0.1"
-              type="number"
-              value={lmStudioTemperature}
-            />
-          </label>
-        </fieldset>
-        <button className="primary-button" disabled={isSaving} type="submit">
-          <Save size={16} />
-          {t("actions.save")}
-        </button>
-        </form>
-        <dl className="repository-facts">
-        <div>
-          <dt>{t("settings.server")}</dt>
-          <dd>
-            {settings ? `${settings.runtime.server.host}:${settings.runtime.server.port}` : "-"}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("settings.database")}</dt>
-          <dd>{settings?.runtime.database.url ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("settings.provider")}</dt>
-          <dd>{settings ? aiProviderLabel(settings.ai.provider) : "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("settings.codexCommand")}</dt>
-          <dd>{settings?.ai.codex.command ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("settings.model")}</dt>
-          <dd>{settings?.ai.codex.model ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("settings.fullAccess")}</dt>
-          <dd>{settings?.ai.codex.fullAccess ? t("status.ready") : "-"}</dd>
-        </div>
-        </dl>
-      </>
-      ) : null}
-    </section>
-  );
-}
-
-function ProjectSelector(props: {
-  repositories: KnownRepositoryDto[];
-  onAddProject: () => void;
-  onSelect: (repository: KnownRepositoryDto) => Promise<void>;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [openingRepoPath, setOpeningRepoPath] = useState<string | null>(null);
-
-  async function openRepository(repository: KnownRepositoryDto) {
-    setError(null);
-    setOpeningRepoPath(repository.repoPath);
-    try {
-      await props.onSelect(repository);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to open repository.");
-    } finally {
-      setOpeningRepoPath(null);
-    }
-  }
-
-  return (
-    <main className="setup-screen">
-      <section className="setup-panel project-selector">
-        <h1>{t("projects.title")}</h1>
-        <p className="muted-text">{t("projects.subtitle")}</p>
-        {error ? <div className="error-banner">{error}</div> : null}
-        <div className="work-item-list">
-          {props.repositories.length === 0 ? <div className="empty-state">{t("projects.noProjects")}</div> : null}
-          {props.repositories.map((repository) => (
-            <button
-              className="work-item-summary project-summary"
-              disabled={openingRepoPath !== null}
-              key={repository.repoPath}
-              onClick={() => void openRepository(repository)}
-              type="button"
-            >
-              <span className="work-item-title">{repository.name}</span>
-              <span className="project-repo-path">{repository.repoPath}</span>
-              <span className="project-opened-at">{formatDateTime(repository.lastOpenedAt)}</span>
-              <span className="project-open-action">
-                {openingRepoPath === repository.repoPath ? t("status.running") : t("projects.openProject")}
-              </span>
-            </button>
-          ))}
-        </div>
-        <button className="primary-button" disabled={openingRepoPath !== null} onClick={props.onAddProject} type="button">
-          <FolderOpen size={16} />
-          {t("projects.addProject")}
-        </button>
-      </section>
-    </main>
-  );
-}
-
 export function App() {
-  const [repositories, setRepositories] = useState<KnownRepositoryDto[]>([]);
+  const [developmentLoops, setDevelopmentLoops] = useState<DevelopmentLoopDto[]>([]);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
-  const [screen, setScreen] = useState<"select" | "setup" | "app">("select");
+  const [screen, setScreen] = useState<"setup" | "app">("setup");
   const [isLoading, setLoading] = useState(true);
   const [agentJobs, setAgentJobs] = useState<AgentJobDto[]>([]);
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
@@ -3362,12 +2532,6 @@ export function App() {
   const routePullRequestId = route.name === "pullRequest" || route.name === "pullRequestConflicts" ? route.pullRequestId : null;
   const routePullRequestScreen =
     route.name === "pullRequestConflicts" ? "conflicts" : route.name === "pullRequest" ? "detail" : null;
-  const routeLoopsScreen: LoopsScreen = route.name === "loop"
-    ? { name: "detail", loopId: route.loopId }
-    : route.name === "loopRun"
-      ? { name: "run", loopRunId: route.loopRunId }
-      : { name: "list" };
-
   const navigate = useCallback((nextRoute: AppRoute, mode: "push" | "replace" = "push") => {
     const path = routeToPath(nextRoute);
     setRoute(nextRoute);
@@ -3393,54 +2557,40 @@ export function App() {
     (pullRequestId: number) => navigate({ name: "pullRequestConflicts", pullRequestId }),
     [navigate]
   );
-  const handleOpenLoops = useCallback(() => navigate({ name: "loops" }), [navigate]);
-  const handleOpenLoop = useCallback((loopId: number) => navigate({ name: "loop", loopId }), [navigate]);
-  const handleOpenLoopRun = useCallback(
-    (loopRunId: number) => navigate({ name: "loopRun", loopRunId }),
-    [navigate]
-  );
-  const refreshRepositories = useCallback(async () => {
-    setRepositories(await api.listRepositories());
-  }, []);
-  const handleSelectRepository = useCallback(
-    async (repository: KnownRepositoryDto) => {
-      const response = await api.switchRepository({ repoPath: repository.repoPath, name: repository.name });
-      setProjects(response.projects);
-      setAgentJobs([]);
-      setScreen(response.projects.length ? "app" : "setup");
-      navigate({ name: "issues" }, "replace");
-      await refreshRepositories();
-    },
-    [navigate, refreshRepositories]
-  );
-  const handleProjectCreated = useCallback(
-    async (created: ProjectDto) => {
-      setProjects([created]);
-      setAgentJobs([]);
-      setScreen("app");
-      navigate({ name: "issues" }, "replace");
-      await refreshRepositories();
-    },
-    [navigate, refreshRepositories]
-  );
-  const handleSwitchProject = useCallback(() => {
-    setProjects([]);
+  const handleProjectOpened = useCallback((result: ProjectOpenResult) => {
+    setProjects([result.project]);
     setAgentJobs([]);
-    setScreen("select");
-    navigate({ name: "issues" }, "replace");
-    void refreshRepositories();
-  }, [navigate, refreshRepositories]);
-  const handleProjectLocaleChange = useCallback((locale: SupportedLocale) => {
-    setProjects((current) => current.map((item, index) => (index === 0 ? { ...item, locale } : item)));
+    setScreen("app");
+    navigate(
+      result.onboardingIssueId
+        ? { name: "issue", issueId: result.onboardingIssueId }
+        : { name: "issues" },
+      "replace"
+    );
+  }, [navigate]);
+  const handleOpenFolder = useCallback(() => {
+    setAgentJobs([]);
+    setScreen("setup");
   }, []);
-
   if (project) {
     setUiLocale(project.locale);
   }
 
   useEffect(() => {
-    refreshRepositories().finally(() => setLoading(false));
-  }, [refreshRepositories]);
+    let disposed = false;
+    void api.listProjects()
+      .then((items) => {
+        if (disposed) return;
+        setProjects(items);
+        setScreen(items.length ? "app" : "setup");
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handlePopState() {
@@ -3465,9 +2615,10 @@ export function App() {
 
     let disposed = false;
     async function loadAgentJobs() {
-      const jobs = await api.listAgentJobs(project.id);
+      const [jobs, loops] = await Promise.all([api.listAgentJobs(project.id), api.listDevelopmentLoops(project.id)]);
       if (!disposed) {
         setAgentJobs(jobs);
+        setDevelopmentLoops(loops);
       }
     }
 
@@ -3493,32 +2644,15 @@ export function App() {
     return <div className="loading-screen"><AsyncState kind="loading" message={t("status.loading")} /></div>;
   }
 
-  if (screen === "select") {
-    return (
-      <ProjectSelector
-        onAddProject={() => setScreen("setup")}
-        onSelect={handleSelectRepository}
-        repositories={repositories}
-      />
-    );
-  }
-
   if (screen === "setup" || !project) {
-    return (
-      <SetupWizard
-        onCancel={repositories.length ? () => setScreen("select") : undefined}
-        onCreated={(created) => {
-          void handleProjectCreated(created);
-        }}
-      />
-    );
+    return <SetupWizard onOpened={handleProjectOpened} />;
   }
 
   return (
     <AppShell
-      agentState={summarizeAgentJobs(agentJobs)}
+      agentState={summarizeAgentJobs(agentJobs, developmentLoops)}
       navigationKey={routeToPath(route)}
-      onSwitchProject={handleSwitchProject}
+      onOpenFolder={handleOpenFolder}
       onViewChange={handleViewChange}
       projectName={project.name}
       repositoryPath={project.repoPath}
@@ -3556,21 +2690,6 @@ export function App() {
         </Suspense>
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
-      {view === "loops" ? (
-        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
-          <LoopsView
-            project={project}
-            screen={routeLoopsScreen}
-            onOpenLoop={handleOpenLoop}
-            onOpenRun={handleOpenLoopRun}
-            onOpenAgentJob={handleOpenAgentJob}
-            onBackToList={handleOpenLoops}
-          />
-        </Suspense>
-      ) : null}
-      {view === "settings" ? (
-        <SettingsView project={project} onProjectLocaleChange={handleProjectLocaleChange} />
-      ) : null}
     </AppShell>
   );
 }

@@ -179,6 +179,8 @@ Tasks:
 
 Do not modify files. Focus on whether the loop can stop safely.`,
 
+  retrospective: `Reflect on the entire completed development loop. Return reusable, evidence-backed knowledge changes under .oneteam only. Do not edit files directly.`,
+
   command_detection: `You are the Command Detection Agent.
 
 Goal:

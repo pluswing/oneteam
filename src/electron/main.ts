@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import type { OpenDialogOptions } from "electron";
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
@@ -35,7 +36,7 @@ async function createWindow(): Promise<void> {
   config.server.host = "127.0.0.1";
   config.server.port = 0;
 
-  server = await startOneTeamServer(config, {
+  server ??= await startOneTeamServer(config, {
     staticRoot: join(distRoot(), "client"),
     codexLogin: {
       launcher: launchLoginCommand
@@ -43,7 +44,7 @@ async function createWindow(): Promise<void> {
   });
   debugLog(`server:started:${server.url}`);
 
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 960,
@@ -53,15 +54,21 @@ async function createWindow(): Promise<void> {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      preload: join(__dirname, "preload.cjs")
     }
   });
+  mainWindow = window;
+  window.on("closed", () => {
+    debugLog("window:closed");
+    if (mainWindow === window) mainWindow = null;
+  });
 
-  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+  window.webContents.on("render-process-gone", (_event, details) => {
     debugLog(`renderer:gone:${details.reason}`);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     if (server && url.startsWith(server.url)) {
       return { action: "allow" };
     }
@@ -69,12 +76,8 @@ async function createWindow(): Promise<void> {
     return { action: "deny" };
   });
 
-  await mainWindow.loadURL(server.url);
+  await window.loadURL(server.url);
   debugLog("window:loaded");
-  mainWindow.on("closed", () => {
-    debugLog("window:closed");
-    mainWindow = null;
-  });
 }
 
 app.on("window-all-closed", () => {
@@ -91,10 +94,12 @@ app.on("activate", () => {
   }
 });
 
-app.on("before-quit", () => {
-  debugLog("app:before-quit");
-  server?.stop();
+app.on("before-quit", (event) => {
+  if (!server) return;
+  event.preventDefault();
+  const current = server;
   server = null;
+  void current.stop().finally(() => app.quit());
 });
 
 function showStartupError(error: unknown): void {
@@ -240,6 +245,16 @@ void app
   .whenReady()
   .then(async () => {
     debugLog("app:ready");
+    ipcMain.handle("oneteam:choose-directory", async () => {
+      const options: OpenDialogOptions = {
+        properties: ["openDirectory", "createDirectory"],
+        title: "Choose a folder for OneTeam"
+      };
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    });
     await createWindow();
   })
   .catch(showStartupError);

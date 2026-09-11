@@ -41,7 +41,7 @@ import {
 import { mergePullRequest } from "../services/pull-request-merge";
 import { buildSystemComment } from "../services/system-comment";
 import { buildAgentMilestoneComment } from "../services/agent-milestone-comment";
-import { readAutomationSettings } from "../services/automation-settings";
+import { defaultAutomationSettings, readAutomationSettings } from "../services/automation-settings";
 import { normalizeEvidenceArtifacts } from "../services/evidence-artifacts";
 import { advanceObjectiveWorkflowStage } from "../services/objective-workflow";
 import {
@@ -60,6 +60,7 @@ export type AgentWorkerOptions = {
 export class AgentWorker {
   private timer: NodeJS.Timeout | null = null;
   private isTicking = false;
+  private stopping = false;
 
   constructor(
     private readonly repos: Repositories,
@@ -68,6 +69,7 @@ export class AgentWorker {
   ) {}
 
   start(): void {
+    this.stopping = false;
     if (this.timer) {
       return;
     }
@@ -85,8 +87,14 @@ export class AgentWorker {
     }
   }
 
-  async tick(): Promise<void> {
-    if (this.isTicking) {
+  async stopAndDrain(): Promise<void> {
+    this.stopping = true;
+    this.stop();
+    while (this.isTicking) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  async tick(jobId?: number, projectId?: string): Promise<void> {
+    if (this.isTicking || this.stopping) {
       return;
     }
 
@@ -94,9 +102,9 @@ export class AgentWorker {
     try {
       const dueProviderWaits = await this.repos.agentJobs.listDueProviderWaits(new Date().toISOString());
       for (const waitingJob of dueProviderWaits) {
-        await this.handleDueProviderWait(waitingJob);
+        if (jobId === undefined || waitingJob.id === jobId) await this.handleDueProviderWait(waitingJob);
       }
-      const job = await this.repos.agentJobs.nextQueued();
+      const job = jobId !== undefined && projectId ? await this.repos.agentJobs.get(projectId, jobId) : await this.repos.agentJobs.nextQueued();
       if (!job) {
         return;
       }
@@ -144,7 +152,7 @@ export class AgentWorker {
   }
 
   private async runJob(job: AgentJobDto): Promise<void> {
-    const objectivePreflightResult = await preflightObjectiveJob(this.repos, job);
+    const objectivePreflightResult = job.agentType === "retrospective" ? null : await preflightObjectiveJob(this.repos, job);
     if (objectivePreflightResult) {
       await this.applyResult(job, objectivePreflightResult);
       return;
@@ -154,7 +162,7 @@ export class AgentWorker {
     if (!runningJob) {
       return;
     }
-    await markObjectiveJobStarted(this.repos, runningJob);
+    if (job.agentType !== "retrospective") await markObjectiveJobStarted(this.repos, runningJob);
     const timing = await this.getAgentExecutionTiming(runningJob);
 
     const activityTarget = normalizeActivityTarget(runningJob);
@@ -196,7 +204,7 @@ export class AgentWorker {
         deadlineAt: timing.deadlineAt,
         isCanceled: async () => {
           const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
-          return current?.status === "canceled" || current?.status === "paused" || agentDeadlineReached(timing);
+          return this.stopping || current?.status === "canceled" || current?.status === "paused" || agentDeadlineReached(timing);
         },
         onActivity: async (activity) => {
           const target = normalizeActivityTarget(runningJob);
@@ -216,6 +224,11 @@ export class AgentWorker {
         }
       });
 
+      if (this.stopping) {
+        await this.applyWorktreePolicy(runningJob, project, worktree, null, "paused");
+        await this.repos.agentJobs.requeueAfterRecovery(runningJob.projectId, runningJob.id);
+        return;
+      }
       const currentJob = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
       if (currentJob?.status === "paused") {
         await this.applyWorktreePolicy(runningJob, project, worktree, null, "paused");
@@ -286,10 +299,11 @@ export class AgentWorker {
         })
       };
       finalizedResult = await this.enforceSnapshotWorktreePolicy(worktree, executionRepoPath, finalizedResult);
-      finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
+      if (job.agentType !== "retrospective") finalizedResult = await applyObjectiveHardGate(this.repos, runningJob, finalizedResult);
       if (agentDeadlineReached(timing)) {
         finalizedResult = agentTimeoutResult(runningJob, timing, finalizedResult);
       }
+      if (await this.preserveStoppedJob(runningJob, project, worktree)) return;
       finalizedResult = (await this.applyWorktreePolicy(
         runningJob,
         project,
@@ -299,6 +313,7 @@ export class AgentWorker {
       )) ?? finalizedResult;
       await this.applyResult(runningJob, finalizedResult);
     } catch (error) {
+      if (await this.preserveStoppedJob(runningJob, project, worktree)) return;
       const message = error instanceof Error ? error.message : "Agent job failed.";
       if (agentDeadlineReached(timing)) {
         const timeoutResult = await this.applyWorktreePolicy(
@@ -364,8 +379,22 @@ export class AgentWorker {
         error: message
       });
       await this.updateLoopForResult(runningJob, failedResult);
-      await recordObjectiveJobResult(this.repos, { job: runningJob, result: failedResult });
+      if (job.agentType !== "retrospective") await recordObjectiveJobResult(this.repos, { job: runningJob, result: failedResult });
     }
+  }
+
+  private async preserveStoppedJob(job: AgentJobDto, project: ProjectDto | null, worktree: PreparedWorktree | null): Promise<boolean> {
+    const current = await this.repos.agentJobs.get(job.projectId, job.id);
+    if (current?.status === "paused" || current?.status === "canceled") {
+      await this.applyWorktreePolicy(job, project, worktree, null, current.status);
+      return true;
+    }
+    if (this.stopping) {
+      await this.applyWorktreePolicy(job, project, worktree, null, "paused");
+      await this.repos.agentJobs.requeueAfterRecovery(job.projectId, job.id);
+      return true;
+    }
+    return false;
   }
 
   private async requeueAfterRecovery(
@@ -442,6 +471,7 @@ export class AgentWorker {
   }
 
   private async getLoopContextForJob(job: AgentJobDto): Promise<{ loop: LoopDto } | null> {
+    if (job.input.developmentLoopId) return null;
     const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
     if (!step) {
       return null;
@@ -457,7 +487,7 @@ export class AgentWorker {
   private async getAgentExecutionTiming(job: AgentJobDto): Promise<AgentExecutionTiming> {
     const [loopContext, automation] = await Promise.all([
       this.getLoopContextForJob(job),
-      readAutomationSettings(this.repos)
+      typeof job.input.developmentLoopId === "number" ? Promise.resolve({ ...defaultAutomationSettings, agentTimeBudgetMinutes: 30 }) : readAutomationSettings(this.repos)
     ]);
     const agentTimeBudgetMinutes = loopContext?.loop.timeBudgetMinutes ?? automation.agentTimeBudgetMinutes;
     const startedAtMs = job.startedAt ? Date.parse(job.startedAt) : Date.now();
@@ -633,6 +663,9 @@ export class AgentWorker {
       throw new Error(`Pull request was not found: ${job.targetId}`);
     }
 
+    if (job.agentType === "fix" && job.input.developmentLoopId) {
+      await commitAllChanges(repoPath, `Fix pull request #${pullRequest.id}`);
+    }
     const metadata: NonNullable<AgentRunResult["metadata"]> = { ...(result.metadata ?? {}) };
     if (
       job.agentType === "fix" &&
@@ -695,7 +728,7 @@ export class AgentWorker {
       if (!issue) {
         throw new Error(`Issue was not found: ${job.targetId}`);
       }
-      const worktree = await prepareIssueWorktree(project, issue);
+      const worktree = await prepareIssueWorktree(project, job.input.developmentLoopId ? { ...issue, title: typeof job.input.implementationBranchTitle === "string" ? job.input.implementationBranchTitle : `loop ${job.input.developmentLoopId}` } : issue);
       await this.recordWorktreeActivity(job, "issue", issue.id, worktree);
       await this.recordLoopWorktree(job, worktree.worktreePath);
       return worktree;
@@ -713,22 +746,22 @@ export class AgentWorker {
     }
 
     const step = await this.repos.loopSteps.getByAgentJob(project.id, job.id);
-    if (!step) return null;
-    const run = await this.repos.loopRuns.get(project.id, step.loopRunId);
+    if (!step && !job.input.developmentLoopId) return null;
+    const run = step ? await this.repos.loopRuns.get(project.id, step.loopRunId) : null;
     let snapshotRef = project.defaultBranch;
     if (job.targetType === "pull_request") {
       const pullRequest = await this.repos.pullRequests.get(project.id, job.targetId);
       if (!pullRequest) {
         throw new Error(`Pull request was not found: ${job.targetId}`);
       }
-      snapshotRef = pullRequest.sourceBranch;
+      snapshotRef = job.agentType === "retrospective" && typeof job.input.mergeCommit === "string" ? job.input.mergeCommit : pullRequest.sourceBranch;
     } else if (job.targetType === "issue") {
       const issue = await this.repos.issues.get(project.id, job.targetId);
       if (!issue) {
         throw new Error(`Issue was not found: ${job.targetId}`);
       }
     }
-    const worktree = await prepareLoopSnapshotWorktree(project, snapshotRef, run?.worktreePath);
+    const worktree = await prepareLoopSnapshotWorktree(project, snapshotRef, run?.worktreePath ?? (typeof job.input.worktreePath === "string" ? job.input.worktreePath : null));
     const target = normalizeActivityTarget(job);
     if (target) {
       await this.recordWorktreeActivity(job, target.targetType, target.targetId, worktree);
@@ -791,6 +824,10 @@ export class AgentWorker {
   }
 
   private async recordLoopWorktree(job: AgentJobDto, worktreePath: string): Promise<void> {
+    if (job.input.developmentLoopId) {
+      job.input.worktreePath = worktreePath;
+      await this.repos.development.updateJobInput(job.projectId, job.id, job.input);
+    }
     const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
     if (step) {
       await this.repos.loopRuns.updateStatus(job.projectId, step.loopRunId, "running", { worktreePath });
@@ -907,7 +944,7 @@ export class AgentWorker {
       }, commentMetadata);
     }
 
-    if (output.status === "succeeded") {
+    if (output.status === "succeeded" && job.agentType !== "retrospective") {
       await advanceObjectiveWorkflowStage(this.repos, job, output);
       await this.applyMetadata(job, output);
     }
@@ -916,8 +953,9 @@ export class AgentWorker {
       error: output.status === "failed" ? output.message : null
     });
     await this.updateLoopForResult(job, output);
-    await recordObjectiveJobResult(this.repos, { job, result: output });
+    if (job.agentType !== "retrospective") await recordObjectiveJobResult(this.repos, { job, result: output });
     if (
+      !job.input.developmentLoopId &&
       output.status === "succeeded" &&
       job.agentType === "verifier" &&
       job.targetType === "pull_request" &&
@@ -1005,6 +1043,7 @@ export class AgentWorker {
   }
 
   private async updateLoopForResult(job: AgentJobDto, result: AgentRunResult): Promise<void> {
+    if (job.input.developmentLoopId) return;
     const step = await this.repos.loopSteps.getByAgentJob(job.projectId, job.id);
     if (!step) {
       return;
@@ -1143,7 +1182,9 @@ export class AgentWorker {
       };
       if (typeof pr.title === "string" && typeof pr.sourceBranch === "string" && typeof pr.targetBranch === "string") {
         const reviewLabel = await this.repos.labels.findByName(job.projectId, workflowLabelNames.reviewing);
-        const pullRequest = await this.repos.pullRequests.create({
+        const existingLoop = typeof job.input.developmentLoopId === "number" ? await this.repos.development.get(job.projectId, job.input.developmentLoopId) : null;
+        const existingPr = existingLoop?.pullRequestId ? await this.repos.pullRequests.get(job.projectId, existingLoop.pullRequestId) : null;
+        const pullRequest = existingPr ?? await this.repos.pullRequests.create({
           projectId: job.projectId,
           issueId: typeof pr.issueId === "number" ? pr.issueId : job.targetType === "issue" ? job.targetId : null,
           title: pr.title,
@@ -1153,6 +1194,10 @@ export class AgentWorker {
           createdByType: "agent",
           labelIds: reviewLabel ? [reviewLabel.id] : []
         });
+        if (existingLoop) {
+          await this.repos.development.update(job.projectId, existingLoop.id, { pullRequestId: pullRequest.id });
+          if (existingLoop.objectiveId) await this.repos.objectives.update(job.projectId, existingLoop.objectiveId, { pullRequestId: pullRequest.id });
+        }
         await runLabelAutomation(this.repos, {
           projectId: job.projectId,
           targetType: "pull_request",
@@ -1240,7 +1285,7 @@ function agentTimeoutResult(
     status: "waiting_human",
     message,
     comment: null,
-    questions: ["Review the partial result and raise the Agent time budget before resuming if more work is required."],
+    questions: [job.input.developmentLoopId ? "Review the partial result and resume the Loop to continue with a new execution window." : "Review the partial result and raise the Agent time budget before resuming if more work is required."],
     activities: [
       ...(previous?.activities ?? []),
       {

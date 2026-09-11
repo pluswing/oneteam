@@ -1,6 +1,8 @@
+import type { AgentExecutionDto } from "../../shared/development-loop";
+import { DevelopmentLoopPanel } from "../components/DevelopmentLoopPanel";
 import { Play, RotateCcw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { aiProviderLabel, aiProviders, type AiProvider } from "../../shared/ai-providers";
+import { aiProviderLabel, type AiProvider } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
 import { api } from "../api";
 import { agentJobMessage } from "../agent-job-message";
@@ -38,8 +40,6 @@ function AgentJobActions(props: {
   job: AgentJobDto;
   busyJobId: number | null;
   onCancel: (jobId: number) => Promise<void>;
-  resumeProvider: AiProvider;
-  onResumeProviderChange: (provider: AiProvider) => void;
   onResume: (jobId: number, provider: AiProvider) => Promise<void>;
   onRetry: (jobId: number) => Promise<void>;
 }) {
@@ -77,31 +77,18 @@ function AgentJobActions(props: {
       ) : null}
       {props.job.status === "waiting_provider" ? (
         <div className="provider-resume-actions">
-          <label>
-            <span>{t("agents.resumeProvider")}</span>
-            <select
-              aria-label={t("agents.resumeProvider")}
-              disabled={props.busyJobId === props.job.id}
-              onChange={(event) => props.onResumeProviderChange(event.target.value as AiProvider)}
-              value={props.resumeProvider}
-            >
-              {aiProviders.map((provider) => (
-                <option key={provider} value={provider}>{aiProviderLabel(provider)}</option>
-              ))}
-            </select>
-          </label>
           <button
             className="primary-button"
             disabled={props.busyJobId === props.job.id}
             onClick={(event) => {
               event.stopPropagation();
-              void props.onResume(props.job.id, props.resumeProvider);
+              void props.onResume(props.job.id, "codex");
             }}
-            title={props.resumeProvider === props.job.aiProvider ? t("agents.resumeNow") : t("agents.switchAndResume")}
+            title={t("agents.resumeNow")}
             type="button"
           >
             <Play size={14} />
-            {props.resumeProvider === props.job.aiProvider ? t("agents.resumeNow") : t("agents.switchAndResume")}
+            {t("agents.resumeNow")}
           </button>
         </div>
       ) : null}
@@ -352,16 +339,12 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
     }
   }
 
-  const hasActiveJobs = jobs.some(isActiveAgentJob);
   useEffect(() => {
-    if (!hasActiveJobs) {
-      return;
-    }
     const interval = window.setInterval(() => {
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [hasActiveJobs, props.project.id]);
+  }, [props.project.id]);
 
   return (
     <section className="page-section">
@@ -372,6 +355,7 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
       {error ? (
         <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
       ) : null}
+      <DevelopmentLoopPanel projectId={props.project.id} all />
       <div className="agent-job-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
         {!isLoading && !error && jobs.length === 0 ? <AsyncState kind="empty" message={t("agents.noJobs")} /> : null}
@@ -379,7 +363,7 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
           <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
             <span className="agent-job-title">#{job.id} {job.agentType}</span>
             <span className={`status-pill status-${job.status}`}>{job.status}</span>
-            <span>{formatJobTarget(job)}</span>
+            <span>{formatJobTarget(job)} · {job.aiModel ?? t("development.autoModel")}</span>
             <span>{formatDateTime(job.createdAt)}</span>
           </button>
         ))}
@@ -398,18 +382,20 @@ function AgentJobDetailScreen(props: {
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setRetrying] = useState(false);
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
-  const [resumeProvider, setResumeProvider] = useState<AiProvider>("codex");
+  const [executions, setExecutions] = useState<AgentExecutionDto[]>([]);
   const loadedJobId = useRef<number | null>(null);
   const activeJobId = useRef(props.jobId);
   const activeJobProjectId = useRef(props.project.id);
 
   async function load() {
-    const [jobResponse, activityResponse] = await Promise.all([
+    const [jobResponse, activityResponse, executionResponse] = await Promise.all([
       api.getAgentJob(props.project.id, props.jobId),
-      api.listAgentJobActivities(props.project.id, props.jobId)
+      api.listAgentJobActivities(props.project.id, props.jobId),
+      api.listAgentExecutions(props.project.id, props.jobId)
     ]);
     if (activeJobProjectId.current !== props.project.id || activeJobId.current !== props.jobId) return;
     setJob(jobResponse);
+    setExecutions(executionResponse);
     setActivities(activityResponse.filter((activity) => activity.agentJobId === jobResponse.id));
     loadedJobId.current = jobResponse.id;
     setError(null);
@@ -443,10 +429,6 @@ function AgentJobDetailScreen(props: {
     setRetrying(false);
     void load().catch(handleLoadError);
   }, [props.project.id, props.jobId]);
-
-  useEffect(() => {
-    if (job) setResumeProvider(job.aiProvider);
-  }, [job?.id, job?.aiProvider]);
 
   const isActive = job ? isActiveAgentJob(job) : false;
   useEffect(() => {
@@ -552,9 +534,7 @@ function AgentJobDetailScreen(props: {
                   busyJobId={busyJobId}
                   onCancel={cancelJob}
                   onResume={resumeJob}
-                  onResumeProviderChange={setResumeProvider}
                   onRetry={retryJob}
-                  resumeProvider={resumeProvider}
                 />
               </div>
               {job.status === "waiting_provider" ? (
@@ -612,6 +592,16 @@ function AgentJobDetailScreen(props: {
               </dl>
             </div>
             <div className="agent-job-main-content">
+              {executions.length ? <section className="execution-history">
+                <h2>{t("development.executions")}</h2>
+                {executions.map((execution) => <article className="execution-record" key={execution.id}>
+                  <header><strong>{execution.resolvedModel ?? execution.selectedModel}</strong><span className="status-pill">{execution.status}</span></header>
+                  <p>{t("development.effort")}: {execution.effort ?? "—"} · {formatDateTime(execution.startedAt)}</p>
+                  <p>{execution.selectionReason}</p>
+                  {execution.resolvedModel && execution.resolvedModel !== execution.selectedModel ? <p>{t("development.selectedModel")}: {execution.selectedModel}</p> : null}
+                  <details><summary>{t("development.executionDetails")}</summary><pre>{JSON.stringify({ policy: execution.policyVersion, threadId: execution.threadId, turnId: execution.turnId, usage: execution.usage }, null, 2)}</pre></details>
+                </article>)}
+              </section> : null}
               <h2 id="job-result">{t("agents.result")}</h2>
               <AgentJobResultSummary job={job} activities={activities} />
               <h2 id="job-activities">{t("agents.activities")}</h2>

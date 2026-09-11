@@ -1,5 +1,6 @@
-import { BookOpen, Bot, CheckCircle2, CircleAlert, FolderOpen, GitPullRequest, ListTodo, RotateCcw, Settings, Terminal } from "lucide-react";
+import { BookOpen, Bot, CheckCircle2, CircleAlert, FolderOpen, GitPullRequest, ListTodo, RotateCcw, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { api } from "../api";
 import type { AgentHeaderState } from "../agent-status";
 import logoMarkUrl from "../assets/logo.svg";
 import { t } from "../i18n";
@@ -9,16 +10,20 @@ export function AppShell(props: {
   view: View;
   navigationKey: string;
   onViewChange: (view: View) => void;
-  onSwitchProject: () => void;
+  onOpenFolder: () => void;
   agentState: AgentHeaderState;
   projectName: string;
   repositoryPath: string;
   children: React.ReactNode;
 }) {
-  const [isSettingsMenuOpen, setSettingsMenuOpen] = useState(false);
-  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
-  const settingsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
+  const [codexStatus, setCodexStatus] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    const refresh = () => { void api.codexStatus().then((value) => { if (!disposed) setCodexStatus(value.status); }).catch(() => { if (!disposed) setCodexStatus(null); }); };
+    refresh(); const timer = window.setInterval(refresh, 30_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
   const previousNavigationKey = useRef(props.navigationKey);
   const nav = [
     { view: "issues" as const, label: t("nav.issues"), icon: ListTodo },
@@ -26,60 +31,12 @@ export function AppShell(props: {
     { view: "agentJobs" as const, label: t("nav.agentRuns"), icon: Bot },
     { view: "repository" as const, label: t("nav.repository"), icon: Terminal }
   ];
-  const settingsNav = [
-    { view: "loops" as const, label: t("nav.loops"), icon: RotateCcw },
-    { view: "settings" as const, label: t("nav.settings"), icon: Settings }
-  ];
-
-  useEffect(() => {
-    if (!isSettingsMenuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (target instanceof Node && settingsMenuRef.current?.contains(target)) {
-        return;
-      }
-      setSettingsMenuOpen(false);
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isSettingsMenuOpen]);
-
-  useEffect(() => {
-    if (!isSettingsMenuOpen) return;
-    settingsMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-  }, [isSettingsMenuOpen]);
 
   useEffect(() => {
     if (previousNavigationKey.current === props.navigationKey) return;
     previousNavigationKey.current = props.navigationKey;
     mainRef.current?.focus({ preventScroll: true });
   }, [props.navigationKey]);
-
-  function handleSettingsMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setSettingsMenuOpen(false);
-      settingsMenuButtonRef.current?.focus();
-      return;
-    }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(settingsMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
-    if (!items.length) return;
-    event.preventDefault();
-    const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
-    const nextIndex = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? items.length - 1
-        : event.key === "ArrowDown"
-          ? (currentIndex + 1) % items.length
-          : (currentIndex - 1 + items.length) % items.length;
-    items[nextIndex]?.focus();
-  }
 
   return (
     <div className="app-shell">
@@ -92,6 +49,9 @@ export function AppShell(props: {
           <span>{t("app.name")}</span>
         </div>
         <div className="topbar-spacer" />
+        <span className="codex-connection" title={codexStatus === "login_required" ? t("development.loginHint") : "Codex"}>
+          {codexStatus ? t(`development.codex_${codexStatus}`) : "Codex"}
+        </span>
         <div className={`agent-state agent-state-${props.agentState.status}`} title={props.agentState.title}>
           {props.agentState.status === "ready" ? <CheckCircle2 aria-hidden="true" size={16} /> : null}
           {props.agentState.status === "running" ? <RotateCcw aria-hidden="true" size={16} /> : null}
@@ -99,59 +59,15 @@ export function AppShell(props: {
           {props.agentState.status === "waiting" || props.agentState.status === "failed" ? <CircleAlert aria-hidden="true" size={16} /> : null}
           {props.agentState.label}
         </div>
-        <div className="settings-menu" ref={settingsMenuRef}>
-          <button
-            aria-expanded={isSettingsMenuOpen}
-            aria-haspopup="menu"
-            aria-label={t("nav.tools")}
-            className={props.view === "settings" ? "settings-menu-button active" : "settings-menu-button"}
-            onClick={() => setSettingsMenuOpen((current) => !current)}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setSettingsMenuOpen(true);
-              }
-            }}
-            ref={settingsMenuButtonRef}
-            type="button"
-          >
-            <Settings aria-hidden="true" size={18} />
-          </button>
-          {isSettingsMenuOpen ? (
-            <div className="settings-menu-popover" onKeyDown={handleSettingsMenuKeyDown} role="menu">
-              <button
-                className="settings-menu-item"
-                onClick={() => {
-                  props.onSwitchProject();
-                  setSettingsMenuOpen(false);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <FolderOpen aria-hidden="true" size={16} />
-                <span>{t("nav.projects")}</span>
-              </button>
-              {settingsNav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={props.view === item.view ? "settings-menu-item active" : "settings-menu-item"}
-                    key={item.view}
-                    onClick={() => {
-                      props.onViewChange(item.view);
-                      setSettingsMenuOpen(false);
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <Icon aria-hidden="true" size={16} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
+        <button
+          aria-label={t("nav.openFolder")}
+          className="open-folder-button"
+          onClick={props.onOpenFolder}
+          title={t("nav.openFolder")}
+          type="button"
+        >
+          <FolderOpen aria-hidden="true" size={18} />
+        </button>
       </header>
       <header className="repository-header">
         <div className="repository-identity" title={props.repositoryPath}>

@@ -1,3 +1,7 @@
+import { createDatabaseContext } from "../src/server/db/client";
+import { createRepositories } from "../src/server/db/repositories";
+import { LoopEngine } from "../src/server/services/loop-engine";
+import { fakeDevelopmentAdapter } from "../src/test/fake-development-adapter";
 import { expect, test } from "@playwright/test";
 import { createClient } from "@libsql/client";
 import { execFileSync } from "node:child_process";
@@ -8,7 +12,7 @@ import { expectScreenContrast } from "./accessibility";
 
 const repoPath = resolve(".tmp/e2e/repo");
 
-test("setup, label automation, and agent job controls", async ({ page }) => {
+test("folder initialization, two learning loops, agent logs and GitHub-style review", async ({ page }) => {
   test.setTimeout(90_000);
   await expect
     .poll(async () => {
@@ -19,34 +23,25 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Choose project" })).toBeVisible();
-  await expectScreenContrast(page, "project picker");
-  await page.getByRole("button", { name: "Add repository" }).click();
-  await expect(page.getByRole("heading", { name: "Setup" })).toBeVisible();
-  await expectScreenContrast(page, "repository setup");
-  await page.getByLabel("Name").fill("E2E Project");
+  await expect(page.getByRole("heading", { name: "Drop a folder to get started" })).toBeVisible();
+  await expectScreenContrast(page, "folder drop setup");
+  await page.getByText("Using the browser development server?").click();
   await page.getByLabel("Path").fill(repoPath);
-  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByRole("button", { name: "Open folder" }).click();
 
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
   await expectScreenContrast(page, "issues list");
-  await expect(page.locator(".repository-identity")).toContainText("E2E Project");
+  await expect(page.locator(".repository-identity")).toContainText("repo");
   await expect(page.locator(".repository-identity")).toContainText("Local");
   await expect(page.getByRole("navigation", { name: "Repository navigation" })).toBeVisible();
-  await expect(page.getByText("No issues")).toBeVisible();
   const skipLink = page.getByRole("link", { name: "Skip to content" });
   await skipLink.focus();
   await expect(skipLink).toBeVisible();
   await skipLink.click();
   await expect(page.locator("main#main-content")).toBeFocused();
-  const toolsButton = page.getByRole("button", { name: "Project and settings" });
-  await toolsButton.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Projects" })).toBeFocused();
-  await page.keyboard.press("End");
-  await expect(page.getByRole("menuitem", { name: "Settings" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(toolsButton).toBeFocused();
-  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open another folder" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Loops" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Settings" })).toHaveCount(0);
   await page.getByRole("button", { name: "Agent runs" }).click();
   await expect(page.locator("main#main-content")).toBeFocused();
   await page.getByRole("button", { name: "Issues", exact: true }).click();
@@ -64,11 +59,8 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" })).toBeVisible();
   await expect(page.locator(".conversation-activity").filter({ hasText: "Labels applied" }).locator(".conversation-permalink")).toHaveAttribute("href", /^#activity-\d+$/);
   await expect(page.locator(".work-item-detail-meta")).toContainText("user");
-  await expect(page.locator(".automation-checks")).toContainText("requirements");
-  await expect(page.locator(".automation-checks")).toContainText("queued");
-  await expect(page.locator(".automation-check-links")).toContainText("Activities");
-  await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
-
+  await expect(page.locator(".development-loop-card")).toContainText("Queued");
+  await expect(page.locator(".development-stages")).toContainText("Plan");
   const projectsResponse = await page.request.get("/api/projects");
   const projects = (await projectsResponse.json()) as { items: Array<{ id: string }> };
   const projectId = projects.items[0].id;
@@ -135,18 +127,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await editedUserComment.getByRole("button", { name: /^Edited/ }).click();
   await expect(editedUserComment.locator(".comment-revision-history")).toContainText("Initial implementation note");
 
-  await page.getByRole("button", { name: "Pause automation" }).click();
-  await expect(page.locator(".objective-panel .status-pill")).toHaveText("paused");
-  await expect(page.locator(".objective-stage-summary")).toContainText("Requirements");
-  await page.getByRole("button", { name: "Resume automation" }).click();
-  await expect(page.locator(".objective-panel .status-pill")).toHaveText("running");
-  await page.getByRole("button", { name: "Close issue" }).click();
-  await expect(page.locator(".page-title-block .status-pill")).toHaveText("closed");
-  await page.getByRole("button", { name: "Reopen issue" }).click();
-  await expect(page.locator(".page-title-block .status-pill")).toHaveText("open");
-  await expect(page.locator(".conversation-activity").filter({ hasText: "Issue closed" })).toBeVisible();
-  await expect(page.locator(".conversation-activity").filter({ hasText: "Existing Objective selected after reopen" })).toBeVisible();
-  await expect(page.getByText("Existing Objective selected after reopen").first()).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.locator(".development-loop-card .status-pill")).toHaveText("Paused");
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(page.locator(".development-loop-card .status-pill")).toHaveText("Running");
   await page.locator(".page-toolbar").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Body")).toHaveValue("Exercise setup, label automation, and job controls.");
   await page.getByLabel("Body").fill("Exercise setup, label automation, job controls, and Goal Contract auditing.");
@@ -159,61 +143,44 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   const issueSummary = page.locator(".work-item-rich").filter({ hasText: "Add smoke workflow" });
   await expect(issueSummary).toContainText("requirements");
   await expect(issueSummary.locator(".work-item-author")).toHaveText("user");
-  await expect(issueSummary.locator(".work-item-check")).toContainText("queued");
 
-  const triageResponses = await Promise.all([
-    page.request.post(`/api/projects/${projectId}/triage-items`, {
-      data: {
-        sourceType: "scheduler",
-        title: "Investigate flaky smoke check",
-        body: "## Evidence\n\n- `npm test` failed once\n- Review before implementation",
-        priority: "high",
-        metadata: { discovery: "verification_failure", schedulerKey: "e2e:verification" }
-      }
-    }),
-    page.request.post(`/api/projects/${projectId}/triage-items`, {
-      data: {
-        sourceType: "scheduler",
-        title: "Ignore intentional TODO",
-        body: "This marker is intentionally long-lived.",
-        priority: "normal",
-        metadata: { discovery: "todo_fixme", schedulerKey: "e2e:todo" }
-      }
-    })
+  // The browser creates both Issues; the production engine performs real Git merges
+  // with a deterministic adapter so this test needs no account or network access.
+  await page.getByRole("button", { name: "New issue" }).click();
+  await page.getByLabel("Title").fill("Use the learned practice");
+  await page.getByLabel("Body").fill("Implement the next fixture feature.");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  const fixtureContext = createDatabaseContext(`file:${resolve(".tmp/e2e/oneteam.db")}`);
+  await fixtureContext.client.execute("pragma busy_timeout = 5000");
+  const fixtureRepos = createRepositories(fixtureContext.db);
+  const engine = new LoopEngine(fixtureRepos, fakeDevelopmentAdapter(fixtureRepos));
+  for (let step = 0; step < 24; step++) await engine.tick();
+  const loops = await fixtureRepos.development.list(projectId);
+  expect(loops.map((loop) => ({ status: loop.status, phase: loop.phase, summary: loop.summary }))).toEqual([
+    expect.objectContaining({ status: "succeeded", phase: "completed" }),
+    expect.objectContaining({ status: "succeeded", phase: "completed" })
   ]);
-  expect(triageResponses.every((response) => response.ok())).toBe(true);
+  fixtureContext.client.close();
   await page.getByRole("button", { name: "Agent runs" }).click();
-  await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
-  await expectScreenContrast(page, "agent runs list");
-  await page.getByRole("button", { name: "Issues", exact: true }).click();
-  const triageInbox = page.getByRole("region", { name: "Triage notifications" });
-  await expect(triageInbox).toBeVisible();
-  await expect(triageInbox.locator(".counter-badge")).toHaveText("2");
-  const ignoredTriage = triageInbox.locator(".issue-triage-item").filter({ hasText: "Ignore intentional TODO" });
-  await ignoredTriage.getByRole("button", { name: "Ignore", exact: true }).click();
-  await expect(ignoredTriage).toHaveCount(0);
-  const convertedTriage = triageInbox.locator(".issue-triage-item").filter({ hasText: "Investigate flaky smoke check" });
-  await expect(convertedTriage).toContainText("npm test");
-  await convertedTriage.getByRole("button", { name: "Convert to issue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /Investigate flaky smoke check/ })).toBeVisible();
+  await expect(page.locator(".development-loop-card")).toHaveCount(2);
+  await expect(page.locator(".development-loop-card").first()).toContainText("Completed");
+  await page.locator(".development-loop-card").last().getByText("Retrospective & history").click();
+  await page.locator(".development-loop-card").last().getByText("AGENTS.md · applied", { exact: true }).click();
+  await expect(page.locator(".knowledge-revision").filter({ hasText: "AGENTS.md" })).toContainText("Check fixtures before editing a feature.");
+  await expectScreenContrast(page, "completed loop knowledge");
+  await page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first().click();
+  await expect(page.locator(".execution-history")).toContainText("fixture-light");
+  await expect(page.locator(".execution-history")).toContainText("Deterministic browser test model selection.");
+  await expect(page.locator(".activity-list")).toContainText("Learning received");
+  await expectScreenContrast(page, "agent model history");
+  await page.screenshot({ path: ".tmp/e2e/agent-model-history.png", fullPage: true });
 
-  await page.getByRole("button", { name: "Agent runs" }).click();
-  await expect(page.getByRole("heading", { name: "Agent Jobs" })).toBeVisible();
-  const requirementsJob = page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first();
-  await expect(requirementsJob).toContainText("queued");
-  await requirementsJob.focus();
-  await requirementsJob.press("Enter");
-  await expect(page.getByRole("heading", { name: /#\d+ requirements/ })).toBeVisible();
-  await expectScreenContrast(page, "agent run detail");
-  await expect(page.locator("#job-activities")).toBeVisible();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.locator(".page-title-block")).toContainText("canceled");
-  await page.getByRole("button", { name: "Retry" }).click();
-  await expect(page.locator(".page-title-block")).toContainText("queued");
-
-  const artifactJobResponse = await page.request.post(`/api/projects/${projectId}/agent-jobs`, {
-    data: { agentType: "qa", targetType: "project", targetId: 0, triggerType: "e2e_artifact" }
-  });
+  async function seedJob(input: Parameters<ReturnType<typeof createRepositories>["agentJobs"]["create"]>[0]) {
+    const ctx = createDatabaseContext(`file:${resolve(".tmp/e2e/oneteam.db")}`);
+    try { const job = await createRepositories(ctx.db).agentJobs.create(input); return { ok: () => true, json: async () => ({ job }) }; }
+    finally { ctx.client.close(); }
+  }
+  const artifactJobResponse = await seedJob({ projectId, agentType: "qa", targetType: "project", targetId: 0, triggerType: "e2e_artifact" });
   expect(artifactJobResponse.ok()).toBe(true);
   const artifactJob = (await artifactJobResponse.json()) as { job: { id: number } };
   const artifactName = "01-qa-dashboard.png";
@@ -282,37 +249,9 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await repositoryCommit.locator(".repository-commit-hash").press("Enter");
   await expect(page).toHaveURL(/\/repository#commit-[0-9a-f]{40}$/);
 
-  await page.getByRole("button", { name: "Project and settings" }).click();
-  await page.getByRole("menuitem", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await expectScreenContrast(page, "settings");
-  await page.getByLabel("Automatic merge target branches").fill("main, release");
-  await page.getByLabel("Merge strategy").selectOption("squash");
-  await page.getByLabel("Diff risk threshold").selectOption("high");
-  await page.getByLabel("Default max rounds for new Objectives").fill("24");
-  await page.getByLabel("Implementation AI provider").selectOption("claude_code");
-  await page.getByLabel("Implementation Model").fill("claude-implementation");
-  await page.getByLabel("Verification AI provider").selectOption("codex");
-  await page.getByLabel("Verification Model").fill("gpt-verifier");
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Settings saved")).toBeVisible();
-  await page.getByRole("button", { name: "Repository", exact: true }).click();
-  await page.getByRole("button", { name: "Project and settings" }).click();
-  await page.getByRole("menuitem", { name: "Settings" }).click();
-  await expect(page.getByLabel("Automatic merge target branches")).toHaveValue("main, release");
-  await expect(page.getByLabel("Merge strategy")).toHaveValue("squash");
-  await expect(page.getByLabel("Diff risk threshold")).toHaveValue("high");
-  await expect(page.getByLabel("Default max rounds for new Objectives")).toHaveValue("24");
-  await expect(page.getByLabel("Implementation AI provider")).toHaveValue("claude_code");
-  await expect(page.getByLabel("Implementation Model")).toHaveValue("claude-implementation");
-  await expect(page.getByLabel("Verification AI provider")).toHaveValue("codex");
-  await expect(page.getByLabel("Verification Model")).toHaveValue("gpt-verifier");
-  await page.getByRole("button", { name: "Project and settings" }).press("ArrowDown");
-  await page.getByRole("menuitem", { name: "Projects" }).press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Loops" })).toBeFocused();
-  await page.getByRole("menuitem", { name: "Loops" }).press("Enter");
-  await expect(page.getByRole("heading", { name: "Loops", exact: true })).toBeVisible();
-  await expectScreenContrast(page, "loops and memory");
+  await expect(page.getByRole("button", { name: "Open another folder" })).toBeVisible();
+  await expect(page.getByText("Claude Code")).toHaveCount(0);
+  await expect(page.getByText("LM Studio")).toHaveCount(0);
 
   execFileSync("git", ["checkout", "-b", "feature/large-diff"], { cwd: repoPath });
   const longDiffPath = [
@@ -344,14 +283,7 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   });
   expect(pullRequestResponse.ok()).toBe(true);
   const createdPullRequest = (await pullRequestResponse.json()) as { pullRequest: { id: number } };
-  const findingJobResponse = await page.request.post(`/api/projects/${projectId}/agent-jobs`, {
-    data: {
-      agentType: "review",
-      targetType: "pull_request",
-      targetId: createdPullRequest.pullRequest.id,
-      triggerType: "e2e_finding"
-    }
-  });
+  const findingJobResponse = await seedJob({ projectId, agentType: "review", targetType: "pull_request", targetId: createdPullRequest.pullRequest.id, triggerType: "e2e_finding" });
   expect(findingJobResponse.ok()).toBe(true);
   const findingJob = (await findingJobResponse.json()) as { job: { id: number } };
   const bilingualReportDatabase = createClient({ url: `file:${resolve(".tmp/e2e/oneteam.db")}` });
@@ -499,13 +431,10 @@ test("setup, label automation, and agent job controls", async ({ page }) => {
   await expect(page.locator(`#${linkedLineAnchor}`)).toBeVisible();
   await expect.poll(() => page.locator(".diff-table-scroll").evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
-  await page.getByRole("button", { name: "Project and settings" }).click();
-  await page.getByRole("menuitem", { name: "Settings" }).click();
-  await page.getByLabel("Locale").selectOption("ja");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
-  await expect(page.getByText("設定を保存しました")).toBeVisible();
-  await expectScreenContrast(page, "Japanese settings");
+  const localeDb = createDatabaseContext(`file:${resolve(".tmp/e2e/oneteam.db")}`);
+  await createRepositories(localeDb.db).projects.update(projectId, { locale: "ja" });
+  localeDb.client.close();
+  await page.reload();
 
   await page.getByRole("button", { name: "Pull Request", exact: true }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
