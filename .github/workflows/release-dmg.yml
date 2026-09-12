@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 45
 
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
 
@@ -42,11 +41,61 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Prepare Apple signing credentials
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const required = [
+            "MACOS_CERTIFICATE_P12_BASE64",
+            "MACOS_CERTIFICATE_PASSWORD",
+            "APPLE_API_KEY_P8_BASE64",
+            "APPLE_API_KEY_ID",
+            "APPLE_API_ISSUER",
+          ];
+          for (const name of required) {
+            if (!process.env[name]) throw new Error(`Missing GitHub Actions secret: ${name}`);
+          }
+
+          const temporaryDirectory = process.env.RUNNER_TEMP;
+          const certificatePath = path.join(temporaryDirectory, "oneteam-signing-certificate.p12");
+          const apiKeyPath = path.join(temporaryDirectory, "oneteam-notarization-key.p8");
+          fs.writeFileSync(certificatePath, Buffer.from(process.env.MACOS_CERTIFICATE_P12_BASE64, "base64"), { mode: 0o600 });
+          fs.writeFileSync(apiKeyPath, Buffer.from(process.env.APPLE_API_KEY_P8_BASE64, "base64"), { mode: 0o600 });
+          fs.appendFileSync(process.env.GITHUB_ENV, `CSC_LINK=${certificatePath}\nAPPLE_API_KEY=${apiKeyPath}\n`);
+          NODE
+
       - name: Build app
         run: npm run build
 
-      - name: Build DMG
+      - name: Build, sign, and notarize DMG
+        env:
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npx electron-builder --mac dmg --publish never
+
+      - name: Verify signed and notarized app
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          app_paths=(release/mac*/OneTeam.app)
+          if [ ${#app_paths[@]} -ne 1 ]; then
+            echo "Expected one packaged app, found ${#app_paths[@]}."
+            find release -maxdepth 3 -name '*.app' -print || true
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "${app_paths[0]}"
+          spctl --assess --type execute --verbose=4 "${app_paths[0]}"
+          xcrun stapler validate "${app_paths[0]}"
 
       - name: Upload DMG to release
         env:
@@ -62,3 +111,7 @@ jobs:
             exit 1
           fi
           gh release upload "$RELEASE_TAG" "${dmg_files[@]}" --clobber
+
+      - name: Remove temporary signing files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/oneteam-signing-certificate.p12" "$RUNNER_TEMP/oneteam-notarization-key.p8"

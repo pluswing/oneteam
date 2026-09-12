@@ -99,6 +99,8 @@ npm run app:pack    # packaged desktop app
 npm run docs:screenshots # recapture the introduction-page sample screens on macOS
 ```
 
+GitHub Releases 向けの macOS 署名・公証の初回設定、リリース手順、検証方法は [macOS 配布用の署名と公証](docs/12-macos-code-signing.md) を参照してください。
+
 Vitest covers Loop sequencing, real Git merges, migration, restart recovery, knowledge application/restoration, workspace isolation and model routing. Playwright creates two Issues and runs the production Loop engine with a deterministic Agent fixture, then checks learning transfer, model logs, large diffs, line comments, keyboard navigation and English/Japanese contrast. Codex authentication and live execution are checked separately from reproducible tests.
 
 Runtime overrides for development: `ONETEAM_HOME`, `ONETEAM_REPOSITORY_PATH`, `ONETEAM_DATABASE_URL`, `ONETEAM_AGENT_WORKER=false`, `ONETEAM_AGENT_POLL_INTERVAL_MS`, `ONETEAM_CODEX_COMMAND`, `ONETEAM_CODEX_AUTO_LOGIN=false`, `HOST`, and `PORT`. A fixed database override is intended for tests and cannot switch between repositories. Provider and model environment overrides are no longer used.
