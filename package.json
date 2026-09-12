@@ -32,7 +32,7 @@
     "codex:exec": "codex exec --dangerously-bypass-approvals-and-sandbox"
   },
   "build": {
-    "appId": "com.pluswing.oneteam",
+    "appId": "jp.co.pluswing.oneteam",
     "productName": "OneTeam",
     "directories": {
       "output": "release"
@@ -48,9 +48,11 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "icon": "build/icon.icns",
-      "identity": "-"
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": true
     }
   },
   "dependencies": {
