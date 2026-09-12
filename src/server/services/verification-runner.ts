@@ -26,13 +26,36 @@ export function selectVerificationCommands(commands: ProjectCommandDto[]): Proje
 export async function runVerificationCommands(
   repoPath: string,
   commands: ProjectCommandDto[],
-  timeoutMs = defaultTimeoutMs
+  timeoutMs = defaultTimeoutMs,
+  agentDeadlineAtMs: number | null = null
 ): Promise<VerificationCommandResult[]> {
   const results: VerificationCommandResult[] = [];
   for (const command of selectVerificationCommands(commands)) {
-    results.push(await runCommand(repoPath, command.commandType, command.command ?? "", timeoutMs));
+    const remainingAgentTimeMs = agentDeadlineAtMs === null ? null : agentDeadlineAtMs - Date.now();
+    if (remainingAgentTimeMs !== null && remainingAgentTimeMs <= 0) {
+      results.push(deadlineResult(command));
+      break;
+    }
+    const effectiveTimeoutMs = remainingAgentTimeMs === null
+      ? timeoutMs
+      : Math.max(1, Math.min(timeoutMs, remainingAgentTimeMs));
+    results.push(await runCommand(repoPath, command.commandType, command.command ?? "", effectiveTimeoutMs));
+    if (agentDeadlineAtMs !== null && Date.now() >= agentDeadlineAtMs) break;
   }
   return results;
+}
+
+function deadlineResult(command: ProjectCommandDto): VerificationCommandResult {
+  return {
+    commandType: command.commandType,
+    command: command.command ?? "",
+    status: "failed",
+    exitCode: null,
+    signal: null,
+    output: "Command was not started because the Agent job deadline was reached.",
+    durationMs: 0,
+    timedOut: true
+  };
 }
 
 async function runCommand(

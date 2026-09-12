@@ -128,12 +128,7 @@ Request:
   "name": "example-app",
   "repoPath": "/Users/me/example-app",
   "defaultBranch": "main",
-  "locale": "en",
-  "codex": {
-    "command": "node_modules/.bin/codex",
-    "model": "model-name",
-    "fullAccess": true
-  }
+  "locale": "en"
 }
 ```
 
@@ -425,7 +420,58 @@ Response:
 }
 ```
 
-### 7.3 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
+### 7.3 GET /api/projects/:projectId/pull-requests/:pullRequestId/files
+
+画面の初期表示用に、patchを含まない変更ファイル一覧と、その一覧を生成したcommit snapshotを返す。
+
+Response:
+
+```json
+{
+  "files": [
+    {
+      "path": "package.json",
+      "status": "M",
+      "additions": 1,
+      "deletions": 0,
+      "binary": false
+    }
+  ],
+  "sourceCommit": "4c8f...",
+  "targetCommit": "91a2..."
+}
+```
+
+### 7.4 GET /api/projects/:projectId/pull-requests/:pullRequestId/findings
+
+Review / QA Agentのstructured outputから、ファイル・行へ配置できるfindingを返す。Fixの`resolvedFindings`、後続Review承認、QA成功後も履歴は削除せず`resolved`として残す。
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "72:review:0",
+      "agentJobId": 72,
+      "source": "review",
+      "severity": "high",
+      "path": "src/app.ts",
+      "line": 42,
+      "side": "R",
+      "title": "Missing validation",
+      "body": "Reject empty input before saving.",
+      "status": "open",
+      "resolvedByJobId": null,
+      "createdAt": "2026-08-28T01:00:00.000Z"
+    }
+  ]
+}
+```
+
+### 7.5 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff
+
+全ファイルのpatchを必要とする互換API。画面の通常経路では`/files`でメタデータを取得し、次の`/diff-file`で選択ファイルのみ遅延取得する。
 
 Response:
 
@@ -443,7 +489,34 @@ Response:
 }
 ```
 
-### 7.4 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
+### 7.6 GET /api/projects/:projectId/pull-requests/:pullRequestId/diff-file
+
+Query:
+
+- `path`: 必須。変更後のファイルパス
+- `whitespace=ignore`: 任意。空白のみの変更を無視する
+- `context=wide|full`: 任意。前後20行またはファイル全体を表示する
+- `sourceCommit` / `targetCommit`: 任意。`/files`で得たsnapshotを指定し、branch更新後の古い一覧との混在を409で防ぐ
+
+Response:
+
+```json
+{
+  "file": {
+    "path": "package.json",
+    "previousPath": "package.old.json",
+    "status": "R095",
+    "additions": 1,
+    "deletions": 0,
+    "binary": false,
+    "patch": "@@ ..."
+  },
+  "sourceCommit": "4c8f...",
+  "targetCommit": "91a2..."
+}
+```
+
+### 7.7 POST /api/projects/:projectId/pull-requests/:pullRequestId/resolve-conflicts
 
 Request:
 
@@ -483,9 +556,10 @@ Response:
 
 ```json
 {
-  "job": {
-    "id": 55,
-    "agentType": "requirements",
+	  "job": {
+	    "id": 55,
+	    "aiProvider": "codex",
+	    "agentType": "requirements",
     "targetType": "issue",
     "targetId": 24,
     "status": "queued",
@@ -510,9 +584,10 @@ Response:
 ```json
 {
   "items": [
-    {
-      "id": 55,
-      "agentType": "requirements",
+	    {
+	      "id": 55,
+	      "aiProvider": "codex",
+	      "agentType": "requirements",
       "targetType": "issue",
       "targetId": 24,
       "status": "running",
@@ -530,12 +605,25 @@ Response:
 
 ```json
 {
-  "job": {
-    "id": 55,
-    "agentType": "requirements",
+	  "job": {
+	    "id": 55,
+	    "aiProvider": "codex",
+	    "agentType": "requirements",
     "status": "running",
     "input": {},
-    "output": null,
+    "output": {
+      "status": "succeeded",
+      "message": "Requirements are ready.",
+      "stopReason": "passed",
+      "evidence": [
+        {
+          "type": "requirements",
+          "title": "Goal Contract created",
+          "summary": "Acceptance criteria, evidence requirements, and stop conditions were defined.",
+          "payload": {}
+        }
+      ]
+    },
     "error": null,
     "lockKey": "project:project_123:issue:24:write",
     "createdAt": "2026-05-20T10:00:00.000Z",
@@ -547,8 +635,9 @@ Response:
 
 ### 8.4 POST /api/projects/:projectId/agent-jobs/:jobId/cancel
 
-`queued` / `running` / `waiting_human` jobs can be canceled. For running Codex
-jobs, the worker observes the canceled state and terminates the process.
+`queued` / `running` / `waiting_human` jobs can be canceled. For running provider
+jobs, the worker observes the canceled state and terminates the CLI process or
+stops the local API tool loop.
 
 Response:
 
@@ -616,7 +705,7 @@ Response:
 
 - `title` is required for issue and pull request.
 - `sourceBranch` and `targetBranch` are required for pull request.
-- `agentType` must be one of supported agent types.
+- `agentType` must be one of `requirements`, `implementation`, `review`, `fix`, `qa`, `verifier`, or `command_detection`.
 - `targetType` must be `issue` or `pull_request`.
 - `DELETE` cannot be called for already deleted records.
 - comment body must not be empty.

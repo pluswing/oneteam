@@ -1,7 +1,8 @@
 import type { AgentJobDto } from "../shared/types";
+import type { DevelopmentLoopDto } from "../shared/development-loop";
 import { t } from "./i18n";
 
-const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running", "waiting_human"]);
+const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running", "waiting_provider", "waiting_human"]);
 const retryableAgentStatuses = new Set<AgentJobDto["status"]>(["failed", "canceled"]);
 
 export type AgentHeaderStatus = "ready" | "queued" | "running" | "waiting" | "failed";
@@ -17,6 +18,7 @@ export function isActiveAgentJob(job: AgentJobDto): boolean {
 }
 
 export function canRetryAgentJob(job: AgentJobDto): boolean {
+  if (job.input.developmentLoopId && job.status === "canceled") return false;
   return retryableAgentStatuses.has(job.status);
 }
 
@@ -24,7 +26,13 @@ export function formatJobTarget(job: AgentJobDto): string {
   return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
 }
 
-export function summarizeAgentJobs(jobs: AgentJobDto[]): AgentHeaderState {
+export function summarizeAgentJobs(jobs: AgentJobDto[], loops?: DevelopmentLoopDto[]): AgentHeaderState {
+  if (loops) {
+    const current = [...loops].sort((a, b) => a.id - b.id).find((loop) => !["succeeded", "canceled"].includes(loop.status));
+    if (!current) return { status: "ready", label: t("status.ready"), count: 0, title: t("status.ready") };
+    const status = current.status === "running" ? "running" : current.status === "queued" ? "queued" : current.status === "failed" ? "failed" : "waiting";
+    return { status, label: t(`development.${current.status}`), count: 1, title: `Loop #${current.id} · ${t(`development.${current.phase}`)}` };
+  }
   const runningJobs = jobs.filter((job) => job.status === "running");
   if (runningJobs.length) {
     return agentHeaderState("running", t("status.running"), runningJobs);
@@ -33,6 +41,16 @@ export function summarizeAgentJobs(jobs: AgentJobDto[]): AgentHeaderState {
   const waitingJobs = jobs.filter((job) => job.status === "waiting_human");
   if (waitingJobs.length) {
     return agentHeaderState("waiting", t("status.waiting"), waitingJobs);
+  }
+
+  const providerWaitingJobs = jobs.filter((job) => job.status === "waiting_provider");
+  if (providerWaitingJobs.length) {
+    return agentHeaderState("waiting", t("status.waitingProvider"), providerWaitingJobs);
+  }
+
+  const pausedJobs = jobs.filter((job) => job.status === "paused");
+  if (pausedJobs.length) {
+    return agentHeaderState("waiting", t("status.paused"), pausedJobs);
   }
 
   const queuedJobs = jobs.filter((job) => job.status === "queued");

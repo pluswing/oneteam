@@ -11,6 +11,7 @@ Agent Job、issue label、pull request label の状態遷移を定義する。�
 | `queued` | 実行待ち |
 | `running` | 実行中 |
 | `waiting_human` | 人間の入力待ち |
+| `waiting_provider` | AI provider の利用枠、rate limit、一時障害の回復待ち |
 | `succeeded` | 正常終了 |
 | `failed` | 失敗 |
 | `canceled` | キャンセル済み |
@@ -24,10 +25,13 @@ stateDiagram-v2
   queued --> canceled: user cancels
   running --> succeeded: agent completed
   running --> waiting_human: agent asked questions
+  running --> waiting_provider: provider quota exhausted / retryable provider error
   running --> failed: agent failed
   running --> canceled: user cancels
   waiting_human --> queued: user comments answer / auto resume
   waiting_human --> canceled: user cancels
+  waiting_provider --> queued: quota recovered / retry time reached
+  waiting_provider --> canceled: user cancels
   failed --> queued: retry
   failed --> canceled: user cancels
   succeeded --> [*]
@@ -94,10 +98,18 @@ stateDiagram-v2
   Fixing --> Reviewing: fixes completed
   Reviewing --> Testing: review approved
   Testing --> Fixing: QA defect
-  Testing --> Completed: QA passed
+  Testing --> Verifying: QA passed
+  Verifying --> ReadyToMerge: stop condition met
+  Verifying --> Fixing: verification failed
+  ReadyToMerge --> MergeGate: automatic merge starts
+  MergeGate --> Merged: HEAD / conflict / verification / project + Loop risk checks passed
+  Merged --> Merged: idempotent local finalization retry
+  MergeGate --> Verifying: source / target advanced or evidence became stale
+  MergeGate --> Fixing: conflict or correctable defect detected
+  MergeGate --> WaitingHuman: auto-merge policy requires a human decision
   Open --> ConflictFixing: conflict detected
   ConflictFixing --> Reviewing: conflict resolved
-  Completed --> Closed: user closes PR
+  Merged --> Closed: issue and pull request lifecycle finalized
 ```
 
 ## 8. Pull Request Label Rules
@@ -110,6 +122,11 @@ stateDiagram-v2
 | `reviewing` | review approved | `testing` |
 | `testing` | QA defect | `fixing` |
 | `testing` | QA passed | `done` |
+| `done` | verifier passed | `ready-to-merge` |
+| `ready-to-merge` | merge Gate passed | PR status `merged`、Objective `succeeded` |
+| `ready-to-merge` | target advanced / stale Evidence | `reviewing` または `done` で再検証 |
+| `ready-to-merge` | conflict / correctable defect | `fixing` または `resolving-conflicts` |
+| `done` | verifier failed | `fixing` |
 | any open PR | merge conflict detected | `resolving-conflicts` |
 | `resolving-conflicts` | conflict resolved | `reviewing` |
 
@@ -142,11 +159,36 @@ Human Gate は Agent が自力で決めるべきではない判断をユーザ�
 | `running` | `file_change`: files changed |
 | `running` | `test`: test/build/lint result |
 | `waiting_human` | `progress`: waiting for user answer |
+| `waiting_provider` | `system`: provider wait started / retry scheduled |
 | `failed` | `error`: failure summary |
 | `succeeded` | `progress`: job completed |
 | `canceled` | `system`: job canceled |
 
-## 11. Locking
+## 11. Provider Gate
+
+Provider Gate は、人間の入力ではなく AI provider の capacity 回復を待つ状態である。Codex の usage remaining 枯渇は失敗として数えず、次の情報を保存する。
+
+- `waitReason`: `provider_quota_exhausted`
+- provider / model
+- usage snapshot と provider message
+- `detectedAt`
+- provider が返す場合は `resetAt`
+- 次回確認時刻 `nextRetryAt`
+- retry count
+- Codex thread / session identifier が利用できる場合はその識別子
+
+Provider Gate のルール:
+
+1. quota 枯渇を検出した Agent Job を `waiting_provider` にする。
+2. worktree、branch、job input、Objective、Evidence を維持する。
+3. reset time が分かる場合はその直後、分からない場合は上限付き exponential backoff で再確認する。
+4. quota 回復後、同じ Job または同じ Objective step を `queued` に戻す。
+5. 待機と再開は Activity に記録し、Issue / PR comment は節目だけに限定する。
+6. 待機中は objective round count、attempt failure、repeated failure count を増やさない。
+7. アプリ再起動時は DB の `waiting_provider` Job と `nextRetryAt` を読み、timer を復元する。
+8. ユーザーは Resume now または Cancel を実行できる。
+
+## 12. Locking
 
 同じ対象に対して複数の write job を同時実行しない。
 
@@ -162,7 +204,7 @@ Worker は `running` job の `lockKey` を見て、同じ `lockKey` を持つ
 
 Read-only review は原則 lock 不要。ただし review 結果で label を変更するため、label update 時は短い transaction lock を使う。
 
-## 12. Retry
+## 13. Retry
 
 Retry は新しい attempt として扱う。
 
@@ -170,7 +212,7 @@ Retry は新しい attempt として扱う。
 - previous job の `parent_job_id` を参照する新 job を作成してもよい。
 - Activity Log には retry 開始を `system` として記録する。
 
-## 13. Cancel
+## 14. Cancel
 
 Cancel は job status を `canceled` にする。
 
@@ -182,22 +224,22 @@ Cancel は job status を `canceled` にする。
 
 自動 rollback は MVP では行わない。
 
-## 14. Merge Conflict Flow
+## 15. Merge Conflict Flow
 
 ```mermaid
 sequenceDiagram
-  participant U as User
-  participant UI as one team UI
+  participant C as Objective Controller
+  participant UI as OneTeam UI
   participant G as Git Service
   participant A as Fix Agent
 
-  U->>UI: Open PR
-  UI->>G: Check source branch against target branch
-  G-->>UI: Conflict detected
-  UI->>UI: Add resolving-conflicts label
-  UI->>A: Queue fix job
+  C->>G: Run automatic merge gate
+  G-->>C: Conflict detected
+  C->>UI: Add resolving-conflicts label and timeline event
+  C->>A: Queue fix job
   A->>G: Resolve conflicts on source branch
   A->>G: Run tests
-  A-->>UI: Conflict resolved
-  UI->>UI: Add reviewing label
+  A-->>C: Conflict resolved with Evidence
+  C->>UI: Add reviewing label
+  C->>C: Re-review, re-verify, then retry merge gate
 ```

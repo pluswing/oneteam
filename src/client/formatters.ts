@@ -1,8 +1,11 @@
 import type { PullRequestDto } from "../shared/types";
-import { t } from "./i18n";
+import { getLocale, t } from "./i18n";
 
 export function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "-";
+  if (!value) {
+    return "-";
+  }
+  return new Date(value).toLocaleString(getLocale() === "ja" ? "ja-JP" : "en-US");
 }
 
 export function formatPullRequestStatus(status: PullRequestDto["status"]): string {

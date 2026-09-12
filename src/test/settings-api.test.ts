@@ -1,76 +1,23 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { createApp } from "../server/app";
-import { createDatabaseContext } from "../server/db/client";
-import { runMigrations } from "../server/db/migrations";
-import { createRepositories } from "../server/db/repositories";
-import type { ProjectSettingsDto } from "../shared/types";
+import { repositoryDatabaseUrl } from "../server/config";
+import { developmentFixture } from "./development-fixture";
+import { ensureDevelopmentLoop, queueDevelopmentJob } from "../server/services/development-loop";
 
-describe("settings API", () => {
-  it("reads runtime settings and validates Codex command updates", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "oneteam-settings-"));
-    const fakeCodexPath = join(dir, "fake-codex.mjs");
-    await writeFile(
-      fakeCodexPath,
-      `#!/usr/bin/env node
-if (process.argv.includes("--version")) {
-  process.stdout.write("fake-codex 1.0.0\\n");
-  process.exit(0);
-}
-process.exit(1);
-`,
-      "utf8"
-    );
-    await chmod(fakeCodexPath, 0o755);
-
-    const context = createDatabaseContext(`file:${join(dir, "test.db")}`);
-    await runMigrations(context.client);
-    const repos = createRepositories(context.db);
-    const app = createApp({
-      repos,
-      runtime: {
-        server: { host: "127.0.0.1", port: 3580 },
-        database: { url: `file:${join(dir, "test.db")}` }
-      }
-    });
-    const project = await repos.projects.create({
-      name: "Example",
-      repoPath: dir,
-      defaultBranch: "main",
-      locale: "en"
-    });
-
-    const updateResponse = await app.request(`/api/projects/${project.id}/settings`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        locale: "ja",
-        codexCommand: fakeCodexPath,
-        model: "gpt-test"
-      })
-    });
-    const getResponse = await app.request(`/api/projects/${project.id}/settings`);
-    const invalidResponse = await app.request(`/api/projects/${project.id}/settings`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        locale: "ja",
-        codexCommand: join(dir, "missing-codex"),
-        model: "gpt-test"
-      })
-    });
-    const updated = (await updateResponse.json()) as ProjectSettingsDto;
-    const settings = (await getResponse.json()) as ProjectSettingsDto;
-
-    expect(updateResponse.status).toBe(200);
-    expect(updated.project.locale).toBe("ja");
-    expect(settings.ai.codexCommand).toBe(fakeCodexPath);
-    expect(settings.ai.model).toBe("gpt-test");
-    expect(settings.runtime.database.url).toContain("test.db");
-    expect(invalidResponse.status).toBe(400);
-
-    context.client.close();
-  });
+it("keeps the database in the folder and disables obsolete settings and manual scheduling APIs", async () => {
+  const fixture = await developmentFixture();
+  try {
+    const { repos, project, dir } = fixture; const app = createApp({ repos });
+    expect(repositoryDatabaseUrl(dir)).toBe(`file:${dir}/.oneteam/data/oneteam.db`);
+    for (const path of ["settings", "loops", "triage-items", "agent-jobs"]) {
+      const response = await app.request(`/api/projects/${project.id}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      expect(response.status).toBe(404);
+    }
+    expect((await app.request(`/api/projects/${project.id}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ai: { provider: "claude_code" } }) })).status).toBe(404);
+    expect((await app.request("/api/repositories/switch", { method: "POST" })).status).toBe(404);
+    await repos.settings.set("ai", { provider: "claude_code" });
+    const issue = await repos.issues.create({ projectId: project.id, title: "Codex only" });
+    const loop = await ensureDevelopmentLoop(repos, project.id, issue.id);
+    expect(await queueDevelopmentJob(repos, loop)).toMatchObject({ aiProvider: "codex", aiModel: null });
+  } finally { await fixture.cleanup(); }
 });

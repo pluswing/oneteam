@@ -1,11 +1,90 @@
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CodexAdapter } from "../server/agents/codex-adapter";
+import { classifyCodexRateLimitSnapshot, CodexAdapter } from "../server/agents/codex-adapter";
 import type { AgentJobDto } from "../shared/types";
 
 describe("codex adapter", () => {
+  it("classifies available and exhausted Codex rate-limit snapshots", () => {
+    const checkedAt = new Date("2026-08-29T00:00:00.000Z");
+    expect(classifyCodexRateLimitSnapshot({
+      rateLimits: {
+        primary: { usedPercent: 20, resetsAt: 1_788_000_000 },
+        secondary: { usedPercent: 60, resetsAt: 1_788_600_000 },
+        spendControlReached: false,
+        rateLimitReachedType: null
+      }
+    }, checkedAt)).toMatchObject({ status: "available", resetAt: null });
+
+    expect(classifyCodexRateLimitSnapshot({
+      rateLimitsByLimitId: {
+        codex: {
+          primary: { usedPercent: 100, resetsAt: 1_788_000_000 },
+          secondary: { usedPercent: 60, resetsAt: 1_788_600_000 },
+          spendControlReached: false,
+          rateLimitReachedType: "rate_limit_reached"
+        }
+      }
+    }, checkedAt)).toMatchObject({
+      status: "exhausted",
+      resetAt: new Date(1_788_000_000_000).toISOString()
+    });
+  });
+
+  it("reads capacity through the Codex app-server without starting an agent turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-probe-"));
+    const methodsPath = join(dir, "methods.json");
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+
+const methods = [];
+const lines = createInterface({ input: process.stdin });
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  methods.push(message.method);
+  writeFileSync(${JSON.stringify(methodsPath)}, JSON.stringify(methods));
+  if (message.id === 1) {
+    process.stdout.write(JSON.stringify({ id: 1, result: { userAgent: "fake" } }) + "\\n");
+  }
+  if (message.id === 2) {
+    process.stdout.write(JSON.stringify({
+      id: 2,
+      result: {
+        rateLimits: {
+          primary: { usedPercent: 25, resetsAt: 1788000000 },
+          secondary: { usedPercent: 50, resetsAt: 1788600000 },
+          spendControlReached: false,
+          rateLimitReachedType: null
+        }
+      }
+    }) + "\\n");
+  }
+}
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+
+    const result = await new CodexAdapter({ command: fakeCodexPath }).probeCapacity({
+      job: fakeJob,
+      timeoutMs: 2_000
+    });
+
+    expect(result).toMatchObject({
+      status: "available",
+      provider: "codex",
+      source: "codex_app_server_rate_limits"
+    });
+    expect(await readFile(methodsPath, "utf8")).toBe(
+      JSON.stringify(["initialize", "initialized", "account/rateLimits/read"])
+    );
+  });
+
   it("runs the local Codex CLI with full access flags and captures JSONL activity", async () => {
     const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-"));
     const argsPath = join(dir, "args.json");
@@ -39,7 +118,7 @@ writeFileSync(outputPath, JSON.stringify({
     await chmod(fakeCodexPath, 0o755);
 
     const activities: Array<{ type: string; title: string; body?: string | null }> = [];
-    const adapter = new CodexAdapter({ command: fakeCodexPath });
+    const adapter = new CodexAdapter({ command: fakeCodexPath, model: "gpt-test" });
     const result = await adapter.run({
       job: fakeJob,
       repoPath: dir,
@@ -51,7 +130,27 @@ writeFileSync(outputPath, JSON.stringify({
 
     const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
     const schema = JSON.parse(await readFile(schemaCopyPath, "utf8")) as {
+      required?: string[];
       properties: {
+        evidence: {
+          anyOf: Array<{
+            items?: {
+              properties?: {
+                payload?: {
+                  anyOf: Array<{
+                    type?: string;
+                    additionalProperties?: boolean;
+                    properties?: {
+                      artifact?: {
+                        required?: string[];
+                      };
+                    };
+                  }>;
+                };
+              };
+            };
+          }>;
+        };
         metadata: {
           anyOf: Array<{
             properties?: {
@@ -75,6 +174,13 @@ writeFileSync(outputPath, JSON.stringify({
       };
     };
     const metadataObjectSchema = schema.properties.metadata.anyOf.find((item) => item.properties);
+    const evidenceItemSchema = schema.properties.evidence.anyOf.find((item) => item.items)?.items;
+    const evidencePayloadObjectSchema = evidenceItemSchema?.properties?.payload?.anyOf.find(
+      (item) => item.type === "object" && !item.properties?.artifact
+    );
+    const evidenceArtifactPayloadSchema = evidenceItemSchema?.properties?.payload?.anyOf.find(
+      (item) => item.type === "object" && item.properties?.artifact
+    );
     const reviewObjectSchema = metadataObjectSchema?.properties?.review?.anyOf.find((item) => item.properties);
     const findingItemSchema = reviewObjectSchema?.properties?.findings?.anyOf.find((item) => item.items)?.items;
     expect(args).toEqual(
@@ -91,10 +197,29 @@ writeFileSync(outputPath, JSON.stringify({
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--sandbox");
     expect(args.at(-1)).toBe("-");
-    expect(metadataObjectSchema?.required).toEqual(["nextLabel", "pullRequest", "review", "fix", "qa"]);
+    expect(metadataObjectSchema?.required).toEqual([
+      "nextLabel",
+      "goalContract",
+      "pullRequest",
+      "review",
+      "fix",
+      "qa",
+      "verifier"
+    ]);
+    expect(schema.required).toEqual(
+      expect.arrayContaining(["status", "message", "stopReason", "evidence", "metadata"])
+    );
+    expect(evidencePayloadObjectSchema?.additionalProperties).toBe(false);
+    expect(evidenceArtifactPayloadSchema?.properties?.artifact?.required).toEqual(["kind", "path", "caption"]);
     expect(findingItemSchema?.required).toEqual(["severity", "path", "line", "title", "body"]);
     expect(result.status).toBe("succeeded");
     expect(result.message).toBe("Codex completed.");
+    expect(result.metadata?.providerExecution).toEqual({
+      model: "gpt-test",
+      sessionId: "thread-1",
+      resumedSession: false,
+      usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3, reasoning_output_tokens: 1 }
+    });
     expect(activities.map((activity) => activity.title)).toEqual(
       expect.arrayContaining([
         "Started Codex CLI",
@@ -107,6 +232,64 @@ writeFileSync(outputPath, JSON.stringify({
     );
     expect(activities.find((activity) => activity.title === "Codex command completed")?.body).toContain("npm test");
     expect(activities.find((activity) => activity.title === "Codex CLI completed")?.body).toContain("Non-fatal CLI warnings");
+  });
+
+  it("resumes the saved Codex thread after a provider quota wait", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oneteam-codex-adapter-resume-"));
+    const argsPath = join(dir, "args.json");
+    const cwdPath = join(dir, "cwd.txt");
+    const stdinPath = join(dir, "stdin.txt");
+    const fakeCodexPath = join(dir, "fake-codex.mjs");
+    await writeFile(
+      fakeCodexPath,
+      `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+let stdin = "";
+for await (const chunk of process.stdin) stdin += chunk;
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));
+writeFileSync(${JSON.stringify(cwdPath)}, process.cwd());
+writeFileSync(${JSON.stringify(stdinPath)}, stdin);
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-wait" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 2 } }) + "\\n");
+const outputPath = args[args.indexOf("--output-last-message") + 1];
+writeFileSync(outputPath, JSON.stringify({ status: "succeeded", message: "Resumed the implementation." }));
+`,
+      "utf8"
+    );
+    await chmod(fakeCodexPath, 0o755);
+    const adapter = new CodexAdapter({ command: fakeCodexPath, model: "gpt-resume" });
+    const result = await adapter.run({
+      job: {
+        ...fakeJob,
+        attempt: 2,
+        waitReason: "provider_quota_exhausted",
+        waitMetadata: { sessionId: "thread-wait", retryCount: 1 }
+      },
+      repoPath: dir,
+      prompt: "Continue the preserved implementation."
+    });
+    const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+
+    expect(args.slice(0, 2)).toEqual(["exec", "resume"]);
+    expect(args).toContain("thread-wait");
+    expect(args).not.toContain("--cd");
+    expect(args.at(-1)).toBe("-");
+    expect(await readFile(cwdPath, "utf8")).toBe(await realpath(dir));
+    expect(await readFile(stdinPath, "utf8")).toBe("Continue the preserved implementation.");
+    expect(result).toMatchObject({
+      status: "succeeded",
+      message: "Resumed the implementation.",
+      metadata: {
+        providerExecution: {
+          model: "gpt-resume",
+          sessionId: "thread-wait",
+          resumedSession: true,
+          usage: { input_tokens: 4, output_tokens: 2 }
+        }
+      }
+    });
   });
 
   it("terminates the Codex CLI when cancellation is requested", async () => {
@@ -135,6 +318,7 @@ setInterval(() => {}, 1000);
     });
 
     expect(result.status).toBe("canceled");
+    expect(result.stopReason).toBe("canceled");
     expect(result.activities?.map((activity) => activity.title)).toContain("Codex CLI canceled");
   });
 
@@ -165,7 +349,8 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(outputPath, J
     },
     review: null,
     fix: null,
-    qa: null
+    qa: null,
+    verifier: null
   }
 })));
 `,
@@ -215,6 +400,7 @@ process.exit(1);
     const failedActivity = activities.find((activity) => activity.title === "Codex CLI failed");
     expect(result.status).toBe("failed");
     expect(result.message).toBe("You've hit your usage limit. Try again later.");
+    expect(result.metadata?.providerExecution?.sessionId).toBe("thread-error");
     expect(failedActivity?.body).toBe("You've hit your usage limit. Try again later.");
     expect(failedActivity?.body).not.toContain("cloudflare");
   });
@@ -223,6 +409,8 @@ process.exit(1);
 const fakeJob: AgentJobDto = {
   id: 1,
   projectId: "project-1",
+  aiProvider: "codex",
+  aiModel: null,
   agentType: "implementation",
   targetType: "issue",
   targetId: 1,
@@ -234,6 +422,9 @@ const fakeJob: AgentJobDto = {
   error: null,
   attempt: 1,
   lockKey: null,
+  waitReason: null,
+  waitMetadata: null,
+  nextRetryAt: null,
   createdAt: "2026-05-21T00:00:00.000Z",
   startedAt: "2026-05-21T00:00:00.000Z",
   finishedAt: null

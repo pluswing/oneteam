@@ -1,19 +1,29 @@
 {
   "name": "one-team",
   "version": "0.1.0",
+  "description": "Local Loop Engineering desktop app for solo developers.",
   "private": true,
+  "author": "Pluswing",
   "license": "MIT",
   "type": "module",
+  "main": "dist/electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:web": "vite --host 127.0.0.1 --port 3579",
-    "build": "tsup src/server/index.ts --format esm --target node20 --out-dir dist/server && vite build",
+    "build": "npm run build:server && npm run build:electron && npm run build:web",
+    "build:server": "tsup src/server/index.ts --format esm --target node20 --out-dir dist/server",
+    "build:electron": "tsup src/electron/main.ts src/electron/preload.ts --format cjs --target node20 --out-dir dist/electron --external electron",
+    "build:web": "vite build",
+    "app:dev": "npm run build && electron .",
+    "app:dir": "npm run build && electron-builder --dir",
+    "app:pack": "npm run build && electron-builder",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src/test",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
+    "docs:screenshots": "npm run build && tsx scripts/capture-docs.ts",
     "e2e:server": "node scripts/e2e-setup.mjs && concurrently -k -s first -n api,web \"ONETEAM_DATABASE_URL=file:./.tmp/e2e/oneteam.db ONETEAM_AGENT_WORKER=false PORT=4580 tsx src/server/index.ts\" \"VITE_API_TARGET=http://127.0.0.1:4580 vite --host 127.0.0.1 --port 4579\"",
     "lint": "eslint .",
     "db:migrate": "tsx src/server/db/migrate.ts",
@@ -21,10 +31,33 @@
     "codex:login": "codex login",
     "codex:exec": "codex exec --dangerously-bypass-approvals-and-sandbox"
   },
+  "build": {
+    "appId": "com.pluswing.oneteam",
+    "productName": "OneTeam",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@openai/codex*/**/*",
+      "node_modules/@libsql/**/*.node"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false,
+      "icon": "build/icon.icns",
+      "identity": "-"
+    }
+  },
   "dependencies": {
     "@hono/node-server": "^1.19.6",
     "@hono/zod-validator": "^0.7.5",
     "@libsql/client": "^0.15.15",
+    "@openai/codex": "^0.132.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.10.7",
     "lucide-react": "^0.554.0",
@@ -35,13 +68,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@openai/codex": "^0.132.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.2.1",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "tsup": "^8.5.1",

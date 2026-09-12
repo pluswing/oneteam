@@ -6,8 +6,8 @@ libSQL に保存するデータ構造を定義する。MVP 実装では、この
 
 ## 2. 基本方針
 
-- database は one team instance ごとに 1 つ。
-- one team instance は 1 repository を管理するが、将来の拡張余地として `project_id` を各 table に持つ。
+- database は import / create した repository ごとに `<repo>/.oneteam/data/oneteam.db` として 1 つ持つ。
+- OneTeam instance は選択中の 1 repository DB を開くが、将来の拡張余地として `project_id` を各 table に持つ。
 - datetime は ISO 8601 text として保存する。
 - boolean は `0` / `1` integer として保存する。
 - issue / pull request / label は論理削除し、`deleted_at is null` を通常 query の条件に含める。
@@ -79,7 +79,7 @@ create table projects (
 
 ### 4.2 app_settings
 
-one team 自体の設定。設定ファイルを正としつつ、UI から参照しやすい値を DB にも保存する。
+OneTeam 自体の設定。設定ファイルを正としつつ、UI から参照しやすい値を DB にも保存する。
 
 ```sql
 create table app_settings (
@@ -154,7 +154,7 @@ create table issues (
 
 ### 4.5 pull_requests
 
-one team 内のローカル PR。
+OneTeam 内のローカル PR。
 
 ```sql
 create table pull_requests (
@@ -377,6 +377,7 @@ project 作成時に system labels を投入する。
 | `resolving-conflicts` | `#cf222e` |
 | `testing` | `#8250df` |
 | `needs-input` | `#bf8700` |
+| `ready-to-merge` | `#1a7f37` |
 | `done` | `#1a7f37` |
 
 MVP では labels table は issue / PR 共通で扱う。必要であれば `description` に intended target を保存する。

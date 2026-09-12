@@ -31,7 +31,7 @@ Status: MVP complete. There are no open MVP tasks.
 - Review / Fix / QA flow: structured review findings, fix summaries, and QA verdicts now create actionable Activity entries and drive label transitions; conflict fix jobs fail when merge conflicts remain.
 - Pull request Git polish: pull request list/detail now include Git-derived file and commit counts; detail view adds a commits tab and a visible conflict resolution action.
 - Diff polish: large patches now render as a bounded preview with an explicit expand/collapse action.
-- Settings polish: users can edit Codex command/model and locale after setup; the server validates the Codex command before saving and shows runtime server/database settings.
+- Settings polish: users can edit locale after setup; Codex command/model are managed by the runtime, shown read-only, and checked by startup login automation.
 - CRUD polish: issue and pull request detail panels now expose title/body/status edit forms and logical delete actions.
 - Manual E2E checklist: `docs/11-manual-e2e-checklist.md` covers setup, issue automation, PR review/fix/QA, CRUD, cancellation, retry, and final verification.
 - Playwright smoke coverage: `npm run e2e` now covers setup, command detection, label automation, queued job cancellation, retry, and repository command visibility.

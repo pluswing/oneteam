@@ -1,9 +1,15 @@
 import type { AgentJobDto, AgentJobStatus, AgentType, LabelDto } from "../../shared/types";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 import type { Repositories } from "../db/repositories";
-import { resolveAgentJobLockKey } from "./agent-job-locks";
+import { ensureSystemLoop, startLoopRun } from "./loop-runner";
+import { ensureObjectiveForTarget } from "./objective-runs";
+import {
+  canTransitionWorkflowStage,
+  expectedAgentForWorkflowStage,
+  workflowStageForLabel
+} from "./objective-workflow";
 
-const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_human"]);
+const activeStatuses = new Set<AgentJobStatus>(["queued", "running", "waiting_provider", "waiting_human"]);
 
 const issueLabelAgents = new Map<string, AgentType>([
   [workflowLabelNames.requirements, "requirements"],
@@ -14,7 +20,8 @@ const pullRequestLabelAgents = new Map<string, AgentType>([
   [workflowLabelNames.reviewing, "review"],
   [workflowLabelNames.fixing, "fix"],
   [workflowLabelNames.resolvingConflicts, "fix"],
-  [workflowLabelNames.testing, "qa"]
+  [workflowLabelNames.testing, "qa"],
+  [workflowLabelNames.done, "verifier"]
 ]);
 
 export type LabelAutomationInput = {
@@ -30,6 +37,10 @@ export async function runLabelAutomation(
   repos: Repositories,
   input: LabelAutomationInput
 ): Promise<AgentJobDto[]> {
+  const managed = input.targetType === "issue"
+    ? await repos.development.forIssue(input.projectId, input.targetId)
+    : await repos.development.forPullRequest(input.projectId, input.targetId);
+  if (managed) return [];
   const previousNames = new Set(input.previousLabels?.map((label) => label.name) ?? []);
   const addedLabels = input.previousLabels
     ? input.labels.filter((label) => !previousNames.has(label.name))
@@ -43,33 +54,66 @@ export async function runLabelAutomation(
       continue;
     }
 
-    const job = await repos.agentJobs.create({
+    const loop = await ensureSystemLoop(repos, {
       projectId: input.projectId,
+      name: `Label: ${label.name}`,
+      purpose: `Run the ${agentType} agent when "${label.name}" is applied to a ${input.targetType}.`,
+      triggerType: "label",
+      targetScope: `${input.targetType}:${label.name}`
+    });
+    if (loop.status === "disabled") {
+      continue;
+    }
+
+    const objective = await ensureObjectiveForTarget(repos, {
+      projectId: input.projectId,
+      targetType: input.targetType,
+      targetId: input.targetId
+    });
+    if (!objective || ["paused", "canceled", "succeeded"].includes(objective.status)) {
+      continue;
+    }
+    const labelStage = workflowStageForLabel(label.name);
+    const stagedObjective = labelStage && labelStage !== objective.workflowStage &&
+      canTransitionWorkflowStage(objective.workflowStage, labelStage)
+      ? (await repos.objectives.update(input.projectId, objective.id, { workflowStage: labelStage })) ?? objective
+      : objective;
+    const expectedAgent = expectedAgentForWorkflowStage(stagedObjective.workflowStage);
+    if (expectedAgent && expectedAgent !== agentType) {
+      continue;
+    }
+
+    const started = await startLoopRun(repos, {
+      projectId: input.projectId,
+      loopId: loop.id,
       agentType,
       targetType: input.targetType,
       targetId: input.targetId,
       triggerType: input.triggerType ?? "label_applied",
-      input: {
+      objectiveRunId: objective?.id ?? null,
+      jobInput: {
         automation: "label",
-        labelName: label.name
-      },
-      lockKey: resolveAgentJobLockKey({
-        projectId: input.projectId,
-        agentType,
-        targetType: input.targetType,
-        targetId: input.targetId
-      })
+        labelName: label.name,
+        loopId: loop.id,
+        objectiveRunId: objective?.id ?? null
+      }
     });
     await repos.activities.create({
       projectId: input.projectId,
-      agentJobId: job.id,
+      agentJobId: started.job.id,
       targetType: input.targetType,
       targetId: input.targetId,
       activityType: "system",
       title: "Agent job queued",
-      body: `Queued ${agentType} agent because label "${label.name}" was applied.`
+      body: `Queued ${agentType} agent via Loop #${loop.id} because label "${label.name}" was applied.`,
+      payload: {
+        loopId: loop.id,
+        loopRunId: started.run.id,
+        loopStepId: started.step.id,
+        labelName: label.name
+      }
     });
-    createdJobs.push(job);
+    createdJobs.push(started.job);
   }
 
   return createdJobs;

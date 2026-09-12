@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-repository import 時に install / dev / build / test / lint command を自動検出し、足りない command があれば one team が issue を作成して実装を開始できる状態にする。
+repository import 時に install / dev / build / test / lint command を自動検出し、足りない command があれば OneTeam が issue を作成して実装を開始できる状態にする。
 
 ## 2. 対象 Command
 
@@ -158,7 +158,7 @@ Add build command
 ```markdown
 ## Background
 
-one team detected that this repository does not have a `{commandType}` command.
+OneTeam detected that this repository does not have a `{commandType}` command.
 
 ## Detection Result
 
@@ -168,7 +168,7 @@ one team detected that this repository does not have a `{commandType}` command.
 
 ## Requirement
 
-Add a working `{commandType}` command so one team can run automated development,
+Add a working `{commandType}` command so OneTeam can run automated development,
 review, and QA workflows.
 
 ## Suggested Implementation
@@ -179,7 +179,7 @@ review, and QA workflows.
 
 - `{commandType}` command is defined in project commands.
 - The command can be executed from the repository root.
-- The command result is visible in one team Activity Log.
+- The command result is visible in OneTeam Activity Log.
 ```
 
 ### 9.3 Labels
@@ -209,7 +209,7 @@ sequenceDiagram
 
 ## 11. Monorepo Handling
 
-MVP では one team が管理する repository root を command 実行 root とする。
+MVP では OneTeam が管理する repository root を command 実行 root とする。
 
 Monorepo を検出した場合:
 
@@ -223,7 +223,7 @@ MVP では Node.js repository を主対象とする。Node.js 以外の reposito
 
 - package manager は `unknown`。
 - commands は missing とする。
-- one team は必要 command 実装 issue を作成する。
+- OneTeam は必要 command 実装 issue を作成する。
 - Requirements Agent が repository の技術に合わせた command 要件を定義する。
 
 ## 13. Re-detection

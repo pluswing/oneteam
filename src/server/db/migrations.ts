@@ -248,10 +248,257 @@ const migrations: Migration[] = [
   {
     id: "0003_english_system_labels",
     statements: renameWorkflowLabelStatements()
+  },
+  {
+    id: "0004_loop_engineering_tables",
+    statements: [
+      `create table if not exists loops (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        name text not null,
+        purpose text not null default '',
+        trigger_type text not null default 'manual',
+        cadence text,
+        target_scope text not null default 'project',
+        status text not null default 'enabled',
+        max_rounds integer not null default 3,
+        time_budget_minutes integer,
+        cost_budget integer,
+        stop_condition_json text,
+        risk_policy_json text,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists loop_runs (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_id integer not null references loops(id) on delete cascade,
+        status text not null default 'queued',
+        trigger_type text not null default 'manual',
+        target_type text,
+        target_id integer,
+        worktree_path text,
+        summary text not null default '',
+        stop_reason text,
+        evidence_json text,
+        created_at text not null,
+        started_at text,
+        finished_at text
+      )`,
+      `create table if not exists loop_steps (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_run_id integer not null references loop_runs(id) on delete cascade,
+        agent_job_id integer references agent_jobs(id) on delete set null,
+        agent_type text not null,
+        target_type text not null,
+        target_id integer not null,
+        status text not null default 'queued',
+        input_json text,
+        output_json text,
+        evidence_json text,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists loop_memory_entries (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        loop_id integer references loops(id) on delete set null,
+        loop_run_id integer references loop_runs(id) on delete set null,
+        source_type text not null,
+        source_id integer,
+        title text not null,
+        body text not null default '',
+        tags_json text not null default '[]',
+        created_at text not null,
+        updated_at text not null
+      )`,
+      `create table if not exists triage_items (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        source_type text not null,
+        source_id integer,
+        title text not null,
+        body text not null default '',
+        status text not null default 'open',
+        priority text not null default 'normal',
+        metadata_json text,
+        issue_id integer references issues(id) on delete set null,
+        created_at text not null,
+        updated_at text not null
+      )`,
+      "create index if not exists idx_loops_project_status on loops(project_id, status, updated_at desc)",
+      "create index if not exists idx_loop_runs_project_status on loop_runs(project_id, status, created_at desc)",
+      "create index if not exists idx_loop_steps_run_created on loop_steps(loop_run_id, created_at asc)",
+      "create index if not exists idx_loop_memory_project_created on loop_memory_entries(project_id, created_at desc)",
+      "create index if not exists idx_triage_items_project_status on triage_items(project_id, status, created_at desc)"
+    ]
+  },
+  {
+    id: "0005_agent_job_ai_provider",
+    statements: ["alter table agent_jobs add column ai_provider text not null default 'codex'"]
+  },
+  {
+    id: "0006_ready_to_merge_label",
+    statements: [
+      `insert or ignore into labels (project_id, name, color, kind, description, created_at, updated_at)
+        select id,
+               'ready-to-merge',
+               '#1a7f37',
+               'system',
+               'Pull request is verified and ready to merge.',
+               ${migrationTimestamp},
+               ${migrationTimestamp}
+        from projects`
+    ]
+  },
+  {
+    id: "0007_objective_runs_and_comment_format",
+    statements: [
+      "alter table comments add column body_format text not null default 'markdown'",
+      `create table if not exists objective_runs (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        issue_id integer references issues(id) on delete set null,
+        pull_request_id integer references pull_requests(id) on delete set null,
+        status text not null default 'open',
+        title text not null,
+        goal text not null default '',
+        round_count integer not null default 0,
+        max_rounds integer not null default 12,
+        last_agent_job_id integer references agent_jobs(id) on delete set null,
+        judge_agent_job_id integer references agent_jobs(id) on delete set null,
+        generator_ai_provider text,
+        judge_ai_provider text,
+        last_failure_signature text,
+        repeated_failure_count integer not null default 0,
+        stop_reason text,
+        evidence_json text,
+        summary text not null default '',
+        created_at text not null,
+        updated_at text not null,
+        finished_at text
+      )`,
+      "create index if not exists idx_objective_runs_issue on objective_runs(project_id, issue_id, updated_at desc)",
+      "create index if not exists idx_objective_runs_pull_request on objective_runs(project_id, pull_request_id, updated_at desc)",
+      "create index if not exists idx_objective_runs_project_status on objective_runs(project_id, status, updated_at desc)"
+    ]
+  },
+  {
+    id: "0008_provider_wait_state",
+    statements: [
+      "alter table agent_jobs add column wait_reason text",
+      "alter table agent_jobs add column wait_metadata_json text",
+      "alter table agent_jobs add column next_retry_at text",
+      "create index if not exists idx_agent_jobs_provider_wait on agent_jobs(status, next_retry_at)"
+    ]
+  },
+  {
+    id: "0009_objective_workflow_stage",
+    statements: [
+      "alter table objective_runs add column workflow_stage text not null default 'requirements'",
+      `update objective_runs
+        set workflow_stage = case
+          when status = 'ready_to_merge' then 'ready_to_merge'
+          when status = 'succeeded' then 'merged'
+          when pull_request_id is not null then 'review'
+          else 'requirements'
+        end`
+    ]
+  },
+  {
+    id: "0010_work_item_author_type",
+    statements: [
+      "alter table issues add column created_by_type text not null default 'user'",
+      "alter table pull_requests add column created_by_type text not null default 'user'"
+    ]
+  },
+  {
+    id: "0011_comment_revisions",
+    statements: [
+      `create table if not exists comment_revisions (
+        id integer primary key autoincrement,
+        project_id text not null references projects(id) on delete cascade,
+        comment_id integer not null references comments(id) on delete cascade,
+        editor_type text not null,
+        body text not null,
+        body_format text not null default 'markdown',
+        created_at text not null
+      )`,
+      "create index if not exists idx_comment_revisions_comment_created on comment_revisions(project_id, comment_id, created_at desc)"
+    ]
+  },
+  {
+    id: "0012_activity_occurrences",
+    statements: [
+      "alter table agent_activities add column occurrence_count integer not null default 1",
+      "alter table agent_activities add column last_occurred_at text",
+      "update agent_activities set last_occurred_at = created_at where last_occurred_at is null"
+    ]
+  },
+  {
+    id: "0013_objective_evidence_requirements",
+    statements: [
+      "alter table objective_runs add column evidence_requirements_json text not null default '[]'"
+    ]
+  },
+  {
+    id: "0014_agent_job_ai_model",
+    statements: [
+      "alter table agent_jobs add column ai_model text",
+      `update agent_jobs
+        set ai_model = case ai_provider
+          when 'claude_code' then json_extract((select value_json from app_settings where key = 'ai'), '$.claudeCode.model')
+          when 'lm_studio' then json_extract((select value_json from app_settings where key = 'ai'), '$.lmStudio.model')
+          else json_extract((select value_json from app_settings where key = 'ai'), '$.codex.model')
+        end
+        where exists (select 1 from app_settings where key = 'ai' and json_valid(value_json))`
+    ]
+  },
+  {
+    id: "0015_objective_provider_usage",
+    statements: [
+      "alter table objective_runs add column token_budget integer",
+      "alter table objective_runs add column cost_budget_usd real",
+      "alter table objective_runs add column provider_usage_json text not null default '{}'"
+    ]
+  },
+  {
+    id: "0016_development_loops",
+    statements: [
+      `create table development_loops (
+        id integer primary key autoincrement, project_id text not null references projects(id), issue_id integer not null references issues(id),
+        pull_request_id integer references pull_requests(id), objective_id integer references objective_runs(id),
+        phase text not null, status text not null, current_job_id integer references agent_jobs(id),
+        merge_commit text, source_commit text, target_commit text, next_agent text not null default 'requirements', failures integer not null default 0, summary text not null default '', rounds integer not null default 0,
+        created_at text not null, updated_at text not null, finished_at text
+      )`,
+      `create unique index development_loop_active_issue on development_loops(project_id, issue_id)
+        where status not in ('succeeded', 'canceled')`,
+      `create unique index development_loop_pr on development_loops(project_id, pull_request_id) where pull_request_id is not null`,
+      `create table agent_executions (
+        id integer primary key autoincrement, project_id text not null references projects(id), job_id integer not null references agent_jobs(id),
+        selected_model text not null, resolved_model text, effort text, selection_reason text not null, policy_version text not null,
+        thread_id text, turn_id text, status text not null, usage_json text, started_at text not null, finished_at text
+      )`,
+      `create index agent_executions_job on agent_executions(project_id, job_id)`,
+      `create table retrospectives (
+        id integer primary key autoincrement, project_id text not null references projects(id), loop_id integer not null references development_loops(id),
+        merge_commit text not null, summary text not null, body text not null, changes_json text not null,
+        status text not null, error text, created_at text not null, applied_at text, unique(project_id, loop_id)
+      )`,
+      `create table knowledge_revisions (
+        id integer primary key autoincrement, project_id text not null references projects(id), loop_id integer not null references development_loops(id),
+        path text not null, before_body text, after_body text, reason text not null, status text not null, created_at text not null,
+        unique(project_id, loop_id, path)
+      )`
+    ]
   }
 ];
 
 export async function runMigrations(client: Client): Promise<void> {
+  await client.execute("pragma busy_timeout = 5000");
+  await client.execute("pragma journal_mode = WAL");
   await client.execute("pragma foreign_keys = on");
   await client.execute(`create table if not exists schema_migrations (
     id text primary key,
@@ -268,13 +515,9 @@ export async function runMigrations(client: Client): Promise<void> {
       continue;
     }
 
-    for (const statement of migration.statements) {
-      await client.execute(statement);
-    }
-
-    await client.execute({
-      sql: "insert into schema_migrations (id, applied_at) values (?, ?)",
-      args: [migration.id, new Date().toISOString()]
-    });
+    await client.batch([
+      ...migration.statements.map((sql) => ({ sql, args: [] })),
+      { sql: "insert into schema_migrations (id, applied_at) values (?, ?)", args: [migration.id, new Date().toISOString()] }
+    ], "write");
   }
 }

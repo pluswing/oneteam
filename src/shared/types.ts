@@ -1,5 +1,10 @@
+import type { AiProvider, AiSettingsDto } from "./ai-providers";
+import type { ObjectiveEvidenceRequirement } from "./evidence-requirements";
+import type { ProviderUsageTotals } from "./provider-usage";
+
 export type IssueStatus = "open" | "closed";
 export type PullRequestStatus = "open" | "closed" | "merged";
+export type WorkItemAuthorType = "user" | "agent" | "system";
 export type LabelKind = "system" | "custom";
 export type AgentType =
   | "requirements"
@@ -7,10 +12,14 @@ export type AgentType =
   | "review"
   | "fix"
   | "qa"
-  | "command_detection";
+  | "verifier"
+  | "command_detection"
+  | "retrospective";
 export type AgentJobStatus =
   | "queued"
   | "running"
+  | "paused"
+  | "waiting_provider"
   | "waiting_human"
   | "succeeded"
   | "failed"
@@ -23,6 +32,46 @@ export type ActivityType =
   | "test"
   | "error"
   | "system";
+export type CommentBodyFormat = "markdown" | "html";
+export type LoopStatus = "enabled" | "disabled";
+export type LoopRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "waiting_provider"
+  | "waiting_human"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+export type LoopStepStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "waiting_provider"
+  | "waiting_human"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+export type ObjectiveRunStatus =
+  | "open"
+  | "running"
+  | "paused"
+  | "waiting_provider"
+  | "waiting_human"
+  | "ready_to_merge"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+export type ObjectiveWorkflowStage =
+  | "requirements"
+  | "implementation"
+  | "review"
+  | "fix"
+  | "qa"
+  | "verification"
+  | "ready_to_merge"
+  | "merged";
+export type TriageItemStatus = "open" | "converted" | "ignored";
 
 export type ProjectDto = {
   id: string;
@@ -34,14 +83,28 @@ export type ProjectDto = {
   updatedAt: string;
 };
 
+export type KnownRepositoryDto = {
+  repoPath: string;
+  name: string;
+  databaseUrl: string;
+  lastOpenedAt: string;
+};
+
 export type ProjectSettingsDto = {
   project: {
     locale: string;
   };
-  ai: {
-    codexCommand: string;
-    model: string | null;
-    fullAccess: boolean;
+  ai: AiSettingsDto;
+  automation: {
+    autoMergeEnabled: boolean;
+    autoMergeTargetBranches: string[];
+    autoMergeStrategy: "merge" | "squash";
+    autoMergeRiskThreshold: "medium" | "high" | "none";
+    objectiveMaxRounds: number;
+    objectiveTokenBudget: number | null;
+    objectiveCostBudgetUsd: number | null;
+    agentTimeBudgetMinutes: number | null;
+    verificationCommandTimeoutMinutes: number;
   };
   runtime: {
     server: {
@@ -84,8 +147,11 @@ export type IssueDto = {
   title: string;
   body: string;
   status: IssueStatus;
+  createdByType: WorkItemAuthorType;
   labels: LabelDto[];
   commentCount: number;
+  lastAgentStatus: AgentJobStatus | null;
+  lastAgentStopReason: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -97,12 +163,15 @@ export type PullRequestDto = {
   title: string;
   body: string;
   status: PullRequestStatus;
+  createdByType: WorkItemAuthorType;
   sourceBranch: string;
   targetBranch: string;
   labels: LabelDto[];
   commentCount: number;
   changedFileCount: number;
   commitCount: number;
+  lastAgentStatus: AgentJobStatus | null;
+  lastAgentStopReason: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -115,9 +184,19 @@ export type CommentDto = {
   authorType: "user" | "agent" | "system";
   agentType: AgentType | null;
   body: string;
+  bodyFormat: CommentBodyFormat;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CommentRevisionDto = {
+  id: number;
+  commentId: number;
+  editorType: "user";
+  body: string;
+  bodyFormat: CommentBodyFormat;
+  createdAt: string;
 };
 
 export type ActivityDto = {
@@ -129,12 +208,16 @@ export type ActivityDto = {
   title: string;
   body: string;
   payload: Record<string, unknown> | null;
+  occurrenceCount: number;
+  lastOccurredAt: string;
   createdAt: string;
 };
 
 export type AgentJobDto = {
   id: number;
   projectId: string;
+  aiProvider: AiProvider;
+  aiModel: string | null;
   agentType: AgentType;
   targetType: "issue" | "pull_request" | "project";
   targetId: number;
@@ -146,9 +229,128 @@ export type AgentJobDto = {
   error: string | null;
   attempt: number;
   lockKey: string | null;
+  waitReason: string | null;
+  waitMetadata: Record<string, unknown> | null;
+  nextRetryAt: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+};
+
+export type LoopDto = {
+  id: number;
+  projectId: string;
+  name: string;
+  purpose: string;
+  triggerType: string;
+  cadence: string | null;
+  targetScope: string;
+  status: LoopStatus;
+  maxRounds: number;
+  timeBudgetMinutes: number | null;
+  costBudget: number | null;
+  stopCondition: Record<string, unknown> | null;
+  riskPolicy: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoopRunDto = {
+  id: number;
+  projectId: string;
+  loopId: number;
+  status: LoopRunStatus;
+  triggerType: string;
+  targetType: "issue" | "pull_request" | "project" | null;
+  targetId: number | null;
+  worktreePath: string | null;
+  summary: string;
+  stopReason: string | null;
+  evidence: Record<string, unknown> | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
+export type LoopStepDto = {
+  id: number;
+  projectId: string;
+  loopRunId: number;
+  agentJobId: number | null;
+  agentType: AgentType;
+  targetType: "issue" | "pull_request" | "project";
+  targetId: number;
+  status: LoopStepStatus;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoopMemoryEntryDto = {
+  id: number;
+  projectId: string;
+  loopId: number | null;
+  loopRunId: number | null;
+  sourceType: "manual" | "loop_run" | "agent_job" | "triage";
+  sourceId: number | null;
+  title: string;
+  body: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ObjectiveRunDto = {
+  id: number;
+  projectId: string;
+  issueId: number | null;
+  pullRequestId: number | null;
+  status: ObjectiveRunStatus;
+  workflowStage: ObjectiveWorkflowStage;
+  title: string;
+  goal: string;
+  roundCount: number;
+  maxRounds: number;
+  lastAgentJobId: number | null;
+  judgeAgentJobId: number | null;
+  generatorAiProvider: AiProvider | null;
+  judgeAiProvider: AiProvider | null;
+  lastFailureSignature: string | null;
+  repeatedFailureCount: number;
+  stopReason: string | null;
+  tokenBudget: number | null;
+  costBudgetUsd: number | null;
+  providerUsage: ProviderUsageTotals;
+  evidenceRequirements: ObjectiveEvidenceRequirement[];
+  evidence: Record<string, unknown> | null;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
+export type TriageItemDto = {
+  id: number;
+  projectId: string;
+  sourceType: string;
+  sourceId: number | null;
+  title: string;
+  body: string;
+  status: TriageItemStatus;
+  priority: string;
+  metadata: Record<string, unknown> | null;
+  issueId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SkillFileDto = {
+  path: string;
+  title: string;
+  body: string;
+  updatedAt: string | null;
 };
 
 export type RepositoryStatusDto = {
@@ -174,10 +376,41 @@ export type RepositoryCommitDto = {
 
 export type RepositoryFileChangeDto = {
   path: string;
+  previousPath?: string;
   status: string;
   additions: number;
   deletions: number;
+  binary?: boolean;
   patch?: string;
+};
+
+export type RepositoryDiffSummaryDto = {
+  files: RepositoryFileChangeDto[];
+  sourceCommit: string;
+  targetCommit: string;
+};
+
+export type PullRequestFindingDto = {
+  id: string;
+  agentJobId: number;
+  source: "review" | "qa";
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  path: string;
+  line: number | null;
+  side: "L" | "R";
+  title: string;
+  body: string;
+  status: "open" | "resolved";
+  resolvedByJobId: number | null;
+  createdAt: string;
+};
+
+export type PullRequestLineCommentDto = CommentDto & {
+  path: string;
+  line: number;
+  side: "L" | "R";
+  sourceCommit: string;
+  targetCommit: string;
 };
 
 export type MergeConflictDto = {

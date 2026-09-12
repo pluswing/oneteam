@@ -9,8 +9,8 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Create or import a repository project.
 - Confirm command detection runs after setup.
 - Confirm missing command issues are created when build/test/lint/dev commands are unavailable.
-- Open Settings and confirm Codex command, model, locale, server, and database values are shown.
-- Save Settings with a valid Codex command and confirm the success message appears.
+- Open Settings and confirm locale can be edited while Codex command, model, server, and database values are read-only.
+- Save Settings with a valid locale and confirm the success message appears.
 
 ## 2. Issue workflow
 
@@ -35,6 +35,7 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Run review approval and confirm it routes the pull request to `testing`.
 - Run QA with a defect and confirm it routes the pull request to `fixing`.
 - Run QA with no defects and confirm it routes the pull request to `done`.
+- Run verifier with sufficient evidence and confirm it marks the pull request `ready-to-merge`.
 
 ## 4. CRUD and recovery
 
@@ -51,4 +52,13 @@ Use this checklist for a final MVP pass from setup through QA completion.
 - Run `npm run lint`.
 - Run `npm test`.
 - Run `npm run build`.
-- Confirm the API health endpoint returns `{"status":"ok","name":"one team"}`.
+- Confirm the API health endpoint returns `{"status":"ok","name":"OneTeam"}`.
+
+## 6. Accessibility
+
+- Use the skip link and confirm focus moves to the main content.
+- Navigate the project tools menu with Arrow Up / Down, Home / End, and Escape.
+- Open Issue, Pull Request, Agent run, and Repository commit entries with Enter.
+- In a Pull Request, move between Conversation, Files changed, and Commits with Arrow Left / Right, Home, and End. Confirm one tab is in the Tab order and `aria-selected` follows the visible panel.
+- In Files changed, confirm the file list uses one Tab stop and Arrow Up / Down, Home, End, `j`, and `k` update the selected file.
+- Run `npm run e2e` and confirm the screen-level computed-color audit reports no WCAG text contrast failure in English or Japanese.

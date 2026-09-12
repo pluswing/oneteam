@@ -88,7 +88,7 @@ async function main() {
 
   let browser;
   try {
-    await waitForUrl(`${apiBaseUrl}/api/health`, "One Team API");
+    await waitForUrl(`${apiBaseUrl}/api/health`, "OneTeam API");
     await waitForUrl(webBaseUrl, "Vite web server");
 
     browser = await chromium.launch();

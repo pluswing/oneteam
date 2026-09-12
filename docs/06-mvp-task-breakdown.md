@@ -4,7 +4,7 @@ Status: MVP 実装は完了済み。現在の完了状況は `docs/10-mvp-remain
 
 ## 1. 目的
 
-one team MVP を実装するための順序、タスク、依存関係、受け入れ条件を定義する。
+OneTeam MVP を実装するための順序、タスク、依存関係、受け入れ条件を定義する。
 
 ## 2. Definition of Done
 
@@ -61,13 +61,13 @@ Acceptance:
 
 ### M2. Setup Wizard
 
-目的: 初回起動で one team を設定できるようにする。
+目的: 初回起動で OneTeam を設定できるようにする。
 
 Tasks:
 
 1. `/setup` route を作る。
 2. repository import / create form を作る。
-3. Codex CLI command path / model / full access 設定を作る。
+3. Codex CLI は runtime 管理にし、起動時に login status を確認する。
 4. locale と port 設定 UI を作る。
 5. setup 完了時に project を作成する。
 6. command auto-detection を起動する。
@@ -76,7 +76,7 @@ Acceptance:
 
 - project がない場合 `/setup` に遷移する。
 - setup 完了後 `/issues` に遷移する。
-- Codex CLI 設定が保存される。
+- Codex CLI login が必要な場合に起動される。
 
 ### M3. Command Auto-Detection
 
@@ -250,7 +250,7 @@ Acceptance:
 - PR 作成後 `reviewing` になる。
 - 指摘があれば `fixing` になる。
 - 修正後 `reviewing` に戻る。
-- QA が通れば `done` になる。
+- QA が通れば `done` になり、Verifier が通れば `ready-to-merge` になる。
 - conflict があれば `resolving-conflicts` から修正できる。
 
 ## 4. 実装済み Issue 分割

@@ -1,7 +1,11 @@
 node_modules/
 dist/
+release/
 coverage/
 data/
+.oneteam/data/
+.oneteam/active-repository
+.oneteam/repositories.json
 .tmp/
 test-results/
 playwright-report/
@@ -9,4 +13,3 @@ playwright-report/
 .env.local
 *.log
 images/
-

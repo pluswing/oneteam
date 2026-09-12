@@ -1,20 +1,46 @@
-import { RotateCcw, Square } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import type { AgentExecutionDto } from "../../shared/development-loop";
+import { DevelopmentLoopPanel } from "../components/DevelopmentLoopPanel";
+import { Play, RotateCcw, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { aiProviderLabel, type AiProvider } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
 import { api } from "../api";
 import { agentJobMessage } from "../agent-job-message";
 import { canRetryAgentJob, formatJobTarget, isActiveAgentJob } from "../agent-status";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { AsyncState } from "../components/AsyncState";
 import { formatDateTime } from "../formatters";
 import { t } from "../i18n";
 import { numberValue, recordArrayValue, recordValue, stringArrayValue, stringValue } from "../value-parsers";
+import { providerWaitDurationParts, providerWaitRemainingSeconds } from "../provider-wait-countdown";
+import { diffFileAnchor } from "../../shared/diff-anchors";
 
 type AgentJobScreen = { name: "list" } | { name: "detail"; jobId: number };
+
+function ProviderWaitCountdown(props: { nextRetryAt: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [props.nextRetryAt]);
+  const remaining = providerWaitRemainingSeconds(props.nextRetryAt, now);
+  if (remaining === null) return <strong>-</strong>;
+  if (remaining === 0) return <strong>{t("agents.retryDue")}</strong>;
+  const duration = providerWaitDurationParts(remaining);
+  const parts = [
+    duration.days ? `${duration.days}${t("agents.daysShort")}` : null,
+    duration.hours ? `${duration.hours}${t("agents.hoursShort")}` : null,
+    duration.minutes || duration.days || duration.hours ? `${duration.minutes}${t("agents.minutesShort")}` : null,
+    `${duration.seconds}${t("agents.secondsShort")}`
+  ].filter((part): part is string => Boolean(part));
+  return <strong>{parts.join(" ")}</strong>;
+}
 
 function AgentJobActions(props: {
   job: AgentJobDto;
   busyJobId: number | null;
   onCancel: (jobId: number) => Promise<void>;
+  onResume: (jobId: number, provider: AiProvider) => Promise<void>;
   onRetry: (jobId: number) => Promise<void>;
 }) {
   return (
@@ -49,6 +75,23 @@ function AgentJobActions(props: {
           {t("agents.retryJob")}
         </button>
       ) : null}
+      {props.job.status === "waiting_provider" ? (
+        <div className="provider-resume-actions">
+          <button
+            className="primary-button"
+            disabled={props.busyJobId === props.job.id}
+            onClick={(event) => {
+              event.stopPropagation();
+              void props.onResume(props.job.id, "codex");
+            }}
+            title={t("agents.resumeNow")}
+            type="button"
+          >
+            <Play size={14} />
+            {t("agents.resumeNow")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -65,7 +108,12 @@ const noisyAgentActivityTitles = new Set([
   "Codex turn failed",
   "Codex command started",
   "Codex command completed",
-  "Codex thinking summary"
+  "Codex thinking summary",
+  "AI provider selected",
+  "Started Claude Code",
+  "Claude Code session started",
+  "Claude Code completed",
+  "Started LM Studio"
 ]);
 
 function isRelevantAgentActivity(job: AgentJobDto, activity: ActivityDto): boolean {
@@ -90,14 +138,52 @@ function ActivityLog(props: { activities: ActivityDto[] }) {
       {props.activities.map((activity) => (
         <article className="activity-item" key={activity.id}>
           <header>
-            <strong>{activity.title}</strong>
-            <span>{formatDateTime(activity.createdAt)}</span>
+            <strong>
+              {activity.title}
+              {activity.occurrenceCount > 1 ? (
+                <span className="activity-occurrence-count">×{activity.occurrenceCount}</span>
+              ) : null}
+            </strong>
+            <span>{formatDateTime(activity.lastOccurredAt)}</span>
           </header>
           {activity.body ? <MarkdownContent content={activity.body} /> : null}
         </article>
       ))}
     </div>
   );
+}
+
+type EvidenceImageArtifactView = {
+  status: "available" | "unavailable";
+  name: string;
+  caption: string | null;
+  url: string | null;
+  mediaType: string | null;
+  byteSize: number | null;
+  reason: string | null;
+};
+
+function evidenceImageArtifact(job: AgentJobDto, item: Record<string, unknown>): EvidenceImageArtifactView | null {
+  const artifact = recordValue(recordValue(item.payload)?.artifact);
+  const status = stringValue(artifact?.status);
+  if (artifact?.kind !== "image" || (status !== "available" && status !== "unavailable")) return null;
+  const rawUrl = stringValue(artifact.url);
+  const expectedUrlPrefix = `/api/projects/${encodeURIComponent(job.projectId)}/agent-jobs/${job.id}/artifacts/`;
+  return {
+    status,
+    name: stringValue(artifact.name) ?? t("agents.screenshot"),
+    caption: stringValue(artifact.caption),
+    url: status === "available" && rawUrl?.startsWith(expectedUrlPrefix) ? rawUrl : null,
+    mediaType: stringValue(artifact.mediaType),
+    byteSize: numberValue(artifact.byteSize),
+    reason: stringValue(artifact.reason)
+  };
+}
+
+function formatArtifactSize(byteSize: number | null): string | null {
+  if (byteSize === null) return null;
+  if (byteSize < 1_024) return `${byteSize} B`;
+  return `${(byteSize / 1_024).toFixed(byteSize < 10_240 ? 1 : 0)} KB`;
 }
 
 function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDto[] }) {
@@ -108,7 +194,10 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
   const questions = stringArrayValue(output.questions);
   const changedFiles = stringArrayValue(output.changedFiles);
   const testResults = recordArrayValue(output.testResults);
-  const hasSummary = message || commentBody || questions.length || changedFiles.length || testResults.length;
+  const stopReason = stringValue(output.stopReason);
+  const evidence = recordArrayValue(output.evidence);
+  const hasSummary =
+    message || commentBody || questions.length || changedFiles.length || testResults.length || stopReason || evidence.length;
 
   if (!hasSummary) {
     return <div className="empty-state">{t("agents.noSummary")}</div>;
@@ -133,18 +222,28 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
           </ul>
         </div>
       ) : null}
-      {changedFiles.length ? (
+      {stopReason ? (
         <div className="result-block">
+          <h3>{t("agents.stopReason")}</h3>
+          <p>{stopReason}</p>
+        </div>
+      ) : null}
+      {changedFiles.length ? (
+        <div className="result-block" id="job-changed-files">
           <h3>{t("agents.changedFiles")}</h3>
           <ul className="result-list">
             {changedFiles.map((file) => (
-              <li key={file}>{file}</li>
+              <li key={file}>
+                {props.job.targetType === "pull_request" ? (
+                  <a href={`/pulls/${props.job.targetId}#${diffFileAnchor(file)}`}>{file}</a>
+                ) : file}
+              </li>
             ))}
           </ul>
         </div>
       ) : null}
       {testResults.length ? (
-        <div className="result-block">
+        <div className="result-block" id="job-checks">
           <h3>{t("agents.tests")}</h3>
           <div className="test-result-list">
             {testResults.map((result, index) => {
@@ -166,6 +265,46 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
           </div>
         </div>
       ) : null}
+      {evidence.length ? (
+        <div className="result-block" id="job-evidence">
+          <h3>{t("agents.evidence")}</h3>
+          <div className="test-result-list">
+            {evidence.map((item, index) => {
+              const title = stringValue(item.title) ?? `${t("agents.evidenceItem")} ${index + 1}`;
+              const type = stringValue(item.type);
+              const summary = stringValue(item.summary);
+              const artifact = evidenceImageArtifact(props.job, item);
+              const artifactSize = artifact ? formatArtifactSize(artifact.byteSize) : null;
+              return (
+                <article className="test-result-row" key={`${title}-${index}`}>
+                  <header>
+                    <strong>{title}</strong>
+                    {type ? <span className="status-pill">{type}</span> : null}
+                  </header>
+                  {summary ? <p>{summary}</p> : null}
+                  {artifact ? (
+                    <figure className={`evidence-image-artifact artifact-${artifact.status}`}>
+                      {artifact.url ? (
+                        <a href={artifact.url} rel="noreferrer noopener" target="_blank">
+                          <img alt={artifact.caption ?? title} loading="lazy" src={artifact.url} />
+                        </a>
+                      ) : (
+                        <div className="evidence-artifact-unavailable">
+                          {artifact.reason ?? t("agents.artifactUnavailable")}
+                        </div>
+                      )}
+                      <figcaption>
+                        <strong>{artifact.caption ?? artifact.name}</strong>
+                        <span>{[artifact.mediaType, artifactSize].filter(Boolean).join(" · ")}</span>
+                      </figcaption>
+                    </figure>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -173,39 +312,58 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
 function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: number) => void }) {
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
-    setJobs(await api.listAgentJobs(props.project.id));
+    try {
+      setJobs(await api.listAgentJobs(props.project.id));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
   }, [props.project.id]);
 
-  const hasActiveJobs = jobs.some(isActiveAgentJob);
-  useEffect(() => {
-    if (!hasActiveJobs) {
-      return;
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load agent jobs.");
+    } finally {
+      setRetrying(false);
     }
+  }
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent jobs."));
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [hasActiveJobs, props.project.id]);
+  }, [props.project.id]);
 
   return (
     <section className="page-section">
       <div className="section-header">
         <h1>{t("agents.title")}</h1>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
+      <DevelopmentLoopPanel projectId={props.project.id} all />
       <div className="agent-job-list">
-        {jobs.length === 0 ? <div className="empty-state">{t("agents.noJobs")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && jobs.length === 0 ? <AsyncState kind="empty" message={t("agents.noJobs")} /> : null}
         {jobs.map((job) => (
           <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
             <span className="agent-job-title">#{job.id} {job.agentType}</span>
             <span className={`status-pill status-${job.status}`}>{job.status}</span>
-            <span>{formatJobTarget(job)}</span>
+            <span>{formatJobTarget(job)} · {job.aiModel ?? t("development.autoModel")}</span>
             <span>{formatDateTime(job.createdAt)}</span>
           </button>
         ))}
@@ -222,19 +380,54 @@ function AgentJobDetailScreen(props: {
   const [job, setJob] = useState<AgentJobDto | null>(null);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
+  const [executions, setExecutions] = useState<AgentExecutionDto[]>([]);
+  const loadedJobId = useRef<number | null>(null);
+  const activeJobId = useRef(props.jobId);
+  const activeJobProjectId = useRef(props.project.id);
 
   async function load() {
-    const [jobResponse, activityResponse] = await Promise.all([
+    const [jobResponse, activityResponse, executionResponse] = await Promise.all([
       api.getAgentJob(props.project.id, props.jobId),
-      api.listAgentJobActivities(props.project.id, props.jobId)
+      api.listAgentJobActivities(props.project.id, props.jobId),
+      api.listAgentExecutions(props.project.id, props.jobId)
     ]);
+    if (activeJobProjectId.current !== props.project.id || activeJobId.current !== props.jobId) return;
     setJob(jobResponse);
+    setExecutions(executionResponse);
     setActivities(activityResponse.filter((activity) => activity.agentJobId === jobResponse.id));
+    loadedJobId.current = jobResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load agent job.";
+    if (loadedJobId.current === props.jobId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedJobId.current === props.jobId);
+    void load().catch(handleLoadError);
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+    activeJobProjectId.current = props.project.id;
+    activeJobId.current = props.jobId;
+    loadedJobId.current = null;
+    setJob(null);
+    setActivities([]);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
   }, [props.project.id, props.jobId]);
 
   const isActive = job ? isActiveAgentJob(job) : false;
@@ -243,7 +436,7 @@ function AgentJobDetailScreen(props: {
       return;
     }
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load agent job."));
+      void load().catch(handleLoadError);
     }, 3000);
     return () => window.clearInterval(interval);
   }, [isActive, props.project.id, props.jobId]);
@@ -274,10 +467,47 @@ function AgentJobDetailScreen(props: {
     }
   }
 
+  async function resumeJob(jobId: number, provider: AiProvider) {
+    setBusyJobId(jobId);
+    setError(null);
+    try {
+      setJob(await api.resumeAgentJob(props.project.id, jobId, provider));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resume agent job.");
+    } finally {
+      setBusyJobId(null);
+    }
+  }
+
   const visibleActivities = useMemo(
     () => (job ? activities.filter((activity) => isRelevantAgentActivity(job, activity)) : []),
     [activities, job]
   );
+
+  useEffect(() => {
+    if (!job) return;
+    const anchor = window.location.hash.slice(1);
+    if (!/^job-(?:result|changed-files|checks|evidence|activities)$/.test(anchor)) return;
+    let animationFrame = 0;
+    let attempts = 0;
+    function reveal(): void {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 4) animationFrame = window.requestAnimationFrame(reveal);
+    }
+    animationFrame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [job, visibleActivities.length]);
+
+  const providerProbe = recordValue(job?.waitMetadata?.lastProbe);
+  const providerProbeCount = numberValue(job?.waitMetadata?.probeCount) ?? 0;
+  const providerLastCheckedAt = stringValue(job?.waitMetadata?.lastCheckedAt)
+    ?? stringValue(job?.waitMetadata?.detectedAt);
 
   return (
     <div className="detail-page">
@@ -287,15 +517,45 @@ function AgentJobDetailScreen(props: {
           {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
       <section className="page-section agent-job-detail-section">
         {job ? (
           <>
             <div className="agent-job-details-summary">
               <div className="agent-job-details-header">
                 <h2>{t("agents.details")}</h2>
-                <AgentJobActions job={job} busyJobId={busyJobId} onCancel={cancelJob} onRetry={retryJob} />
+                <AgentJobActions
+                  job={job}
+                  busyJobId={busyJobId}
+                  onCancel={cancelJob}
+                  onResume={resumeJob}
+                  onRetry={retryJob}
+                />
               </div>
+              {job.status === "waiting_provider" ? (
+                <div className="provider-wait-banner">
+                  <strong>{t("agents.waitingProvider")}</strong>
+                  <span className="provider-wait-countdown">
+                    {t("agents.remainingUntilRetry")}: <ProviderWaitCountdown nextRetryAt={job.nextRetryAt} />
+                  </span>
+                  <span>{t("agents.nextRetry")}: {formatDateTime(job.nextRetryAt)}</span>
+                  <span>{t("agents.waitReason")}: {job.waitReason ?? "-"}</span>
+                  <span>{t("agents.lastChecked")}: {formatDateTime(providerLastCheckedAt)}</span>
+                  <span>{t("agents.retryCount")}: {numberValue(job.waitMetadata?.retryCount) ?? 0}</span>
+                  {providerProbe ? (
+                    <>
+                      <span>{t("agents.probeStatus")}: {stringValue(providerProbe.status) ?? "-"}</span>
+                      <span>{t("agents.probeSource")}: {stringValue(providerProbe.source) ?? "-"}</span>
+                      <span>{t("agents.probeCount")}: {providerProbeCount}</span>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <dl className="agent-job-detail-facts">
                 <div>
                   <dt>{t("agents.target")}</dt>
@@ -304,6 +564,14 @@ function AgentJobDetailScreen(props: {
                 <div>
                   <dt>{t("agents.trigger")}</dt>
                   <dd>{job.triggerType}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.provider")}</dt>
+                  <dd>{aiProviderLabel(job.aiProvider)}</dd>
+                </div>
+                <div>
+                  <dt>{t("agents.model")}</dt>
+                  <dd>{job.aiModel ?? "-"}</dd>
                 </div>
                 <div>
                   <dt>{t("agents.attempt")}</dt>
@@ -324,9 +592,19 @@ function AgentJobDetailScreen(props: {
               </dl>
             </div>
             <div className="agent-job-main-content">
-              <h2>{t("agents.result")}</h2>
+              {executions.length ? <section className="execution-history">
+                <h2>{t("development.executions")}</h2>
+                {executions.map((execution) => <article className="execution-record" key={execution.id}>
+                  <header><strong>{execution.resolvedModel ?? execution.selectedModel}</strong><span className="status-pill">{execution.status}</span></header>
+                  <p>{t("development.effort")}: {execution.effort ?? "—"} · {formatDateTime(execution.startedAt)}</p>
+                  <p>{execution.selectionReason}</p>
+                  {execution.resolvedModel && execution.resolvedModel !== execution.selectedModel ? <p>{t("development.selectedModel")}: {execution.selectedModel}</p> : null}
+                  <details><summary>{t("development.executionDetails")}</summary><pre>{JSON.stringify({ policy: execution.policyVersion, threadId: execution.threadId, turnId: execution.turnId, usage: execution.usage }, null, 2)}</pre></details>
+                </article>)}
+              </section> : null}
+              <h2 id="job-result">{t("agents.result")}</h2>
               <AgentJobResultSummary job={job} activities={activities} />
-              <h2>{t("agents.activities")}</h2>
+              <h2 id="job-activities">{t("agents.activities")}</h2>
               <ActivityLog activities={visibleActivities} />
             </div>
           </>

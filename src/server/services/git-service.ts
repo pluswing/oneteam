@@ -10,6 +10,21 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+export type GitRetryEvent = {
+  operation: string;
+  failedAttempt: number;
+  nextAttempt: number;
+  delayMs: number;
+  message: string;
+};
+
+export type GitRetryPolicy = {
+  delaysMs: number[];
+  onRetry?: (event: GitRetryEvent) => Promise<void> | void;
+  beforeRetry?: (event: GitRetryEvent) => Promise<void> | void;
+  sleep?: (delayMs: number) => Promise<void>;
+};
+
 async function git(repoPath: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd: repoPath,
@@ -26,6 +41,49 @@ function gitOutput(error: unknown): string {
   return [output.stdout, output.stderr, output.message]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .join("\n");
+}
+
+export function isRetryableGitError(error: unknown): boolean {
+  const message = gitOutput(error);
+  return [
+    /(?:index|shallow|packed-refs)\.lock.*(?:file exists|already exists)/i,
+    /unable to create .*\.lock.*(?:file exists|already exists)/i,
+    /another git process seems to be running/i,
+    /resource temporarily unavailable/i,
+    /device or resource busy/i,
+    /text file busy/i
+  ].some((pattern) => pattern.test(message));
+}
+
+export async function runGitOperationWithBackoff<T>(
+  operation: string,
+  execute: () => Promise<T>,
+  policy: GitRetryPolicy
+): Promise<{ value: T; retryCount: number }> {
+  let failedAttempt = 0;
+  while (true) {
+    try {
+      return { value: await execute(), retryCount: failedAttempt };
+    } catch (error) {
+      failedAttempt += 1;
+      const delayMs = policy.delaysMs[failedAttempt - 1];
+      if (delayMs === undefined || !isRetryableGitError(error)) throw error;
+      const event: GitRetryEvent = {
+        operation,
+        failedAttempt,
+        nextAttempt: failedAttempt + 1,
+        delayMs,
+        message: gitOutput(error).slice(-4_000) || "Retryable Git operation failed."
+      };
+      await policy.onRetry?.(event);
+      await (policy.sleep ?? sleep)(delayMs);
+      await policy.beforeRetry?.(event);
+    }
+  }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function parseAheadBehind(branchLine: string): { ahead: number; behind: number } {
@@ -100,12 +158,37 @@ export async function createAndCheckoutBranch(repoPath: string, branchName: stri
 export async function mergeBranch(
   repoPath: string,
   sourceBranch: string,
-  targetBranch: string
-): Promise<{ mergeCommit: string; output: string }> {
-  await checkoutBranch(repoPath, targetBranch);
-  const output = await git(repoPath, ["merge", "--no-ff", "--no-edit", sourceBranch]);
+  targetBranch: string,
+  strategy: "merge" | "squash" = "merge",
+  retryPolicy?: GitRetryPolicy
+): Promise<{ mergeCommit: string; output: string; retryCount: number }> {
+  let retryCount = 0;
+  const run = async (operation: string, args: string[]): Promise<string> => {
+    if (!retryPolicy) return git(repoPath, args);
+    const result = await runGitOperationWithBackoff(operation, () => git(repoPath, args), retryPolicy);
+    retryCount += result.retryCount;
+    return result.value;
+  };
+  await run(`checkout ${targetBranch}`, ["checkout", targetBranch]);
+  const output = strategy === "squash"
+    ? [
+        await run(`squash merge ${sourceBranch}`, ["merge", "--squash", sourceBranch]),
+        await run("commit squash merge", ["commit", "-m", `Squash merge ${sourceBranch} into ${targetBranch}`])
+      ].filter(Boolean).join("\n")
+    : await run(`merge ${sourceBranch}`, ["merge", "--no-ff", "--no-edit", sourceBranch]);
+  // Once the mutating merge operation succeeds, never restart the merge because a
+  // read-only follow-up failed. Retrying from that point would compare snapshots
+  // against the newly created merge commit and could leave persistence behind Git.
   const mergeCommit = await git(repoPath, ["rev-parse", "HEAD"]);
-  return { mergeCommit, output };
+  return { mergeCommit, output, retryCount };
+}
+
+export async function getRevisionHash(repoPath: string, revision: string): Promise<string> {
+  return git(repoPath, ["rev-parse", revision]);
+}
+
+export async function getMergeBase(repoPath: string, leftRevision: string, rightRevision: string): Promise<string> {
+  return git(repoPath, ["merge-base", leftRevision, rightRevision]);
 }
 
 export async function commitAllChanges(
@@ -140,6 +223,34 @@ export async function getChangedFilesSince(repoPath: string, baseBranch: string,
   return Array.from(new Set([...diffOutput.split("\n").filter(Boolean), ...status.changedFiles]));
 }
 
+export async function getDiffLineCountSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<number> {
+  const outputs = await Promise.all([
+    git(repoPath, ["diff", "--numstat", `${baseBranch}...${revision}`]).catch(() => ""),
+    git(repoPath, ["diff", "--numstat"]).catch(() => ""),
+    git(repoPath, ["diff", "--cached", "--numstat"]).catch(() => "")
+  ]);
+  const fileStats = new Map<string, number>();
+
+  for (const output of outputs) {
+    for (const line of output.split("\n").filter(Boolean)) {
+      const [additions, deletions, path] = line.split("\t");
+      const count = (additions === "-" ? 0 : Number(additions) || 0) + (deletions === "-" ? 0 : Number(deletions) || 0);
+      fileStats.set(path, (fileStats.get(path) ?? 0) + count);
+    }
+  }
+
+  return Array.from(fileStats.values()).reduce((total, count) => total + count, 0);
+}
+
+export async function getDiffPatchSince(repoPath: string, baseBranch: string, revision = "HEAD"): Promise<string> {
+  const outputs = await Promise.all([
+    git(repoPath, ["diff", `${baseBranch}...${revision}`]).catch(() => ""),
+    git(repoPath, ["diff"]).catch(() => ""),
+    git(repoPath, ["diff", "--cached"]).catch(() => "")
+  ]);
+  return outputs.filter(Boolean).join("\n");
+}
+
 export async function getCommits(repoPath: string, revision = "HEAD", limit = 20): Promise<RepositoryCommitDto[]> {
   const output = await git(repoPath, [
     "log",
@@ -168,31 +279,74 @@ export async function getDiffFiles(
   targetBranch: string
 ): Promise<RepositoryFileChangeDto[]> {
   const revision = `${targetBranch}...${sourceBranch}`;
-  const nameStatus = await git(repoPath, ["diff", "--name-status", revision]);
-  const numstat = await git(repoPath, ["diff", "--numstat", revision]);
+  const nameStatus = await git(repoPath, ["diff", "--name-status", "-z", revision]);
+  const numstat = await git(repoPath, ["diff", "--numstat", "-z", revision]);
 
-  const stats = new Map<string, { additions: number; deletions: number }>();
-  for (const line of numstat.split("\n").filter(Boolean)) {
-    const [additions, deletions, path] = line.split("\t");
+  const stats = new Map<string, { additions: number; deletions: number; binary: boolean }>();
+  const statFields = numstat.split("\0");
+  for (let index = 0; index < statFields.length; index += 1) {
+    const field = statFields[index];
+    if (!field) {
+      continue;
+    }
+    const [additions, deletions, inlinePath] = field.split("\t");
+    const path = inlinePath || statFields[index + 2];
+    if (!inlinePath) {
+      index += 2;
+    }
+    if (!path) {
+      continue;
+    }
     stats.set(path, {
       additions: additions === "-" ? 0 : Number(additions),
-      deletions: deletions === "-" ? 0 : Number(deletions)
+      deletions: deletions === "-" ? 0 : Number(deletions),
+      binary: additions === "-" || deletions === "-"
     });
   }
 
-  return nameStatus
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [status, path] = line.split("\t");
-      const fileStats = stats.get(path) ?? { additions: 0, deletions: 0 };
-      return {
-        path,
-        status,
-        additions: fileStats.additions,
-        deletions: fileStats.deletions
-      };
+  const files: RepositoryFileChangeDto[] = [];
+  const nameFields = nameStatus.split("\0");
+  for (let index = 0; index < nameFields.length; index += 1) {
+    const status = nameFields[index];
+    if (!status) {
+      continue;
+    }
+    const renamed = status.startsWith("R") || status.startsWith("C");
+    const previousPath = renamed ? nameFields[index + 1] : undefined;
+    const path = renamed ? nameFields[index + 2] : nameFields[index + 1];
+    index += renamed ? 2 : 1;
+    if (!path) {
+      continue;
+    }
+    const fileStats = stats.get(path) ?? { additions: 0, deletions: 0, binary: false };
+    files.push({
+      path,
+      ...(previousPath ? { previousPath } : {}),
+      status,
+      additions: fileStats.additions,
+      deletions: fileStats.deletions,
+      binary: fileStats.binary
     });
+  }
+  return files;
+}
+
+export async function getDiffFilePatch(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string,
+  path: string,
+  options: { contextLines?: number; ignoreWhitespace?: boolean; previousPath?: string } = {}
+): Promise<string> {
+  const args = ["diff", `${targetBranch}...${sourceBranch}`];
+  if (options.ignoreWhitespace) {
+    args.push("--ignore-all-space");
+  }
+  if (typeof options.contextLines === "number") {
+    args.push(`--unified=${Math.max(0, Math.min(Math.floor(options.contextLines), 100_000))}`);
+  }
+  args.push("--", ...(options.previousPath ? [options.previousPath, path] : [path]));
+  return git(repoPath, args);
 }
 
 export async function getDiffWithPatches(
@@ -204,7 +358,9 @@ export async function getDiffWithPatches(
   return Promise.all(
     files.map(async (file) => ({
       ...file,
-      patch: await git(repoPath, ["diff", `${targetBranch}...${sourceBranch}`, "--", file.path])
+      patch: await getDiffFilePatch(repoPath, sourceBranch, targetBranch, file.path, {
+        previousPath: file.previousPath
+      })
     }))
   );
 }

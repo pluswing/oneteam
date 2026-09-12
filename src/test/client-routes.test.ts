@@ -11,7 +11,6 @@ describe("client routes", () => {
     expect(routeToPath({ name: "agentJobs" })).toBe("/jobs");
     expect(routeToPath({ name: "agentJob", jobId: 3 })).toBe("/jobs/3");
     expect(routeToPath({ name: "repository" })).toBe("/repository");
-    expect(routeToPath({ name: "settings" })).toBe("/settings");
   });
 
   it("parses detail routes into their owning views", () => {
@@ -21,5 +20,9 @@ describe("client routes", () => {
     expect(viewForRoute(parseRoute("/pulls/2/conflicts"))).toBe("pullRequests");
     expect(parseRoute("/jobs/3")).toEqual({ name: "agentJob", jobId: 3 });
     expect(viewForRoute(parseRoute("/jobs/3"))).toBe("agentJobs");
+    expect(parseRoute("/loops/4")).toEqual({ name: "agentJobs" });
+    expect(viewForRoute(parseRoute("/loops/4"))).toBe("agentJobs");
+    expect(parseRoute("/loop-runs/5")).toEqual({ name: "agentJobs" });
+    expect(viewForRoute(parseRoute("/loop-runs/5"))).toBe("agentJobs");
   });
 });

@@ -12,6 +12,11 @@ Codex CLI で実行する各 Agent の prompt template、入力 context、出力
 - Agent はコメントに投稿すべき内容と Activity Log に保存すべき内容を分ける。
 - Activity の `thinking` は raw chain-of-thought ではなく、ユーザーに見せられる判断要約・作業メモとして出力する。
 - 人間の判断が必要な場合は `waiting_human` を返し、質問を comments に投稿する。
+- Agent は停止時に `stopReason` を返す。
+- Agent は完了判定、レビュー、QA、人間判断に必要な証拠を `evidence` として返す。
+- Agent / system comment はその場の通知ではなく、後から Issue / PR の判断経緯を復元するための永続的な成果物として作る。
+- 通常は Markdown を使い、表、check summary、callout、比較表示が読みやすさを大きく改善する場合は sanitized HTML を使う。
+- 細かな逐次ログは Activity に残し、Comment は要件確定、PR 作成、review、QA、Provider 待機 / 再開、merge などの節目に圧縮する。
 
 ## 3. 共通 Context Envelope
 
@@ -52,7 +57,7 @@ Codex CLI で実行する各 Agent の prompt template、入力 context、出力
 ## 4. 共通 System Prompt
 
 ```text
-You are an autonomous development agent for one team.
+You are an autonomous development agent for OneTeam.
 
 You work inside a single local git repository. Follow the requirements,
 existing code style, and repository conventions.
@@ -67,6 +72,9 @@ write a concise thinking summary that is safe and useful for the user.
 If you need human input to proceed safely, stop and return waiting_human with
 clear questions. Otherwise continue until the assigned job is complete.
 
+Treat each job as one step in a local AI development loop. Prefer explicit
+goal contracts, evidence, and stop reasons over broad completion claims.
+
 Return structured JSON that matches the requested output schema.
 ```
 
@@ -79,7 +87,8 @@ Return structured JSON that matches the requested output schema.
   "comment": {
     "targetType": "issue",
     "targetId": 24,
-    "body": "Markdown comment to post"
+    "body": "Markdown or sanitized HTML comment to post",
+    "bodyFormat": "markdown"
   },
   "questions": [],
   "activities": [
@@ -92,21 +101,101 @@ Return structured JSON that matches the requested output schema.
   ],
   "changedFiles": [],
   "testResults": [],
+  "stopReason": "passed",
+  "evidence": [
+    {
+      "type": "test",
+      "title": "Unit tests passed",
+      "summary": "npm test completed with exit code 0.",
+      "payload": {}
+    }
+  ],
   "metadata": {
     "nextLabel": null,
+    "goalContract": {
+      "evidenceRequired": [
+        {
+          "type": "test",
+          "required": true,
+          "commitScope": "source",
+          "maxAgeHours": 24
+        }
+      ]
+    },
     "pullRequest": null,
     "review": null,
     "fix": null,
-    "qa": null
+    "qa": null,
+    "verifier": null
   }
 }
 ```
+
+Requirements Agentは`metadata.goalContract.evidenceRequired`を返す。`type`は定義済みEvidence種別、`commitScope`は`source | target | both | none`、`maxAgeHours`は正の時間数または`null`とする。この構造はObjectiveへ正規化して保存され、Verifierとautomatic merge gateがEvidence snapshotに対して照合する。
 
 `status`:
 
 - `succeeded`
 - `waiting_human`
+- `waiting_provider`。LLM の自己申告ではなく、provider adapter / workflow controller が quota 枯渇や retryable provider error を検出した場合だけ設定する
 - `failed`
+
+`stopReason`:
+
+- `passed`
+- `failed`
+- `waiting_human`
+- `provider_quota_exhausted`
+- `timeout`
+- `max_rounds_exceeded`
+- `budget_exceeded`
+- `risk_detected`
+- `rollback_required`
+- `canceled`
+
+### 5.1 Agent / System Comment Contract
+
+節目のコメントは、可能な範囲で次の順序にする。
+
+1. 結論 / 現在状態
+2. Objective / Goal Contract の要約
+3. 実施した変更または判定
+4. Evidence / checks
+5. review finding、残リスク、未対応事項
+6. file / line diff link、commit、pull request
+7. 次の工程、停止理由、再開条件
+8. Agent role、provider / model、実行時刻
+
+Markdown 例:
+
+```markdown
+## Verification passed
+
+The pull request is ready for the automatic merge gate.
+
+### Changes
+- Added usage-limit detection to the Codex adapter.
+- Persisted provider wait and retry metadata.
+
+### Checks
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Typecheck | Passed | `npm run typecheck` (exit 0) |
+| Tests | Passed | `npm test` (44 tests) |
+
+### Review
+- Blocking findings: none
+- Remaining risk: reset time may be absent; bounded backoff is used.
+
+### References
+- Pull request: #42
+- Commit: `abc12345`
+- Important diff: `src/server/agents/worker.ts:L210`
+
+Next: revalidate source/target HEAD and run the automatic merge gate.
+```
+
+HTML を使う場合も同じ情報階層を維持する。`script`、event handler、`javascript:` URL、unsafe CSS、`iframe`、`object`、`embed`、外部 stylesheet を含めない。色だけで状態を表現しない。
 
 ## 6. Requirements Agent
 
@@ -135,6 +224,9 @@ Tasks:
 4. If human input is required, return waiting_human and provide concise questions.
 5. If human input is not required, write a requirements definition comment.
 6. For a new repository, include install/dev/build/test/lint command requirements.
+7. Infer loop scope, risk policy, evidence, and stop conditions from the issue
+   and repository. Ask the user only when those choices affect acceptance
+   criteria, safety boundary, or implementation feasibility.
 
 Requirements comment must include:
 - Background and purpose
@@ -143,10 +235,17 @@ Requirements comment must include:
 - UI/API/data changes
 - Command requirements
 - State transitions
+- Goal Contract
 - Acceptance criteria
+- Stop Condition
+- Evidence Required
+- Human Handoff Conditions
 - Test plan
 - Risks
 - Instructions for Implementation Agent
+
+Do not ask the user to configure Loops directly. Treat loop settings as internal
+workflow policy derived from the issue and repository.
 
 Return JSON using the common output schema.
 ```
@@ -191,7 +290,7 @@ Tasks:
 7. If a configured command is missing and the task is about command setup,
    implement it.
 8. If human input is required, return waiting_human with questions.
-9. Return implementation summary, changed files, test results, and PR metadata.
+9. Return implementation summary, changed files, test results, evidence, stopReason, and PR metadata.
 
 Activity requirements:
 - progress when starting major steps
@@ -199,6 +298,11 @@ Activity requirements:
 - file_change after edits
 - test after test commands
 - error on failure
+
+Evidence requirements:
+- changed files and diff summary
+- lint/test/build command result with exit code when available
+- any risk or limitation that affects the stop reason
 
 Return JSON using the common output schema.
 ```
@@ -244,15 +348,17 @@ Input:
 Tasks:
 1. Verify each acceptance criterion.
 2. Look for bugs, regressions, missing tests, unsafe behavior, and style issues.
-3. Prioritize concrete findings with file paths and line references when available.
-4. If fixes are required, return succeeded with a review comment whose verdict is
+3. Verify the Goal Contract, Evidence Required, and Stop Condition when available.
+4. Prioritize concrete findings with file paths and line references when available.
+5. If fixes are required, return succeeded with a review comment whose verdict is
    "changes_requested", metadata.nextLabel = "fixing", and metadata.review.findings.
-5. If no blocking issues exist, return succeeded with verdict "approved" and
+6. If no blocking issues exist, return succeeded with verdict "approved" and
    metadata.nextLabel = "testing".
-6. Return metadata.review:
+7. Return metadata.review:
    - verdict: "approved" or "changes_requested"
    - findings: array of severity/path/line/title/body objects
    - checked: array of checked areas
+8. Return evidence and stopReason.
 
 Return JSON using the common output schema.
 ```
@@ -298,7 +404,7 @@ Tasks:
 4. Make focused fixes.
 5. Add or update tests when appropriate.
 6. Run relevant lint/test/build commands.
-7. Return a fix summary and test results.
+7. Return a fix summary, test results, evidence, and stopReason.
 8. Set metadata.nextLabel = "reviewing" when complete.
 9. Return metadata.fix.resolvedFindings and metadata.fix.conflictVerification when relevant.
 
@@ -331,22 +437,55 @@ Tasks:
 3. If UI changed, start the dev server and use Playwright for verification.
 4. Record commands, observations, screenshots or trace paths if available.
 5. If a defect is found, return succeeded with metadata.nextLabel = "fixing".
-6. If no defect is found, return succeeded with metadata.nextLabel = "done".
+6. If no defect is found, return succeeded with metadata.nextLabel = "done" to hand off to final verification.
 7. Return metadata.qa:
    - verdict: "passed" or "defects_found"
    - defects: array of severity/path/title/body objects
    - observations: array of user-visible observations
+8. Return evidence including commands, UI screenshots or traces when available, and stopReason.
 
 Return JSON using the common output schema.
 ```
 
-## 11. Command Detection Agent
+## 11. Verifier Agent
 
 ### 11.1 Role
 
-repository import 時に command detection を補助し、不足 command の issue を作成するための本文を生成する。
+Loop の Stop Condition が Evidence によって満たされたかを判定する。実装や修正は行わず、停止してよいか、人間に戻すべきか、失敗として扱うべきかを決める。
 
 ### 11.2 Prompt Template
+
+```text
+You are the Verifier Agent.
+
+Context includes:
+- Target issue or pull request
+- Goal Contract, Stop Condition, Evidence Required
+- Agent comments, activities, command results, and Loop Run evidence
+
+Tasks:
+1. Compare the completed work with the Goal Contract.
+2. Verify that required Evidence exists and is sufficient.
+3. If the Stop Condition is met, return succeeded with stopReason "passed".
+4. If Evidence is missing, return waiting_human with concise questions.
+5. If Evidence proves failure, return failed with stopReason "failed".
+6. Return metadata.verifier:
+   - verdict: "passed", "missing_evidence", or "failed"
+   - nextLabel: "ready-to-merge" when the pull request can enter the automatic merge gate
+   - stopConditionMet: boolean
+   - missingEvidence: array of missing evidence names
+   - notes: array of user-visible observations
+
+Return JSON using the common output schema.
+```
+
+## 12. Command Detection Agent
+
+### 12.1 Role
+
+repository import 時に command detection を補助し、不足 command の issue を作成するための本文を生成する。
+
+### 12.2 Prompt Template
 
 ```text
 You are the Command Detection Agent.

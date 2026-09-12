@@ -1,20 +1,42 @@
+import { createDevelopmentRepositories } from "./development-repositories";
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import type { AiProvider } from "../../shared/ai-providers";
+import {
+  configuredModelForProvider,
+  normalizeAiSettings,
+  resolveAgentAiSelection
+} from "../../shared/ai-providers";
+import { normalizeEvidenceRequirements } from "../../shared/evidence-requirements";
+import { normalizeProviderUsageTotals } from "../../shared/provider-usage";
 import type {
   ActivityDto,
   AgentJobDto,
   AgentJobStatus,
   AgentType,
+  CommentBodyFormat,
   CommandType,
   CommentDto,
+  CommentRevisionDto,
   IssueDto,
   IssueStatus,
   LabelDto,
+  LoopDto,
+  LoopMemoryEntryDto,
+  LoopRunDto,
+  LoopRunStatus,
+  LoopStepDto,
+  LoopStepStatus,
+  LoopStatus,
+  ObjectiveRunDto,
+  ObjectiveRunStatus,
   ProjectCommandDto,
   ProjectDto,
   PullRequestDto,
-  PullRequestStatus
+  PullRequestStatus,
+  TriageItemDto,
+  TriageItemStatus
 } from "../../shared/types";
 import { systemLabels } from "./system-labels";
 import {
@@ -22,13 +44,20 @@ import {
   agentJobs,
   appSettings,
   comments,
+  commentRevisions,
   issueLabels,
   issues,
   labels,
+  loopMemoryEntries,
+  loopRuns,
+  loopSteps,
+  loops,
+  objectiveRuns,
   projectCommands,
   projects,
   pullRequestLabels,
-  pullRequests
+  pullRequests,
+  triageItems
 } from "./schema";
 import type { Database } from "./client";
 import { parseJsonObject, stringifyJson } from "./json";
@@ -39,11 +68,32 @@ type ProjectCommandRow = typeof projectCommands.$inferSelect;
 type IssueRow = typeof issues.$inferSelect;
 type PullRequestRow = typeof pullRequests.$inferSelect;
 type CommentRow = typeof comments.$inferSelect;
+type CommentRevisionRow = typeof commentRevisions.$inferSelect;
 type ActivityRow = typeof agentActivities.$inferSelect;
 type AgentJobRow = typeof agentJobs.$inferSelect;
+type LoopRow = typeof loops.$inferSelect;
+type LoopRunRow = typeof loopRuns.$inferSelect;
+type LoopStepRow = typeof loopSteps.$inferSelect;
+type LoopMemoryEntryRow = typeof loopMemoryEntries.$inferSelect;
+type ObjectiveRunRow = typeof objectiveRuns.$inferSelect;
+type TriageItemRow = typeof triageItems.$inferSelect;
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function timestampAfter(value: string): string {
+  const previous = Date.parse(value);
+  return new Date(Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)).toISOString();
+}
+
+function parseEvidenceRequirements(value: string | null) {
+  if (!value) return [];
+  try {
+    return normalizeEvidenceRequirements(JSON.parse(value) as unknown);
+  } catch {
+    return [];
+  }
 }
 
 function mapProject(row: ProjectRow): ProjectDto {
@@ -93,9 +143,21 @@ function mapComment(row: CommentRow): CommentDto {
     authorType: row.authorType,
     agentType: row.agentType ?? null,
     body: row.body,
+    bodyFormat: row.bodyFormat ?? "markdown",
     metadata: parseJsonObject(row.metadataJson),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
+  };
+}
+
+function mapCommentRevision(row: CommentRevisionRow): CommentRevisionDto {
+  return {
+    id: row.id,
+    commentId: row.commentId,
+    editorType: row.editorType,
+    body: row.body,
+    bodyFormat: row.bodyFormat,
+    createdAt: row.createdAt
   };
 }
 
@@ -109,6 +171,8 @@ function mapActivity(row: ActivityRow): ActivityDto {
     title: row.title,
     body: row.body,
     payload: parseJsonObject(row.payloadJson),
+    occurrenceCount: row.occurrenceCount ?? 1,
+    lastOccurredAt: row.lastOccurredAt ?? row.createdAt,
     createdAt: row.createdAt
   };
 }
@@ -117,6 +181,8 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
   return {
     id: row.id,
     projectId: row.projectId,
+    aiProvider: row.aiProvider,
+    aiModel: row.aiModel,
     agentType: row.agentType,
     targetType: row.targetType,
     targetId: row.targetId,
@@ -128,9 +194,149 @@ function mapAgentJob(row: AgentJobRow): AgentJobDto {
     error: row.error,
     attempt: row.attempt,
     lockKey: row.lockKey,
+    waitReason: row.waitReason,
+    waitMetadata: parseJsonObject(row.waitMetadataJson),
+    nextRetryAt: row.nextRetryAt,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt
+  };
+}
+
+function parseStringArray(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function stringifyStringArray(value: string[] | null | undefined): string {
+  return JSON.stringify(value ?? []);
+}
+
+function mapLoop(row: LoopRow): LoopDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    name: row.name,
+    purpose: row.purpose,
+    triggerType: row.triggerType,
+    cadence: row.cadence,
+    targetScope: row.targetScope,
+    status: row.status,
+    maxRounds: row.maxRounds,
+    timeBudgetMinutes: row.timeBudgetMinutes,
+    costBudget: row.costBudget,
+    stopCondition: parseJsonObject(row.stopConditionJson),
+    riskPolicy: parseJsonObject(row.riskPolicyJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapLoopRun(row: LoopRunRow): LoopRunDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopId: row.loopId,
+    status: row.status,
+    triggerType: row.triggerType,
+    targetType: row.targetType ?? null,
+    targetId: row.targetId,
+    worktreePath: row.worktreePath,
+    summary: row.summary,
+    stopReason: row.stopReason,
+    evidence: parseJsonObject(row.evidenceJson),
+    createdAt: row.createdAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt
+  };
+}
+
+function mapLoopStep(row: LoopStepRow): LoopStepDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopRunId: row.loopRunId,
+    agentJobId: row.agentJobId,
+    agentType: row.agentType,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    status: row.status,
+    input: parseJsonObject(row.inputJson),
+    output: parseJsonObject(row.outputJson),
+    evidence: parseJsonObject(row.evidenceJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapLoopMemoryEntry(row: LoopMemoryEntryRow): LoopMemoryEntryDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    loopId: row.loopId,
+    loopRunId: row.loopRunId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    title: row.title,
+    body: row.body,
+    tags: parseStringArray(row.tagsJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapObjectiveRun(row: ObjectiveRunRow): ObjectiveRunDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    issueId: row.issueId,
+    pullRequestId: row.pullRequestId,
+    status: row.status,
+    workflowStage: row.workflowStage,
+    title: row.title,
+    goal: row.goal,
+    roundCount: row.roundCount,
+    maxRounds: row.maxRounds,
+    lastAgentJobId: row.lastAgentJobId,
+    judgeAgentJobId: row.judgeAgentJobId,
+    generatorAiProvider: row.generatorAiProvider,
+    judgeAiProvider: row.judgeAiProvider,
+    lastFailureSignature: row.lastFailureSignature,
+    repeatedFailureCount: row.repeatedFailureCount,
+    stopReason: row.stopReason,
+    tokenBudget: row.tokenBudget,
+    costBudgetUsd: row.costBudgetUsd,
+    providerUsage: normalizeProviderUsageTotals(parseJsonObject(row.providerUsageJson)),
+    evidenceRequirements: parseEvidenceRequirements(row.evidenceRequirementsJson),
+    evidence: parseJsonObject(row.evidenceJson),
+    summary: row.summary,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    finishedAt: row.finishedAt
+  };
+}
+
+function mapTriageItem(row: TriageItemRow): TriageItemDto {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    priority: row.priority,
+    metadata: parseJsonObject(row.metadataJson),
+    issueId: row.issueId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
@@ -186,8 +392,11 @@ function mapIssue(row: IssueRow, labelMap: Map<number, LabelDto[]>, commentCount
     title: row.title,
     body: row.body,
     status: row.status,
+    createdByType: row.createdByType,
     labels: labelMap.get(row.id) ?? [],
     commentCount: commentCounts.get(row.id) ?? 0,
+    lastAgentStatus: null,
+    lastAgentStopReason: null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     closedAt: row.closedAt
@@ -252,20 +461,73 @@ function mapPullRequest(
     title: row.title,
     body: row.body,
     status: row.status,
+    createdByType: row.createdByType,
     sourceBranch: row.sourceBranch,
     targetBranch: row.targetBranch,
     labels: labelMap.get(row.id) ?? [],
     commentCount: commentCounts.get(row.id) ?? 0,
     changedFileCount: stats?.changedFileCount ?? 0,
     commitCount: stats?.commitCount ?? 0,
+    lastAgentStatus: null,
+    lastAgentStopReason: null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     closedAt: row.closedAt
   };
 }
 
+function sameLabels(left: LabelDto[], right: LabelDto[]): boolean {
+  const leftIds = left.map((label) => label.id).sort((a, b) => a - b);
+  const rightIds = right.map((label) => label.id).sort((a, b) => a - b);
+  return leftIds.length === rightIds.length && leftIds.every((id, index) => id === rightIds[index]);
+}
+
+async function recordLabelActivity(
+  db: Database,
+  input: {
+    projectId: string;
+    targetType: "issue" | "pull_request";
+    targetId: number;
+    previous: LabelDto[];
+    current: LabelDto[];
+    createdAt: string;
+  }
+): Promise<void> {
+  if (sameLabels(input.previous, input.current)) return;
+  const previousNames = input.previous.map((label) => label.name);
+  const currentNames = input.current.map((label) => label.name);
+  const added = currentNames.filter((name) => !previousNames.includes(name));
+  const removed = previousNames.filter((name) => !currentNames.includes(name));
+  const lines = [
+    added.length ? `Applied: ${added.map((name) => `\`${name}\``).join(", ")}.` : null,
+    removed.length ? `Removed: ${removed.map((name) => `\`${name}\``).join(", ")}.` : null
+  ].filter((line): line is string => Boolean(line));
+  await db.insert(agentActivities).values({
+    projectId: input.projectId,
+    agentJobId: null,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    activityType: "system",
+    title: input.previous.length ? "Labels changed" : "Labels applied",
+    body: lines.join("\n\n"),
+    payloadJson: stringifyJson({
+      previousLabelIds: input.previous.map((label) => label.id),
+      currentLabelIds: input.current.map((label) => label.id),
+      added,
+      removed
+    }),
+    createdAt: input.createdAt
+  });
+}
+
 export function createRepositories(db: Database) {
+  async function activeAiSettings() {
+    const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ai")).limit(1);
+    return normalizeAiSettings(rows[0] ? parseJsonObject(rows[0].valueJson) : null);
+  }
+
   return {
+    development: createDevelopmentRepositories(db),
     projects: {
       async list(): Promise<ProjectDto[]> {
         const rows = await db.select().from(projects).orderBy(desc(projects.updatedAt));
@@ -303,7 +565,7 @@ export function createRepositories(db: Database) {
         return mapProject(rows[0]);
       },
 
-      async update(projectId: string, input: Partial<Pick<ProjectDto, "name" | "defaultBranch" | "locale">>) {
+      async update(projectId: string, input: Partial<Pick<ProjectDto, "name" | "repoPath" | "defaultBranch" | "locale">>) {
         const rows = await db
           .update(projects)
           .set({
@@ -493,6 +755,7 @@ export function createRepositories(db: Database) {
         projectId: string;
         title: string;
         body?: string;
+        createdByType?: IssueDto["createdByType"];
         labelIds?: number[];
       }): Promise<IssueDto> {
         const timestamp = now();
@@ -503,6 +766,7 @@ export function createRepositories(db: Database) {
             title: input.title,
             body: input.body ?? "",
             status: "open",
+            createdByType: input.createdByType ?? "user",
             createdAt: timestamp,
             updatedAt: timestamp
           })
@@ -520,6 +784,14 @@ export function createRepositories(db: Database) {
         }
 
         const labelMap = await getIssueLabels(db, [issue.id]);
+        await recordLabelActivity(db, {
+          projectId: input.projectId,
+          targetType: "issue",
+          targetId: issue.id,
+          previous: [],
+          current: labelMap.get(issue.id) ?? [],
+          createdAt: timestamp
+        });
         const commentCounts = await getIssueCommentCounts(db, [issue.id]);
         return mapIssue(issue, labelMap, commentCounts);
       },
@@ -530,6 +802,14 @@ export function createRepositories(db: Database) {
         input: Partial<Pick<IssueDto, "title" | "body" | "status">> & { labelIds?: number[] }
       ): Promise<IssueDto | null> {
         const timestamp = now();
+        const previousLabels = input.labelIds ? (await getIssueLabels(db, [issueId])).get(issueId) ?? [] : [];
+        const previousIssueStatus = input.status
+          ? (await db
+              .select({ status: issues.status })
+              .from(issues)
+              .where(and(eq(issues.projectId, projectId), eq(issues.id, issueId)))
+              .limit(1))[0]?.status
+          : undefined;
         const rows = await db
           .update(issues)
           .set({
@@ -546,6 +826,20 @@ export function createRepositories(db: Database) {
           return null;
         }
 
+        if (previousIssueStatus === "open" && input.status === "closed") {
+          await db.insert(agentActivities).values({
+            projectId,
+            agentJobId: null,
+            targetType: "issue",
+            targetId: issueId,
+            activityType: "system",
+            title: "Issue closed",
+            body: "Status changed from `open` to `closed`.",
+            payloadJson: stringifyJson({ previousStatus: previousIssueStatus, currentStatus: input.status }),
+            createdAt: timestamp
+          });
+        }
+
         if (input.labelIds) {
           await db.delete(issueLabels).where(eq(issueLabels.issueId, issueId));
           if (input.labelIds.length > 0) {
@@ -557,6 +851,15 @@ export function createRepositories(db: Database) {
               }))
             );
           }
+          const currentLabels = (await getIssueLabels(db, [issueId])).get(issueId) ?? [];
+          await recordLabelActivity(db, {
+            projectId,
+            targetType: "issue",
+            targetId: issueId,
+            previous: previousLabels,
+            current: currentLabels,
+            createdAt: timestamp
+          });
         }
 
         return this.get(projectId, issueId);
@@ -633,6 +936,7 @@ export function createRepositories(db: Database) {
         body?: string;
         sourceBranch: string;
         targetBranch: string;
+        createdByType?: PullRequestDto["createdByType"];
         labelIds?: number[];
       }): Promise<PullRequestDto> {
         const timestamp = now();
@@ -644,6 +948,7 @@ export function createRepositories(db: Database) {
             title: input.title,
             body: input.body ?? "",
             status: "open",
+            createdByType: input.createdByType ?? "user",
             sourceBranch: input.sourceBranch,
             targetBranch: input.targetBranch,
             createdAt: timestamp,
@@ -663,6 +968,14 @@ export function createRepositories(db: Database) {
         }
 
         const labelMap = await getPullRequestLabels(db, [pullRequest.id]);
+        await recordLabelActivity(db, {
+          projectId: input.projectId,
+          targetType: "pull_request",
+          targetId: pullRequest.id,
+          previous: [],
+          current: labelMap.get(pullRequest.id) ?? [],
+          createdAt: timestamp
+        });
         const commentCounts = await getPullRequestCommentCounts(db, [pullRequest.id]);
         return mapPullRequest(pullRequest, labelMap, commentCounts);
       },
@@ -675,6 +988,16 @@ export function createRepositories(db: Database) {
         > & { labelIds?: number[]; issueId?: number | null }
       ): Promise<PullRequestDto | null> {
         const timestamp = now();
+        const previousLabels = input.labelIds
+          ? (await getPullRequestLabels(db, [pullRequestId])).get(pullRequestId) ?? []
+          : [];
+        const previousPullRequestStatus = input.status
+          ? (await db
+              .select({ status: pullRequests.status })
+              .from(pullRequests)
+              .where(and(eq(pullRequests.projectId, projectId), eq(pullRequests.id, pullRequestId)))
+              .limit(1))[0]?.status
+          : undefined;
         const rows = await db
           .update(pullRequests)
           .set({
@@ -696,6 +1019,20 @@ export function createRepositories(db: Database) {
           return null;
         }
 
+        if (previousPullRequestStatus && input.status && previousPullRequestStatus !== input.status && input.status !== "merged") {
+          await db.insert(agentActivities).values({
+            projectId,
+            agentJobId: null,
+            targetType: "pull_request",
+            targetId: pullRequestId,
+            activityType: "system",
+            title: input.status === "closed" ? "Pull request closed" : "Pull request reopened",
+            body: `Status changed from \`${previousPullRequestStatus}\` to \`${input.status}\`.`,
+            payloadJson: stringifyJson({ previousStatus: previousPullRequestStatus, currentStatus: input.status }),
+            createdAt: timestamp
+          });
+        }
+
         if (input.labelIds) {
           await db.delete(pullRequestLabels).where(eq(pullRequestLabels.pullRequestId, pullRequestId));
           if (input.labelIds.length > 0) {
@@ -707,6 +1044,15 @@ export function createRepositories(db: Database) {
               }))
             );
           }
+          const currentLabels = (await getPullRequestLabels(db, [pullRequestId])).get(pullRequestId) ?? [];
+          await recordLabelActivity(db, {
+            projectId,
+            targetType: "pull_request",
+            targetId: pullRequestId,
+            previous: previousLabels,
+            current: currentLabels,
+            createdAt: timestamp
+          });
         }
 
         return this.get(projectId, pullRequestId);
@@ -725,6 +1071,15 @@ export function createRepositories(db: Database) {
     },
 
     comments: {
+      async get(projectId: string, commentId: number): Promise<CommentDto | null> {
+        const rows = await db
+          .select()
+          .from(comments)
+          .where(and(eq(comments.projectId, projectId), eq(comments.id, commentId)))
+          .limit(1);
+        return rows[0] ? mapComment(rows[0]) : null;
+      },
+
       async list(projectId: string, targetType: "issue" | "pull_request", targetId: number): Promise<CommentDto[]> {
         const rows = await db
           .select()
@@ -741,6 +1096,7 @@ export function createRepositories(db: Database) {
         authorType: "user" | "agent" | "system";
         agentType?: AgentType | null;
         body: string;
+        bodyFormat?: CommentBodyFormat;
         metadata?: Record<string, unknown>;
       }): Promise<CommentDto> {
         const timestamp = now();
@@ -753,12 +1109,78 @@ export function createRepositories(db: Database) {
             authorType: input.authorType,
             agentType: input.agentType,
             body: input.body,
+            bodyFormat: input.bodyFormat ?? "markdown",
             metadataJson: stringifyJson(input.metadata),
             createdAt: timestamp,
             updatedAt: timestamp
           })
           .returning();
         return mapComment(rows[0]);
+      },
+
+      async updateUserComment(input: {
+        projectId: string;
+        commentId: number;
+        body: string;
+        expectedUpdatedAt: string;
+      }): Promise<
+        | { state: "updated"; comment: CommentDto; revision: CommentRevisionDto | null }
+        | { state: "not_found" | "forbidden" | "conflict" }
+      > {
+        return db.transaction(async (transaction) => {
+          const rows = await transaction
+            .select()
+            .from(comments)
+            .where(and(eq(comments.projectId, input.projectId), eq(comments.id, input.commentId)))
+            .limit(1);
+          const current = rows[0];
+          if (!current) return { state: "not_found" as const };
+          if (current.authorType !== "user") return { state: "forbidden" as const };
+          if (current.updatedAt !== input.expectedUpdatedAt) return { state: "conflict" as const };
+          if (current.body === input.body) {
+            return { state: "updated" as const, comment: mapComment(current), revision: null };
+          }
+
+          const timestamp = timestampAfter(current.updatedAt);
+          const updatedRows = await transaction
+            .update(comments)
+            .set({ body: input.body, updatedAt: timestamp })
+            .where(
+              and(
+                eq(comments.projectId, input.projectId),
+                eq(comments.id, input.commentId),
+                eq(comments.authorType, "user"),
+                eq(comments.updatedAt, input.expectedUpdatedAt)
+              )
+            )
+            .returning();
+          if (!updatedRows[0]) return { state: "conflict" as const };
+          const revisionRows = await transaction
+            .insert(commentRevisions)
+            .values({
+              projectId: input.projectId,
+              commentId: current.id,
+              editorType: "user",
+              body: current.body,
+              bodyFormat: current.bodyFormat,
+              createdAt: timestamp
+            })
+            .returning();
+          return {
+            state: "updated" as const,
+            comment: mapComment(updatedRows[0]),
+            revision: mapCommentRevision(revisionRows[0])
+          };
+        });
+      },
+
+      async listRevisions(projectId: string, commentId: number): Promise<CommentRevisionDto[]> {
+        const rows = await db
+          .select()
+          .from(commentRevisions)
+          .where(and(eq(commentRevisions.projectId, projectId), eq(commentRevisions.commentId, commentId)))
+          .orderBy(desc(commentRevisions.createdAt), desc(commentRevisions.id));
+        return rows.map(mapCommentRevision);
       }
     },
 
@@ -773,6 +1195,42 @@ export function createRepositories(db: Database) {
         body?: string;
         payload?: Record<string, unknown>;
       }): Promise<ActivityDto> {
+        const timestamp = now();
+        const payloadJson = stringifyJson(input.payload);
+        const latestRows = await db
+          .select()
+          .from(agentActivities)
+          .where(
+            and(
+              eq(agentActivities.projectId, input.projectId),
+              eq(agentActivities.targetType, input.targetType),
+              eq(agentActivities.targetId, input.targetId)
+            )
+          )
+          .orderBy(desc(agentActivities.id))
+          .limit(1);
+        const latest = latestRows[0];
+        const latestTimestamp = Date.parse(latest?.lastOccurredAt ?? latest?.createdAt ?? "");
+        if (
+          latest &&
+          latest.agentJobId === (input.agentJobId ?? null) &&
+          latest.activityType === input.activityType &&
+          latest.title === input.title &&
+          latest.body === (input.body ?? "") &&
+          latest.payloadJson === payloadJson &&
+          Number.isFinite(latestTimestamp) &&
+          Date.parse(timestamp) - latestTimestamp <= 30_000
+        ) {
+          const compactedRows = await db
+            .update(agentActivities)
+            .set({
+              occurrenceCount: sql`${agentActivities.occurrenceCount} + 1`,
+              lastOccurredAt: timestamp
+            })
+            .where(eq(agentActivities.id, latest.id))
+            .returning();
+          return mapActivity(compactedRows[0]);
+        }
         const rows = await db
           .insert(agentActivities)
           .values({
@@ -783,8 +1241,10 @@ export function createRepositories(db: Database) {
             activityType: input.activityType,
             title: input.title,
             body: input.body ?? "",
-            payloadJson: stringifyJson(input.payload),
-            createdAt: now()
+            payloadJson,
+            occurrenceCount: 1,
+            lastOccurredAt: timestamp,
+            createdAt: timestamp
           })
           .returning();
         return mapActivity(rows[0]);
@@ -846,7 +1306,7 @@ export function createRepositories(db: Database) {
           filters.push(eq(agentJobs.status, input.status));
         }
 
-        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(desc(agentJobs.createdAt));
+        const rows = await db.select().from(agentJobs).where(and(...filters)).orderBy(desc(agentJobs.createdAt), desc(agentJobs.id));
         return rows.map(mapAgentJob);
       },
 
@@ -861,6 +1321,8 @@ export function createRepositories(db: Database) {
 
       async create(input: {
         projectId: string;
+        aiProvider?: AiProvider;
+        aiModel?: string | null;
         agentType: AgentType;
         targetType: "issue" | "pull_request" | "project";
         targetId: number;
@@ -870,10 +1332,20 @@ export function createRepositories(db: Database) {
         lockKey?: string | null;
       }): Promise<AgentJobDto> {
         const timestamp = now();
+        const aiSettings = await activeAiSettings();
+        const roleSelection = resolveAgentAiSelection(aiSettings, input.agentType);
+        const aiProvider = input.aiProvider ?? roleSelection.provider;
+        const aiModel = input.aiModel !== undefined
+          ? input.aiModel
+          : input.aiProvider
+            ? configuredModelForProvider(aiSettings, input.aiProvider)
+            : roleSelection.model;
         const rows = await db
           .insert(agentJobs)
           .values({
             projectId: input.projectId,
+            aiProvider,
+            aiModel,
             agentType: input.agentType,
             targetType: input.targetType,
             targetId: input.targetId,
@@ -895,6 +1367,10 @@ export function createRepositories(db: Database) {
         patch?: { output?: Record<string, unknown> | null; error?: string | null }
       ): Promise<AgentJobDto | null> {
         const timestamp = now();
+        const filters = [eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId)];
+        if (status === "running") {
+          filters.push(eq(agentJobs.status, "queued"));
+        }
         const rows = await db
           .update(agentJobs)
           .set({
@@ -902,9 +1378,180 @@ export function createRepositories(db: Database) {
             outputJson: patch?.output === undefined ? undefined : stringifyJson(patch.output ?? undefined),
             error: patch?.error,
             startedAt: status === "running" ? timestamp : undefined,
-            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined
+            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined,
+            waitReason: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined,
+            waitMetadataJson: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined,
+            nextRetryAt: ["succeeded", "failed", "canceled"].includes(status) ? null : undefined
           })
-          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId)))
+          .where(and(...filters))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async pause(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({ status: "paused", error: null, finishedAt: null })
+          .where(
+            and(
+              eq(agentJobs.projectId, projectId),
+              eq(agentJobs.id, jobId),
+              inArray(agentJobs.status, ["queued", "running", "waiting_provider", "waiting_human"])
+            )
+          )
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async resumePaused(projectId: string, jobId: number): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            waitReason: null,
+            waitMetadataJson: null,
+            nextRetryAt: null,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "paused")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async requeueAfterRecovery(
+        projectId: string,
+        jobId: number,
+        patch?: { output?: Record<string, unknown> | null; error?: string | null }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            outputJson: patch?.output === undefined ? undefined : stringifyJson(patch.output ?? undefined),
+            error: patch?.error ?? null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "running")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async requeueInterrupted(projectId?: string): Promise<AgentJobDto[]> {
+        const filters: SQL[] = [eq(agentJobs.status, "running")];
+        if (projectId) {
+          filters.push(eq(agentJobs.projectId, projectId));
+        }
+
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            error: "Recovered interrupted running job.",
+            attempt: sql`${agentJobs.attempt} + 1`,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(...filters))
+          .returning();
+        return rows.map(mapAgentJob);
+      },
+
+      async waitForProvider(
+        projectId: string,
+        jobId: number,
+        input: {
+          reason: string;
+          metadata: Record<string, unknown>;
+          nextRetryAt: string;
+          output: Record<string, unknown>;
+        }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "waiting_provider",
+            outputJson: stringifyJson(input.output),
+            error: null,
+            waitReason: input.reason,
+            waitMetadataJson: stringifyJson(input.metadata),
+            nextRetryAt: input.nextRetryAt,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "running")))
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async listDueProviderWaits(at: string): Promise<AgentJobDto[]> {
+        const rows = await db
+          .select()
+          .from(agentJobs)
+          .where(and(eq(agentJobs.status, "waiting_provider"), sql`${agentJobs.nextRetryAt} <= ${at}`))
+          .orderBy(agentJobs.nextRetryAt);
+        return rows.map(mapAgentJob);
+      },
+
+      async extendProviderWait(
+        projectId: string,
+        jobId: number,
+        input: {
+          metadata: Record<string, unknown>;
+          nextRetryAt: string;
+          output: Record<string, unknown>;
+        }
+      ): Promise<AgentJobDto | null> {
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            outputJson: stringifyJson(input.output),
+            error: null,
+            waitMetadataJson: stringifyJson(input.metadata),
+            nextRetryAt: input.nextRetryAt,
+            finishedAt: null
+          })
+          .where(
+            and(
+              eq(agentJobs.projectId, projectId),
+              eq(agentJobs.id, jobId),
+              eq(agentJobs.status, "waiting_provider")
+            )
+          )
+          .returning();
+        return rows[0] ? mapAgentJob(rows[0]) : null;
+      },
+
+      async resumeProviderWait(
+        projectId: string,
+        jobId: number,
+        aiProvider?: AiProvider,
+        aiModel?: string | null
+      ): Promise<AgentJobDto | null> {
+        const currentJob = await this.get(projectId, jobId);
+        if (!currentJob) return null;
+        const providerChanged = aiProvider !== undefined && aiProvider !== currentJob.aiProvider;
+        const resolvedModel = aiModel !== undefined
+          ? aiModel
+          : providerChanged
+            ? configuredModelForProvider(await activeAiSettings(), aiProvider)
+            : undefined;
+        const rows = await db
+          .update(agentJobs)
+          .set({
+            status: "queued",
+            aiProvider,
+            aiModel: resolvedModel,
+            error: null,
+            attempt: sql`${agentJobs.attempt} + 1`,
+            nextRetryAt: null,
+            startedAt: null,
+            finishedAt: null
+          })
+          .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "waiting_provider")))
           .returning();
         return rows[0] ? mapAgentJob(rows[0]) : null;
       },
@@ -920,6 +1567,8 @@ export function createRepositories(db: Database) {
           .insert(agentJobs)
           .values({
             projectId,
+            aiProvider: job.aiProvider,
+            aiModel: job.aiModel,
             agentType: job.agentType,
             targetType: job.targetType,
             targetId: job.targetId,
@@ -948,6 +1597,580 @@ export function createRepositories(db: Database) {
           .where(and(eq(agentJobs.projectId, projectId), eq(agentJobs.id, jobId), eq(agentJobs.status, "waiting_human")))
           .returning();
         return rows[0] ? mapAgentJob(rows[0]) : null;
+      }
+    },
+
+    loops: {
+      async list(projectId: string): Promise<LoopDto[]> {
+        const rows = await db
+          .select()
+          .from(loops)
+          .where(eq(loops.projectId, projectId))
+          .orderBy(desc(loops.updatedAt));
+        return rows.map(mapLoop);
+      },
+
+      async get(projectId: string, loopId: number): Promise<LoopDto | null> {
+        const rows = await db
+          .select()
+          .from(loops)
+          .where(and(eq(loops.projectId, projectId), eq(loops.id, loopId)))
+          .limit(1);
+        return rows[0] ? mapLoop(rows[0]) : null;
+      },
+
+      async create(input: {
+        projectId: string;
+        name: string;
+        purpose?: string;
+        triggerType?: string;
+        cadence?: string | null;
+        targetScope?: string;
+        status?: LoopStatus;
+        maxRounds?: number;
+        timeBudgetMinutes?: number | null;
+        costBudget?: number | null;
+        stopCondition?: Record<string, unknown> | null;
+        riskPolicy?: Record<string, unknown> | null;
+      }): Promise<LoopDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loops)
+          .values({
+            projectId: input.projectId,
+            name: input.name,
+            purpose: input.purpose ?? "",
+            triggerType: input.triggerType ?? "manual",
+            cadence: input.cadence,
+            targetScope: input.targetScope ?? "project",
+            status: input.status ?? "enabled",
+            maxRounds: input.maxRounds ?? 3,
+            timeBudgetMinutes: input.timeBudgetMinutes,
+            costBudget: input.costBudget,
+            stopConditionJson: stringifyJson(input.stopCondition),
+            riskPolicyJson: stringifyJson(input.riskPolicy),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoop(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        loopId: number,
+        input: Partial<
+          Pick<
+            LoopDto,
+            "name" | "purpose" | "triggerType" | "cadence" | "targetScope" | "status" | "maxRounds" | "timeBudgetMinutes" | "costBudget"
+          >
+        > & {
+          stopCondition?: Record<string, unknown> | null;
+          riskPolicy?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopDto | null> {
+        const rows = await db
+          .update(loops)
+          .set({
+            name: input.name,
+            purpose: input.purpose,
+            triggerType: input.triggerType,
+            cadence: input.cadence,
+            targetScope: input.targetScope,
+            status: input.status,
+            maxRounds: input.maxRounds,
+            timeBudgetMinutes: input.timeBudgetMinutes,
+            costBudget: input.costBudget,
+            stopConditionJson: input.stopCondition === undefined ? undefined : stringifyJson(input.stopCondition),
+            riskPolicyJson: input.riskPolicy === undefined ? undefined : stringifyJson(input.riskPolicy),
+            updatedAt: now()
+          })
+          .where(and(eq(loops.projectId, projectId), eq(loops.id, loopId)))
+          .returning();
+        return rows[0] ? mapLoop(rows[0]) : null;
+      }
+    },
+
+    loopRuns: {
+      async list(projectId: string, loopId?: number): Promise<LoopRunDto[]> {
+        const filters: SQL[] = [eq(loopRuns.projectId, projectId)];
+        if (typeof loopId === "number") {
+          filters.push(eq(loopRuns.loopId, loopId));
+        }
+        const rows = await db.select().from(loopRuns).where(and(...filters)).orderBy(desc(loopRuns.createdAt));
+        return rows.map(mapLoopRun);
+      },
+
+      async get(projectId: string, loopRunId: number): Promise<LoopRunDto | null> {
+        const rows = await db
+          .select()
+          .from(loopRuns)
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .limit(1);
+        return rows[0] ? mapLoopRun(rows[0]) : null;
+      },
+
+      async create(input: {
+        projectId: string;
+        loopId: number;
+        triggerType?: string;
+        targetType?: "issue" | "pull_request" | "project" | null;
+        targetId?: number | null;
+        worktreePath?: string | null;
+      }): Promise<LoopRunDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopRuns)
+          .values({
+            projectId: input.projectId,
+            loopId: input.loopId,
+            status: "queued",
+            triggerType: input.triggerType ?? "manual",
+            targetType: input.targetType,
+            targetId: input.targetId,
+            worktreePath: input.worktreePath,
+            createdAt: timestamp
+          })
+          .returning();
+        return mapLoopRun(rows[0]);
+      },
+
+      async updateStatus(
+        projectId: string,
+        loopRunId: number,
+        status: LoopRunStatus,
+        patch?: {
+          summary?: string;
+          stopReason?: string | null;
+          evidence?: Record<string, unknown> | null;
+          worktreePath?: string | null;
+        }
+      ): Promise<LoopRunDto | null> {
+        const timestamp = now();
+        const rows = await db
+          .update(loopRuns)
+          .set({
+            status,
+            summary: patch?.summary,
+            stopReason: patch?.stopReason,
+            evidenceJson: patch?.evidence === undefined ? undefined : stringifyJson(patch.evidence),
+            worktreePath: patch?.worktreePath,
+            startedAt: status === "running" ? timestamp : undefined,
+            finishedAt: ["succeeded", "failed", "canceled"].includes(status) ? timestamp : undefined
+          })
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .returning();
+        return rows[0] ? mapLoopRun(rows[0]) : null;
+      },
+
+      async setWorktreeState(
+        projectId: string,
+        loopRunId: number,
+        patch: {
+          worktreePath: string | null;
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopRunDto | null> {
+        const rows = await db
+          .update(loopRuns)
+          .set({
+            worktreePath: patch.worktreePath,
+            evidenceJson: patch.evidence === undefined ? undefined : stringifyJson(patch.evidence)
+          })
+          .where(and(eq(loopRuns.projectId, projectId), eq(loopRuns.id, loopRunId)))
+          .returning();
+        return rows[0] ? mapLoopRun(rows[0]) : null;
+      }
+    },
+
+    loopSteps: {
+      async list(projectId: string, loopRunId: number): Promise<LoopStepDto[]> {
+        const rows = await db
+          .select()
+          .from(loopSteps)
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.loopRunId, loopRunId)))
+          .orderBy(loopSteps.createdAt);
+        return rows.map(mapLoopStep);
+      },
+
+      async create(input: {
+        projectId: string;
+        loopRunId: number;
+        agentJobId?: number | null;
+        agentType: AgentType;
+        targetType: "issue" | "pull_request" | "project";
+        targetId: number;
+        status?: LoopStepStatus;
+        input?: Record<string, unknown> | null;
+      }): Promise<LoopStepDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopSteps)
+          .values({
+            projectId: input.projectId,
+            loopRunId: input.loopRunId,
+            agentJobId: input.agentJobId,
+            agentType: input.agentType,
+            targetType: input.targetType,
+            targetId: input.targetId,
+            status: input.status ?? "queued",
+            inputJson: stringifyJson(input.input),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoopStep(rows[0]);
+      },
+
+      async updateForAgentJob(
+        projectId: string,
+        agentJobId: number,
+        patch: {
+          status?: LoopStepStatus;
+          output?: Record<string, unknown> | null;
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<LoopStepDto | null> {
+        const rows = await db
+          .update(loopSteps)
+          .set({
+            status: patch.status,
+            outputJson: patch.output === undefined ? undefined : stringifyJson(patch.output),
+            evidenceJson: patch.evidence === undefined ? undefined : stringifyJson(patch.evidence),
+            updatedAt: now()
+          })
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.agentJobId, agentJobId)))
+          .returning();
+        return rows[0] ? mapLoopStep(rows[0]) : null;
+      },
+
+      async getByAgentJob(projectId: string, agentJobId: number): Promise<LoopStepDto | null> {
+        const rows = await db
+          .select()
+          .from(loopSteps)
+          .where(and(eq(loopSteps.projectId, projectId), eq(loopSteps.agentJobId, agentJobId)))
+          .limit(1);
+        return rows[0] ? mapLoopStep(rows[0]) : null;
+      }
+    },
+
+    loopMemory: {
+      async list(projectId: string): Promise<LoopMemoryEntryDto[]> {
+        const rows = await db
+          .select()
+          .from(loopMemoryEntries)
+          .where(eq(loopMemoryEntries.projectId, projectId))
+          .orderBy(desc(loopMemoryEntries.createdAt));
+        return rows.map(mapLoopMemoryEntry);
+      },
+
+      async create(input: {
+        projectId: string;
+        loopId?: number | null;
+        loopRunId?: number | null;
+        sourceType?: "manual" | "loop_run" | "agent_job" | "triage";
+        sourceId?: number | null;
+        title: string;
+        body?: string;
+        tags?: string[];
+      }): Promise<LoopMemoryEntryDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(loopMemoryEntries)
+          .values({
+            projectId: input.projectId,
+            loopId: input.loopId,
+            loopRunId: input.loopRunId,
+            sourceType: input.sourceType ?? "manual",
+            sourceId: input.sourceId,
+            title: input.title,
+            body: input.body ?? "",
+            tagsJson: stringifyStringArray(input.tags),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapLoopMemoryEntry(rows[0]);
+      }
+    },
+
+    objectives: {
+      async list(input: {
+        projectId: string;
+        issueId?: number;
+        pullRequestId?: number;
+        status?: ObjectiveRunStatus;
+      }): Promise<ObjectiveRunDto[]> {
+        const filters: SQL[] = [eq(objectiveRuns.projectId, input.projectId)];
+        if (typeof input.issueId === "number") {
+          filters.push(eq(objectiveRuns.issueId, input.issueId));
+        }
+        if (typeof input.pullRequestId === "number") {
+          filters.push(eq(objectiveRuns.pullRequestId, input.pullRequestId));
+        }
+        if (input.status) {
+          filters.push(eq(objectiveRuns.status, input.status));
+        }
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(...filters))
+          .orderBy(desc(objectiveRuns.updatedAt), desc(objectiveRuns.id));
+        return rows.map(mapObjectiveRun);
+      },
+
+      async get(projectId: string, objectiveRunId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.id, objectiveRunId)))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async findByIssue(projectId: string, issueId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.issueId, issueId)))
+          .orderBy(desc(objectiveRuns.updatedAt), desc(objectiveRuns.id))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async findByPullRequest(projectId: string, pullRequestId: number): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .select()
+          .from(objectiveRuns)
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.pullRequestId, pullRequestId)))
+          .orderBy(desc(objectiveRuns.updatedAt))
+          .limit(1);
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      },
+
+      async ensureForIssue(input: {
+        projectId: string;
+        issueId: number;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+      }): Promise<ObjectiveRunDto> {
+        const existing = await this.findByIssue(input.projectId, input.issueId);
+        if (existing) {
+          return existing;
+        }
+
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            workflowStage: "requirements",
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async createForIssue(input: {
+        projectId: string;
+        issueId: number;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+        summary?: string;
+        evidence?: Record<string, unknown> | null;
+      }): Promise<ObjectiveRunDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            workflowStage: "requirements",
+            summary: input.summary ?? "",
+            evidenceJson: stringifyJson(input.evidence ?? undefined),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async ensureForPullRequest(input: {
+        projectId: string;
+        pullRequestId: number;
+        issueId?: number | null;
+        title: string;
+        goal?: string;
+        maxRounds?: number;
+      }): Promise<ObjectiveRunDto> {
+        const existingByPullRequest = await this.findByPullRequest(input.projectId, input.pullRequestId);
+        if (existingByPullRequest) {
+          return existingByPullRequest;
+        }
+
+        if (typeof input.issueId === "number") {
+          const existingByIssue = await this.findByIssue(input.projectId, input.issueId);
+          if (existingByIssue) {
+            return (
+              (await this.update(input.projectId, existingByIssue.id, {
+                pullRequestId: input.pullRequestId,
+                title: existingByIssue.title || input.title,
+                workflowStage: "review"
+              })) ?? existingByIssue
+            );
+          }
+        }
+
+        const timestamp = now();
+        const rows = await db
+          .insert(objectiveRuns)
+          .values({
+            projectId: input.projectId,
+            issueId: input.issueId ?? null,
+            pullRequestId: input.pullRequestId,
+            title: input.title,
+            goal: input.goal ?? "",
+            maxRounds: input.maxRounds ?? 12,
+            status: "open",
+            workflowStage: "review",
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapObjectiveRun(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        objectiveRunId: number,
+        input: Partial<
+          Pick<
+            ObjectiveRunDto,
+            | "issueId"
+            | "pullRequestId"
+            | "status"
+            | "workflowStage"
+            | "title"
+            | "goal"
+            | "roundCount"
+            | "maxRounds"
+            | "lastAgentJobId"
+            | "judgeAgentJobId"
+            | "generatorAiProvider"
+            | "judgeAiProvider"
+            | "lastFailureSignature"
+            | "repeatedFailureCount"
+            | "stopReason"
+            | "tokenBudget"
+            | "costBudgetUsd"
+            | "providerUsage"
+            | "evidenceRequirements"
+            | "summary"
+            | "finishedAt"
+          >
+        > & {
+          evidence?: Record<string, unknown> | null;
+        }
+      ): Promise<ObjectiveRunDto | null> {
+        const rows = await db
+          .update(objectiveRuns)
+          .set({
+            issueId: input.issueId,
+            pullRequestId: input.pullRequestId,
+            status: input.status,
+            workflowStage: input.workflowStage,
+            title: input.title,
+            goal: input.goal,
+            roundCount: input.roundCount,
+            maxRounds: input.maxRounds,
+            lastAgentJobId: input.lastAgentJobId,
+            judgeAgentJobId: input.judgeAgentJobId,
+            generatorAiProvider: input.generatorAiProvider,
+            judgeAiProvider: input.judgeAiProvider,
+            lastFailureSignature: input.lastFailureSignature,
+            repeatedFailureCount: input.repeatedFailureCount,
+            stopReason: input.stopReason,
+            tokenBudget: input.tokenBudget,
+            costBudgetUsd: input.costBudgetUsd,
+            providerUsageJson: input.providerUsage === undefined ? undefined : JSON.stringify(input.providerUsage),
+            evidenceRequirementsJson: input.evidenceRequirements === undefined
+              ? undefined
+              : JSON.stringify(input.evidenceRequirements),
+            evidenceJson: input.evidence === undefined ? undefined : stringifyJson(input.evidence),
+            summary: input.summary,
+            finishedAt: input.finishedAt,
+            updatedAt: now()
+          })
+          .where(and(eq(objectiveRuns.projectId, projectId), eq(objectiveRuns.id, objectiveRunId)))
+          .returning();
+        return rows[0] ? mapObjectiveRun(rows[0]) : null;
+      }
+    },
+
+    triage: {
+      async list(projectId: string, status?: TriageItemStatus): Promise<TriageItemDto[]> {
+        const filters: SQL[] = [eq(triageItems.projectId, projectId)];
+        if (status) {
+          filters.push(eq(triageItems.status, status));
+        }
+        const rows = await db.select().from(triageItems).where(and(...filters)).orderBy(desc(triageItems.createdAt));
+        return rows.map(mapTriageItem);
+      },
+
+      async create(input: {
+        projectId: string;
+        sourceType: string;
+        sourceId?: number | null;
+        title: string;
+        body?: string;
+        priority?: string;
+        metadata?: Record<string, unknown> | null;
+      }): Promise<TriageItemDto> {
+        const timestamp = now();
+        const rows = await db
+          .insert(triageItems)
+          .values({
+            projectId: input.projectId,
+            sourceType: input.sourceType,
+            sourceId: input.sourceId,
+            title: input.title,
+            body: input.body ?? "",
+            priority: input.priority ?? "normal",
+            metadataJson: stringifyJson(input.metadata),
+            createdAt: timestamp,
+            updatedAt: timestamp
+          })
+          .returning();
+        return mapTriageItem(rows[0]);
+      },
+
+      async update(
+        projectId: string,
+        triageItemId: number,
+        input: { status?: TriageItemStatus; issueId?: number | null }
+      ): Promise<TriageItemDto | null> {
+        const rows = await db
+          .update(triageItems)
+          .set({
+            status: input.status,
+            issueId: input.issueId,
+            updatedAt: now()
+          })
+          .where(and(eq(triageItems.projectId, projectId), eq(triageItems.id, triageItemId)))
+          .returning();
+        return rows[0] ? mapTriageItem(rows[0]) : null;
       }
     },
 

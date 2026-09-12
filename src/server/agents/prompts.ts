@@ -1,24 +1,46 @@
-import type { AgentJobDto, CommentDto, IssueDto, ProjectCommandDto, ProjectDto, PullRequestDto } from "../../shared/types";
+import type {
+  AgentJobDto,
+  CommentDto,
+  IssueDto,
+  ObjectiveRunDto,
+  ProjectCommandDto,
+  ProjectDto,
+  PullRequestDto,
+  SkillFileDto
+} from "../../shared/types";
+import { localeLanguageName } from "../../shared/locales";
 import { workflowLabelNames } from "../../shared/workflow-labels";
 
 export type AgentPromptContext = {
   project: ProjectDto;
   target: IssueDto | PullRequestDto | ProjectDto;
+  objective: ObjectiveRunDto | null;
   comments: CommentDto[];
   commands: ProjectCommandDto[];
+  knowledge: SkillFileDto[];
 };
 
 const outputSchema = `Return only JSON with this shape:
 {
   "status": "succeeded" | "waiting_human" | "failed",
   "message": "short user-visible summary",
-  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown" } | null,
+  "comment": { "targetType": "issue" | "pull_request", "targetId": number, "body": "markdown or sanitized raw HTML", "bodyFormat": "markdown" | "html" | null } | null,
   "questions": ["question"] | null,
   "activities": [{ "type": "progress", "title": "short title", "body": "markdown", "payload": {} }],
   "changedFiles": ["path"] | null,
   "testResults": [] | null,
+  "stopReason": "passed" | "failed" | "waiting_human" | "timeout" | "max_rounds_exceeded" | "budget_exceeded" | "risk_detected" | "rollback_required" | "canceled" | null,
+  "evidence": [{ "type": "test | screenshot", "title": "short title", "summary": "what this proves", "payload": {} | { "artifact": { "kind": "image", "path": "relative/path.png", "caption": "optional caption" | null } } }] | null,
   "metadata": {
     "nextLabel": "optional system label" | null,
+    "goalContract": {
+      "evidenceRequired": [{
+        "type": "test | lint | build | command | screenshot | ui_snapshot | file_change | diff_summary | performance | ci_status | review | qa | verifier",
+        "required": true,
+        "commitScope": "source | target | both | none",
+        "maxAgeHours": 24 | null
+      }]
+    } | null,
     "pullRequest": {
       "title": "optional PR title",
       "body": "optional markdown" | null,
@@ -28,25 +50,44 @@ const outputSchema = `Return only JSON with this shape:
     } | null,
     "review": { "verdict": "approved | changes_requested", "findings": [], "checked": [] } | null,
     "fix": { "resolvedFindings": [], "conflictVerification": {} } | null,
-    "qa": { "verdict": "passed | defects_found", "defects": [], "observations": [] } | null
+    "qa": { "verdict": "passed | defects_found", "defects": [], "observations": [] } | null,
+    "verifier": { "verdict": "passed | missing_evidence | failed", "stopConditionMet": true, "missingEvidence": [], "notes": [] } | null
   } | null
 }
 Use null or empty arrays for fields that are not relevant.`;
 
-const commonPrompt = `You are an autonomous development agent for one team.
+const commonPrompt = `You are an autonomous development agent for OneTeam.
 
 You work inside a single local git repository. Follow the requirements,
 existing code style, and repository conventions.
 
-Codex CLI runs with full access. You do not need to ask for per-command
-approval. Still, record important commands, file changes, test results,
-errors, and user-visible reasoning summaries as activities.
+Use the tools available in the selected AI provider to inspect files, edit code,
+and run commands when the job requires it. Record important commands, file
+changes, test results, errors, and user-visible reasoning summaries as
+activities.
 
 Do not expose raw hidden chain-of-thought. When an activity needs reasoning,
 write a concise thinking summary that is safe and useful for the user.
 
 If you need human input to proceed safely, stop and return waiting_human with
-clear questions. Otherwise continue until the assigned job is complete.`;
+clear questions. Otherwise continue until the assigned job is complete.
+
+Treat each job as one step in a local AI development loop. Return explicit
+stopReason and evidence so the user can verify why the job stopped.
+
+Agent comments may use Markdown or raw HTML. Use "bodyFormat": "markdown" for
+normal comments. Use "bodyFormat": "html" only when a structured report,
+table, callout, or compact visual grouping improves the user's understanding.
+HTML must be self-contained and safe: do not include script, iframe, object,
+embed, event handler attributes, javascript: URLs, external CSS, or unsafe style
+functions. OneTeam records the common Outcome / Evidence / Next step milestone
+separately, so the HTML body should contain the report without duplicating that wrapper.
+
+When visual verification materially supports QA or review, save PNG, JPEG, GIF,
+or WebP screenshots under .oneteam/artifacts in the current Agent workspace and
+return them as screenshot evidence. Use that workspace-relative path in payload.artifact.path.
+Do not return external URLs, data URLs, SVG, or files outside the workspace.
+OneTeam copies valid images before a temporary worktree is cleaned up.`;
 
 const rolePrompts: Record<AgentJobDto["agentType"], string> = {
   requirements: `You are the Requirements Agent.
@@ -62,6 +103,21 @@ Tasks:
 4. If human input is required, return waiting_human and provide concise questions.
 5. If human input is not required, write a requirements definition comment.
 6. For a new repository, include install/dev/build/test/lint command requirements.
+7. Infer loop scope, risk policy, evidence, and stop conditions from the issue
+   and repository. Ask the user only when those choices change the acceptance
+   criteria, safety boundary, or implementation feasibility.
+
+The requirements definition must include a Goal Contract, Stop Condition,
+Evidence Required, and Human Handoff Conditions.
+
+Return the machine-readable Evidence Required rules in
+metadata.goalContract.evidenceRequired. Use only the evidence types in the
+output schema. Set commitScope to source, target, both, or none and set an
+explicit maxAgeHours when stale evidence must not satisfy the Gate. Mark
+acceptance-critical evidence as required.
+
+Do not ask the user to configure Loops directly. Treat loop settings as internal
+workflow policy derived from the issue and the repository.
 
 Set metadata.nextLabel to "${workflowLabelNames.readyForImplementation}" when requirements are complete.`,
 
@@ -76,7 +132,7 @@ Tasks:
 3. Make focused code changes that satisfy the requirements.
 4. Add or update tests when appropriate.
 5. Run available lint/test/build commands.
-6. Return implementation summary, changed files, test results, and metadata.pullRequest.`,
+6. Return implementation summary, changed files, test results, evidence, stopReason, and metadata.pullRequest.`,
 
   review: `You are the Review Agent.
 
@@ -86,6 +142,7 @@ maintainability, and test adequacy.
 
 If fixes are required, set metadata.nextLabel to "${workflowLabelNames.fixing}".
 If no blocking issues exist, set metadata.nextLabel to "${workflowLabelNames.testing}".
+Verify the Goal Contract, Evidence Required, and Stop Condition when available.
 Return metadata.review with verdict, findings, and checked items.
 Each finding should include severity, path, line, title, and body when available.`,
 
@@ -104,7 +161,25 @@ Validate the pull request from the user's perspective.
 
 If a defect is found, set metadata.nextLabel to "${workflowLabelNames.fixing}".
 If no defect is found, set metadata.nextLabel to "${workflowLabelNames.done}".
-Return metadata.qa with verdict, defects, and observations.`,
+Return metadata.qa with verdict, defects, observations, evidence, and stopReason.`,
+
+  verifier: `You are the Verifier Agent.
+
+Goal:
+Decide whether the loop's Stop Condition is satisfied by the collected Evidence.
+
+Tasks:
+1. Inspect the target, comments, agent job context, and available command results.
+2. Compare the work against the Goal Contract, Stop Condition, and Evidence Required.
+3. If the Stop Condition is met, return succeeded with stopReason "passed".
+4. If required evidence is missing or ambiguous, return waiting_human with stopReason "waiting_human" and concise questions.
+5. If evidence proves the result failed, return failed with stopReason "failed".
+6. Return metadata.verifier with verdict, stopConditionMet, missingEvidence, and notes.
+7. For a pull request whose Stop Condition is met, set metadata.nextLabel to "${workflowLabelNames.readyToMerge}".
+
+Do not modify files. Focus on whether the loop can stop safely.`,
+
+  retrospective: `Reflect on the entire completed development loop. Return reusable, evidence-backed knowledge changes under .oneteam only. Do not edit files directly.`,
 
   command_detection: `You are the Command Detection Agent.
 
@@ -118,17 +193,35 @@ function serializeContext(context: AgentPromptContext): string {
     {
       project: context.project,
       target: context.target,
+      objective: context.objective,
       comments: context.comments,
-      commands: context.commands
+      commands: context.commands,
+      knowledge: context.knowledge.map((item) => ({
+        path: `.oneteam/${item.path}`,
+        title: item.title,
+        body: item.body
+      }))
     },
     null,
     2
   );
 }
 
+function outputLanguagePrompt(locale: string): string {
+  const language = localeLanguageName(locale);
+  return [
+    "Output language:",
+    `Write all user-visible text in ${language}.`,
+    "This includes message, comment.body, questions, activity titles/bodies, evidence titles/summaries, pull request titles/bodies, findings, notes, and verifier notes.",
+    "Keep JSON keys, enum values, system labels, file paths, branch names, commands, code identifiers, and error codes exactly as required by the schema or repository."
+  ].join("\n");
+}
+
 export function buildAgentPrompt(job: AgentJobDto, context: AgentPromptContext): string {
   return [
     commonPrompt,
+    "",
+    outputLanguagePrompt(context.project.locale),
     "",
     rolePrompts[job.agentType],
     "",

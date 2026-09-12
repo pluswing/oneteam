@@ -1,5 +1,21 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import type { ActivityType, AgentJobStatus, AgentType, CommandType, IssueStatus, LabelKind, PullRequestStatus } from "../../shared/types";
+import { integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { AiProvider } from "../../shared/ai-providers";
+import type {
+  ActivityType,
+  AgentJobStatus,
+  AgentType,
+  CommentBodyFormat,
+  CommandType,
+  IssueStatus,
+  LabelKind,
+  LoopRunStatus,
+  LoopStatus,
+  LoopStepStatus,
+  ObjectiveRunStatus,
+  ObjectiveWorkflowStage,
+  PullRequestStatus,
+  TriageItemStatus
+} from "../../shared/types";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -44,6 +60,7 @@ export const issues = sqliteTable("issues", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   status: text("status").notNull().default("open").$type<IssueStatus>(),
+  createdByType: text("created_by_type").notNull().default("user").$type<"user" | "agent" | "system">(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   closedAt: text("closed_at"),
@@ -57,6 +74,7 @@ export const pullRequests = sqliteTable("pull_requests", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   status: text("status").notNull().default("open").$type<PullRequestStatus>(),
+  createdByType: text("created_by_type").notNull().default("user").$type<"user" | "agent" | "system">(),
   sourceBranch: text("source_branch").notNull(),
   targetBranch: text("target_branch").notNull(),
   createdAt: text("created_at").notNull(),
@@ -115,14 +133,27 @@ export const comments = sqliteTable("comments", {
   authorType: text("author_type").notNull().$type<"user" | "agent" | "system">(),
   agentType: text("agent_type").$type<AgentType>(),
   body: text("body").notNull(),
+  bodyFormat: text("body_format").notNull().default("markdown").$type<CommentBodyFormat>(),
   metadataJson: text("metadata_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
 });
 
+export const commentRevisions = sqliteTable("comment_revisions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  commentId: integer("comment_id").notNull().references(() => comments.id, { onDelete: "cascade" }),
+  editorType: text("editor_type").notNull().$type<"user">(),
+  body: text("body").notNull(),
+  bodyFormat: text("body_format").notNull().default("markdown").$type<CommentBodyFormat>(),
+  createdAt: text("created_at").notNull()
+});
+
 export const agentJobs = sqliteTable("agent_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  aiProvider: text("ai_provider").notNull().default("codex").$type<AiProvider>(),
+  aiModel: text("ai_model"),
   agentType: text("agent_type").notNull().$type<AgentType>(),
   targetType: text("target_type").notNull().$type<"issue" | "pull_request" | "project">(),
   targetId: integer("target_id").notNull(),
@@ -134,6 +165,9 @@ export const agentJobs = sqliteTable("agent_jobs", {
   error: text("error"),
   attempt: integer("attempt").notNull().default(1),
   lockKey: text("lock_key"),
+  waitReason: text("wait_reason"),
+  waitMetadataJson: text("wait_metadata_json"),
+  nextRetryAt: text("next_retry_at"),
   createdAt: text("created_at").notNull(),
   startedAt: text("started_at"),
   finishedAt: text("finished_at")
@@ -149,6 +183,8 @@ export const agentActivities = sqliteTable("agent_activities", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   payloadJson: text("payload_json"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  lastOccurredAt: text("last_occurred_at"),
   createdAt: text("created_at").notNull()
 });
 
@@ -161,3 +197,114 @@ export const repositoryEvents = sqliteTable("repository_events", {
   payloadJson: text("payload_json"),
   createdAt: text("created_at").notNull()
 });
+
+export const loops = sqliteTable("loops", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  purpose: text("purpose").notNull().default(""),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  cadence: text("cadence"),
+  targetScope: text("target_scope").notNull().default("project"),
+  status: text("status").notNull().default("enabled").$type<LoopStatus>(),
+  maxRounds: integer("max_rounds").notNull().default(3),
+  timeBudgetMinutes: integer("time_budget_minutes"),
+  costBudget: integer("cost_budget"),
+  stopConditionJson: text("stop_condition_json"),
+  riskPolicyJson: text("risk_policy_json"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const loopRuns = sqliteTable("loop_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopId: integer("loop_id").notNull().references(() => loops.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued").$type<LoopRunStatus>(),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  targetType: text("target_type").$type<"issue" | "pull_request" | "project">(),
+  targetId: integer("target_id"),
+  worktreePath: text("worktree_path"),
+  summary: text("summary").notNull().default(""),
+  stopReason: text("stop_reason"),
+  evidenceJson: text("evidence_json"),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at")
+});
+
+export const loopSteps = sqliteTable("loop_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopRunId: integer("loop_run_id").notNull().references(() => loopRuns.id, { onDelete: "cascade" }),
+  agentJobId: integer("agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  agentType: text("agent_type").notNull().$type<AgentType>(),
+  targetType: text("target_type").notNull().$type<"issue" | "pull_request" | "project">(),
+  targetId: integer("target_id").notNull(),
+  status: text("status").notNull().default("queued").$type<LoopStepStatus>(),
+  inputJson: text("input_json"),
+  outputJson: text("output_json"),
+  evidenceJson: text("evidence_json"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const loopMemoryEntries = sqliteTable("loop_memory_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  loopId: integer("loop_id").references(() => loops.id, { onDelete: "set null" }),
+  loopRunId: integer("loop_run_id").references(() => loopRuns.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull().$type<"manual" | "loop_run" | "agent_job" | "triage">(),
+  sourceId: integer("source_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const objectiveRuns = sqliteTable("objective_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  issueId: integer("issue_id").references(() => issues.id, { onDelete: "set null" }),
+  pullRequestId: integer("pull_request_id").references(() => pullRequests.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("open").$type<ObjectiveRunStatus>(),
+  workflowStage: text("workflow_stage").notNull().default("requirements").$type<ObjectiveWorkflowStage>(),
+  title: text("title").notNull(),
+  goal: text("goal").notNull().default(""),
+  roundCount: integer("round_count").notNull().default(0),
+  maxRounds: integer("max_rounds").notNull().default(12),
+  lastAgentJobId: integer("last_agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  judgeAgentJobId: integer("judge_agent_job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+  generatorAiProvider: text("generator_ai_provider").$type<AiProvider>(),
+  judgeAiProvider: text("judge_ai_provider").$type<AiProvider>(),
+  lastFailureSignature: text("last_failure_signature"),
+  repeatedFailureCount: integer("repeated_failure_count").notNull().default(0),
+  stopReason: text("stop_reason"),
+  tokenBudget: integer("token_budget"),
+  costBudgetUsd: real("cost_budget_usd"),
+  providerUsageJson: text("provider_usage_json").notNull().default("{}"),
+  evidenceRequirementsJson: text("evidence_requirements_json").notNull().default("[]"),
+  evidenceJson: text("evidence_json"),
+  summary: text("summary").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  finishedAt: text("finished_at")
+});
+
+export const triageItems = sqliteTable("triage_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: integer("source_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  status: text("status").notNull().default("open").$type<TriageItemStatus>(),
+  priority: text("priority").notNull().default("normal"),
+  metadataJson: text("metadata_json"),
+  issueId: integer("issue_id").references(() => issues.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export * from "./development-schema";

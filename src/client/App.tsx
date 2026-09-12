@@ -1,48 +1,30 @@
-import {
-  ArrowLeft,
-  Bot,
-  CheckCircle2,
-  CircleAlert,
-  GitPullRequest,
-  ListTodo,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Terminal
-} from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  AgentJobDto,
-  CommentDto,
-  IssueDto,
-  LabelDto,
-  MergeConflictDto,
-  ProjectCommandDto,
-  ProjectDto,
-  ProjectSettingsDto,
-  PullRequestDto,
-  RepositoryCommitDto,
-  RepositoryFileChangeDto,
-  RepositoryStatusDto
-} from "../shared/types";
-import { defaultCodexCommand } from "../shared/codex";
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, CircleDot, Clock3, Files, GitCommitHorizontal, GitMerge, GitPullRequest, Link2, MessageCircle, Pencil, Plus, RefreshCw, Save, Settings, Tag, UserRound } from "lucide-react";
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { diffFileAnchor, diffLineAnchor } from "../shared/diff-anchors";
+import { repositoryCommitAnchor } from "../shared/repository-anchors";
+import type { ActivityDto, AgentJobDto, CommentDto, CommentRevisionDto, IssueDto, LabelDto, MergeConflictDto, ObjectiveRunDto, ObjectiveWorkflowStage, ProjectCommandDto, ProjectDto, PullRequestFindingDto, PullRequestLineCommentDto, PullRequestDto, RepositoryCommitDto, RepositoryFileChangeDto, RepositoryStatusDto } from "../shared/types";
 import {
   issueWorkflowLabelNames as issueWorkflowLabels,
   pullRequestWorkflowLabelNames as pullRequestWorkflowLabels,
   workflowLabelNames
 } from "../shared/workflow-labels";
-import { api } from "./api";
+import { api, type ProjectOpenResult } from "./api";
 import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
 import { summarizeAgentJobs } from "./agent-status";
 import { AppShell } from "./components/AppShell";
+import { AsyncState } from "./components/AsyncState";
 import { MarkdownContent } from "./components/MarkdownContent";
 import { SetupWizard } from "./components/SetupWizard";
 import { formatDateTime, formatPullRequestStatus } from "./formatters";
-import { t } from "./i18n";
+import { setLocale as setUiLocale, t } from "./i18n";
 import { type AppRoute, type View, listRouteForView, parseRoute, routeToPath, viewForRoute } from "./routes";
 import { numberValue, recordValue } from "./value-parsers";
-import { AgentJobsView } from "./views/AgentJobsView";
+import { DevelopmentLoopPanel } from "./components/DevelopmentLoopPanel";
+import type { DevelopmentLoopDto } from "../shared/development-loop";
+
+const AgentJobsView = lazy(async () => ({ default: (await import("./views/AgentJobsView")).AgentJobsView }));
+const DiffViewer = lazy(async () => ({ default: (await import("./components/DiffViewer")).DiffViewer }));
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
 const pullRequestWorkflowLabelNames = new Set<string>(pullRequestWorkflowLabels);
@@ -52,9 +34,221 @@ function labelsForTarget(labels: LabelDto[], targetType: "issue" | "pull_request
   return labels.filter((label) => label.kind === "custom" || workflowLabels.has(label.name));
 }
 
+function WorkItemLabels(props: { labels: LabelDto[] }) {
+  if (!props.labels.length) {
+    return null;
+  }
+
+  return (
+    <span className="work-item-labels">
+      {props.labels.map((label) => (
+        <span className="label-pill" key={label.id} style={{ borderColor: label.color }}>
+          {label.name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function AgentCheckSummary(props: { status: AgentJobDto["status"] | null }) {
+  return (
+    <span className="work-item-check" title={t("issues.checks")}>
+      <CheckCircle2 aria-hidden="true" size={15} />
+      {props.status ? (
+        <span className={`status-pill status-${props.status}`}>{props.status}</span>
+      ) : (
+        <span>{t("issues.noChecks")}</span>
+      )}
+    </span>
+  );
+}
+
+function WorkItemAuthor(props: { type: IssueDto["createdByType"] }) {
+  const label = props.type === "agent"
+    ? t("issues.authorAgent")
+    : props.type === "system"
+      ? t("issues.authorSystem")
+      : t("issues.authorUser");
+  const Icon = props.type === "agent" ? Bot : props.type === "system" ? Settings : UserRound;
+
+  return (
+    <span className="work-item-author" title={`${t("issues.createdBy")} ${label}`}>
+      <Icon aria-hidden="true" size={13} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function WorkItemDetailMeta(props: {
+  item: Pick<IssueDto, "createdByType" | "createdAt" | "updatedAt" | "commentCount">;
+}) {
+  return (
+    <div className="work-item-detail-meta">
+      <WorkItemAuthor type={props.item.createdByType} />
+      <span>
+        <Clock3 aria-hidden="true" size={14} />
+        {t("issues.created")} {formatDateTime(props.item.createdAt)}
+      </span>
+      <span>
+        <RefreshCw aria-hidden="true" size={14} />
+        {t("issues.updated")} {formatDateTime(props.item.updatedAt)}
+      </span>
+      <span>
+        <MessageCircle aria-hidden="true" size={14} />
+        {props.item.commentCount} {t("issues.comments")}
+      </span>
+    </div>
+  );
+}
+
+function AutomationChecksSummary(props: {
+  jobs: AgentJobDto[];
+  objective: ObjectiveRunDto | null;
+  findings?: PullRequestFindingDto[];
+  findingHref?: (finding: PullRequestFindingDto) => string;
+  onOpenAgentJob: (jobId: number) => void;
+  onOpenFinding?: (finding: PullRequestFindingDto) => void;
+}) {
+  const latestJobs = props.jobs.filter(
+    (job, index, jobs) => jobs.findIndex((candidate) => candidate.agentType === job.agentType) === index
+  );
+
+  function openJobSection(jobId: number, anchor: string): void {
+    props.onOpenAgentJob(jobId);
+    window.history.replaceState(null, "", `/jobs/${jobId}#${anchor}`);
+  }
+
+  function hasOutputItems(job: AgentJobDto, key: "evidence" | "testResults" | "changedFiles"): boolean {
+    return Array.isArray(job.output?.[key]) && job.output[key].length > 0;
+  }
+
+  function importantFinding(job: AgentJobDto): PullRequestFindingDto | null {
+    if (job.agentType !== "review" && job.agentType !== "qa") return null;
+    const severityOrder: Record<PullRequestFindingDto["severity"], number> = {
+      critical: 0,
+      high: 1,
+      medium: 2,
+      low: 3,
+      info: 4
+    };
+    return [...(props.findings ?? [])]
+      .filter((finding) => finding.status === "open" && finding.source === job.agentType && finding.line !== null)
+      .sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity])[0] ?? null;
+  }
+
+  return (
+    <div className="automation-checks">
+      {props.objective ? (
+        <div className="automation-checks-objective">
+          <span className={`status-pill status-${props.objective.status}`}>{props.objective.status}</span>
+          <span>{objectiveWorkflowStageLabel(props.objective.workflowStage)}</span>
+          <span>{objectiveEvidenceCount(props.objective)} {t("objectives.evidence")}</span>
+          {props.objective.evidenceRequirements.length ? (
+            <span>
+              {props.objective.evidenceRequirements.filter((requirement) => requirement.required).length}/
+              {props.objective.evidenceRequirements.length} {t("objectives.requiredEvidence")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {latestJobs.length ? (
+        <div className="automation-check-list">
+          {latestJobs.map((job) => {
+            const finding = importantFinding(job);
+            const findingHref = finding ? props.findingHref?.(finding) : undefined;
+            return (
+              <div className="automation-check-row" key={job.id}>
+                <button className="automation-check-main" onClick={() => props.onOpenAgentJob(job.id)} type="button">
+                  {job.status === "succeeded" ? (
+                    <CheckCircle2 aria-hidden="true" className="ok-icon" size={16} />
+                  ) : job.status === "failed" || job.status === "waiting_human" || job.status === "waiting_provider" ? (
+                    <CircleAlert aria-hidden="true" className="warn-icon" size={16} />
+                  ) : (
+                    <Bot aria-hidden="true" size={16} />
+                  )}
+                  <strong>{job.agentType}</strong>
+                  <span className={`status-pill status-${job.status}`}>{job.status}</span>
+                </button>
+                <span className="automation-check-links">
+                  {hasOutputItems(job, "evidence") ? (
+                    <button onClick={() => openJobSection(job.id, "job-evidence")} type="button">{t("agents.evidence")}</button>
+                  ) : null}
+                  {hasOutputItems(job, "testResults") ? (
+                    <button onClick={() => openJobSection(job.id, "job-checks")} type="button">{t("agents.tests")}</button>
+                  ) : null}
+                  {hasOutputItems(job, "changedFiles") ? (
+                    <button onClick={() => openJobSection(job.id, "job-changed-files")} type="button">{t("agents.changedFiles")}</button>
+                  ) : null}
+                  {finding && findingHref && props.onOpenFinding ? (
+                    <a
+                      href={findingHref}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        props.onOpenFinding?.(finding);
+                      }}
+                      title={finding.title}
+                    >
+                      {finding.severity.toUpperCase()} {finding.path}:{finding.line}
+                    </a>
+                  ) : null}
+                  <button onClick={() => openJobSection(job.id, "job-activities")} type="button">{t("agents.activities")}</button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="muted-text">{t("issues.noChecks")}</p>
+      )}
+    </div>
+  );
+}
+
+function AutomationGateBanner(props: {
+  jobs: AgentJobDto[];
+  objective: ObjectiveRunDto | null;
+  onOpenAgentJob: (jobId: number) => void;
+}) {
+  const waitingJob = props.jobs.find((job) => job.status === "waiting_provider" || job.status === "waiting_human");
+  const waitingStatus = waitingJob?.status
+    ?? (props.objective?.status === "waiting_provider" || props.objective?.status === "waiting_human"
+      ? props.objective.status
+      : null);
+  if (!waitingStatus) {
+    return null;
+  }
+
+  const isProviderGate = waitingStatus === "waiting_provider";
+  const reason = waitingJob?.waitReason ?? props.objective?.stopReason ?? "-";
+  return (
+    <section
+      aria-live="polite"
+      className={`automation-gate-banner ${isProviderGate ? "automation-gate-provider" : "automation-gate-human"}`}
+    >
+      <div className="automation-gate-icon" aria-hidden="true">
+        {isProviderGate ? <Bot size={20} /> : <CircleAlert size={20} />}
+      </div>
+      <div className="automation-gate-content">
+        <strong>{isProviderGate ? t("issues.providerGate") : t("issues.humanGate")}</strong>
+        <span>{isProviderGate ? t("agents.waitingProvider") : t("issues.humanGateDescription")}</span>
+        <span>{t("agents.waitReason")}: {reason}</span>
+        {isProviderGate && waitingJob?.nextRetryAt ? (
+          <span>{t("agents.nextRetry")}: {formatDateTime(waitingJob.nextRetryAt)}</span>
+        ) : null}
+      </div>
+      {waitingJob ? (
+        <button className="secondary-button" onClick={() => props.onOpenAgentJob(waitingJob.id)} type="button">
+          {t("issues.openGate")}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 type ConversationEntry =
   | { kind: "comment"; comment: CommentDto; timestamp: number }
-  | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number };
+  | { kind: "agent_job"; job: AgentJobDto; comments: CommentDto[]; timestamp: number }
+  | { kind: "activity"; activity: ActivityDto; timestamp: number };
 
 function timestampMs(value: string | null): number {
   if (!value) {
@@ -80,7 +274,7 @@ function isCommentInsideJobWindow(comment: CommentDto, job: AgentJobDto): boolea
   const commentTimestamp = timestampMs(comment.createdAt);
   const startTimestamp = timestampMs(job.createdAt) - 30_000;
   const endTimestamp = timestampMs(job.finishedAt ?? job.startedAt ?? job.createdAt);
-  if (!endTimestamp || ["queued", "running", "waiting_human"].includes(job.status)) {
+  if (!endTimestamp || ["queued", "running", "waiting_provider", "waiting_human"].includes(job.status)) {
     return commentTimestamp >= startTimestamp;
   }
   return commentTimestamp >= startTimestamp && commentTimestamp <= endTimestamp + 120_000;
@@ -110,14 +304,31 @@ function findRelatedAgentJob(comment: CommentDto, agentJobs: AgentJobDto[]): Age
   })[0];
 }
 
-function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[]): ConversationEntry[] {
+function conversationActivityIsRelevant(activity: ActivityDto): boolean {
+  if (activity.title === "Agent job queued" || activity.title.endsWith(" agent started")) return false;
+  return activity.activityType === "system" || activity.title.toLowerCase().includes("committed");
+}
+
+function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[], activities: ActivityDto[]): ConversationEntry[] {
+  const relevantActivities = activities.filter(conversationActivityIsRelevant);
+  const activityCommentIds = new Set<number>();
+  for (const activity of relevantActivities) {
+    if (!activity.body.trim()) continue;
+    const duplicate = comments.find((comment) =>
+      comment.authorType === "system" &&
+      comment.body.trim() === activity.body.trim() &&
+      Math.abs(timestampMs(comment.createdAt) - timestampMs(activity.createdAt)) < 30_000
+    );
+    if (duplicate) activityCommentIds.add(duplicate.id);
+  }
+  const timelineComments = comments.filter((comment) => !activityCommentIds.has(comment.id));
   const groups = new Map<number, { job: AgentJobDto; comments: CommentDto[] }>();
   for (const job of agentJobs) {
     groups.set(job.id, { job, comments: [] });
   }
 
   const groupedCommentIds = new Set<number>();
-  for (const comment of comments) {
+  for (const comment of timelineComments) {
     const job = findRelatedAgentJob(comment, agentJobs);
     if (!job) {
       continue;
@@ -139,13 +350,75 @@ function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[]): 
       timestamp: Math.min(timestampMs(group.job.createdAt), firstCommentTimestamp)
     });
   }
-  for (const comment of comments) {
+  for (const comment of timelineComments) {
     if (!groupedCommentIds.has(comment.id)) {
       entries.push({ kind: "comment", comment, timestamp: timestampMs(comment.createdAt) });
     }
   }
+  for (const activity of relevantActivities) {
+    entries.push({ kind: "activity", activity, timestamp: timestampMs(activity.createdAt) });
+  }
 
   return entries.sort((left, right) => left.timestamp - right.timestamp);
+}
+
+function ConversationPermalink(props: { anchor: string; createdAt: string }) {
+  return (
+    <a className="conversation-permalink" href={`#${props.anchor}`} aria-label={t("issues.permalink")}>
+      <Link2 aria-hidden="true" size={12} />
+      <span>{formatDateTime(props.createdAt)}</span>
+    </a>
+  );
+}
+
+function CollapsibleConversationMarkdown(props: { content: string; format?: CommentDto["bodyFormat"]; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = props.content.length > 3_500;
+  return (
+    <div className={collapsible && !expanded ? "conversation-report collapsed" : "conversation-report"}>
+      <MarkdownContent className={props.className} content={props.content} format={props.format} />
+      {collapsible ? (
+        <button className="conversation-report-toggle" onClick={() => setExpanded((current) => !current)} type="button">
+          {expanded ? t("issues.collapseComment") : t("issues.showFullComment")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJob: (jobId: number) => void }) {
+  const normalizedTitle = props.activity.title.toLowerCase();
+  const Icon = normalizedTitle.includes("merge")
+    ? GitMerge
+    : normalizedTitle.includes("label")
+      ? Tag
+      : normalizedTitle.includes("commit")
+        ? GitCommitHorizontal
+        : normalizedTitle.includes("provider")
+          ? Bot
+          : Settings;
+  return (
+    <article className="conversation-activity" id={`activity-${props.activity.id}`}>
+      <span className="conversation-activity-icon"><Icon aria-hidden="true" size={16} /></span>
+      <div>
+        <header>
+          <strong>
+            {props.activity.title}
+            {props.activity.occurrenceCount > 1 ? (
+              <span className="activity-occurrence-count">×{props.activity.occurrenceCount}</span>
+            ) : null}
+          </strong>
+          <ConversationPermalink anchor={`activity-${props.activity.id}`} createdAt={props.activity.lastOccurredAt} />
+        </header>
+        {props.activity.body ? <CollapsibleConversationMarkdown content={props.activity.body} /> : null}
+        {props.activity.agentJobId ? (
+          <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.activity.agentJobId!)} type="button">
+            {t("issues.openGate")}
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
 }
 
 function commentAuthorLabel(comment: CommentDto): string {
@@ -162,14 +435,123 @@ function readableCommentBody(comment: CommentDto, relatedJob?: AgentJobDto): str
   return relatedJob ? agentJobMessage(relatedJob, []) ?? t("agents.noConciseComment") : t("agents.noConciseComment");
 }
 
-function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: AgentJobDto }) {
+function commentSummaryAnchor(comment: CommentDto): "merge-summary" | "completion-summary" | null {
+  const anchor = comment.metadata?.summaryAnchor;
+  return anchor === "merge-summary" || anchor === "completion-summary" ? anchor : null;
+}
+
+function ConversationCommentCard(props: {
+  comment: CommentDto;
+  relatedJob?: AgentJobDto;
+  onLoadRevisions?: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdate?: (comment: CommentDto, body: string) => Promise<void>;
+}) {
+  const anchor = `comment-${props.comment.id}`;
+  const summaryAnchor = commentSummaryAnchor(props.comment);
+  const [isEditing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState(props.comment.body);
+  const [isSaving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [revisions, setRevisions] = useState<CommentRevisionDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isEdited = props.comment.updatedAt !== props.comment.createdAt;
+
+  async function saveEdit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!props.onUpdate || !editBody.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await props.onUpdate(props.comment, editBody);
+      setEditing(false);
+      setRevisions(null);
+      setShowHistory(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.commentUpdateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleHistory(): Promise<void> {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (!next || revisions || !props.onLoadRevisions) return;
+    setError(null);
+    try {
+      setRevisions(await props.onLoadRevisions(props.comment.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("issues.commentHistoryFailed"));
+    }
+  }
+
   return (
-    <article className="conversation-comment">
+    <article className="conversation-comment" id={anchor}>
+      {summaryAnchor ? <span aria-hidden="true" className="conversation-semantic-anchor" id={summaryAnchor} /> : null}
       <header>
-        <strong>{commentAuthorLabel(props.comment)}</strong>
-        <span>{formatDateTime(props.comment.createdAt)}</span>
+        <div className="conversation-comment-heading">
+          <strong>{commentAuthorLabel(props.comment)}</strong>
+          <ConversationPermalink anchor={anchor} createdAt={props.comment.createdAt} />
+          {isEdited ? (
+            <button className="conversation-text-button" onClick={() => void toggleHistory()} type="button">
+              {t("issues.edited")} {formatDateTime(props.comment.updatedAt)}
+            </button>
+          ) : null}
+        </div>
+        {props.comment.authorType === "user" && props.onUpdate ? (
+          <button
+            className="conversation-text-button"
+            onClick={() => {
+              setEditBody(props.comment.body);
+              setEditing((current) => !current);
+              setError(null);
+            }}
+            type="button"
+          >
+            <Pencil aria-hidden="true" size={12} />
+            {t("actions.edit")}
+          </button>
+        ) : null}
       </header>
-      <MarkdownContent content={readableCommentBody(props.comment, props.relatedJob)} />
+      {isEditing ? (
+        <form className="comment-edit-form" onSubmit={(event) => void saveEdit(event)}>
+          <textarea
+            aria-label={t("issues.editComment")}
+            disabled={isSaving}
+            onChange={(event) => setEditBody(event.target.value)}
+            required
+            rows={6}
+            value={editBody}
+          />
+          <div className="action-row">
+            <button className="primary-button" disabled={isSaving || !editBody.trim()} type="submit">
+              <Save aria-hidden="true" size={14} />
+              {t("actions.save")}
+            </button>
+            <button className="secondary-button" disabled={isSaving} onClick={() => setEditing(false)} type="button">
+              {t("actions.cancel")}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <CollapsibleConversationMarkdown content={readableCommentBody(props.comment, props.relatedJob)} format={props.comment.bodyFormat} />
+      )}
+      {error ? <div className="inline-error">{error}</div> : null}
+      {showHistory ? (
+        <section className="comment-revision-history">
+          <h4>{t("issues.editHistory")}</h4>
+          {revisions === null ? <span className="muted-text">{t("status.loading")}</span> : null}
+          {revisions?.map((revision, index) => (
+            <article key={revision.id}>
+              <header>
+                <strong>{t("issues.previousVersion")} {revisions.length - index}</strong>
+                <span>{formatDateTime(revision.createdAt)}</span>
+              </header>
+              <CollapsibleConversationMarkdown content={revision.body} format={revision.bodyFormat} />
+            </article>
+          ))}
+        </section>
+      ) : null}
     </article>
   );
 }
@@ -177,16 +559,18 @@ function ConversationCommentCard(props: { comment: CommentDto; relatedJob?: Agen
 function ConversationAgentJobCard(props: {
   job: AgentJobDto;
   comments: CommentDto[];
+  onLoadCommentRevisions?: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdateComment?: (comment: CommentDto, body: string) => Promise<void>;
   onOpenAgentJob: (jobId: number) => void;
 }) {
   const message = props.comments.length ? null : agentJobMessage(props.job, []);
 
   return (
-    <article className="conversation-agent-job">
+    <article className="conversation-agent-job" id={`agent-job-${props.job.id}`}>
       <header className="conversation-agent-job-header">
         <div>
           <strong>#{props.job.id} {props.job.agentType}</strong>
-          <span>{formatDateTime(props.job.createdAt)}</span>
+          <ConversationPermalink anchor={`agent-job-${props.job.id}`} createdAt={props.job.createdAt} />
         </div>
         <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.job.id)} type="button">
           {t("agents.detail")}
@@ -198,7 +582,7 @@ function ConversationAgentJobCard(props: {
         {props.job.finishedAt ? <span>{formatDateTime(props.job.finishedAt)}</span> : null}
       </div>
       {message ? (
-        <MarkdownContent
+        <CollapsibleConversationMarkdown
           className={props.job.status === "failed" ? "job-error" : "agent-job-message"}
           content={message}
         />
@@ -206,7 +590,13 @@ function ConversationAgentJobCard(props: {
       {props.comments.length ? (
         <div className="conversation-agent-comments">
           {props.comments.map((comment) => (
-            <ConversationCommentCard comment={comment} key={comment.id} relatedJob={props.job} />
+            <ConversationCommentCard
+              comment={comment}
+              key={comment.id}
+              onLoadRevisions={props.onLoadCommentRevisions}
+              onUpdate={props.onUpdateComment}
+              relatedJob={props.job}
+            />
           ))}
         </div>
       ) : null}
@@ -217,9 +607,29 @@ function ConversationAgentJobCard(props: {
 function ConversationTimeline(props: {
   comments: CommentDto[];
   agentJobs: AgentJobDto[];
+  activities: ActivityDto[];
+  onLoadCommentRevisions: (commentId: number) => Promise<CommentRevisionDto[]>;
+  onUpdateComment: (comment: CommentDto, body: string) => Promise<void>;
   onOpenAgentJob: (jobId: number) => void;
 }) {
-  const entries = conversationEntries(props.comments, props.agentJobs);
+  const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1);
+    if (!/^(?:(?:comment|activity|agent-job)-\d+|merge-summary|completion-summary)$/.test(anchor)) return;
+    let animationFrame = 0;
+    let attempts = 0;
+    function reveal(): void {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ block: "center" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 4) animationFrame = window.requestAnimationFrame(reveal);
+    }
+    animationFrame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [entries.length]);
   if (entries.length === 0) {
     return <div className="empty-state">{t("issues.noComments")}</div>;
   }
@@ -228,13 +638,22 @@ function ConversationTimeline(props: {
     <div className="conversation-timeline">
       {entries.map((entry) =>
         entry.kind === "comment" ? (
-          <ConversationCommentCard comment={entry.comment} key={`comment-${entry.comment.id}`} />
+          <ConversationCommentCard
+            comment={entry.comment}
+            key={`comment-${entry.comment.id}`}
+            onLoadRevisions={props.onLoadCommentRevisions}
+            onUpdate={props.onUpdateComment}
+          />
+        ) : entry.kind === "activity" ? (
+          <ConversationActivityEvent activity={entry.activity} key={`activity-${entry.activity.id}`} onOpenAgentJob={props.onOpenAgentJob} />
         ) : (
           <ConversationAgentJobCard
             comments={entry.comments}
             job={entry.job}
             key={`agent-job-${entry.job.id}`}
+            onLoadCommentRevisions={props.onLoadCommentRevisions}
             onOpenAgentJob={props.onOpenAgentJob}
+            onUpdateComment={props.onUpdateComment}
           />
         )
       )}
@@ -281,28 +700,7 @@ function LabelPicker(props: {
   );
 }
 
-function DiffPreview(props: { patch: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const lines = props.patch.split("\n");
-  const isLarge = lines.length > 120;
-  const visiblePatch = isLarge && !expanded ? lines.slice(0, 120).join("\n") : props.patch;
-
-  return (
-    <>
-      <pre>{visiblePatch}</pre>
-      {isLarge ? (
-        <div className="diff-actions">
-          <span>{lines.length} {t("pullRequests.diffLines")}</span>
-          <button className="secondary-button" onClick={() => setExpanded((current) => !current)} type="button">
-            {expanded ? t("pullRequests.collapseDiff") : t("pullRequests.showFullDiff")}
-          </button>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
+function CommentForm(props: { autoFocus?: boolean; onSubmit: (body: string) => Promise<void>; placeholder?: string }) {
   const [body, setBody] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -313,7 +711,14 @@ function CommentForm(props: { onSubmit: (body: string) => Promise<void> }) {
 
   return (
     <form className="comment-form" onSubmit={handleSubmit}>
-      <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={4} required />
+      <textarea
+        autoFocus={props.autoFocus}
+        onChange={(event) => setBody(event.target.value)}
+        placeholder={props.placeholder}
+        required
+        rows={4}
+        value={body}
+      />
       <button className="primary-button" type="submit">
         <Save size={16} />
         {t("issues.addComment")}
@@ -331,15 +736,32 @@ type IssueScreen =
 function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpen: (issueId: number) => void }) {
   const [issues, setIssues] = useState<IssueDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
-    const issueResponse = await api.listIssues(props.project.id);
-    setIssues(issueResponse.items);
+    try {
+      setIssues((await api.listIssues(props.project.id)).items);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issues."));
   }, [props.project.id]);
+
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load issues.");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   return (
     <section className="page-section">
@@ -352,15 +774,37 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
           </button>
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
       <div className="work-item-list">
-        {issues.length === 0 ? <div className="empty-state">{t("issues.noIssues")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && issues.length === 0 ? <AsyncState kind="empty" message={t("issues.noIssues")} /> : null}
         {issues.map((issue) => (
-          <button className="work-item-summary" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
-            <span className="work-item-title">#{issue.id} {issue.title}</span>
-            <span className={`status-pill status-${issue.status}`}>{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
-            <span>{issue.commentCount} {t("issues.comments")}</span>
-            <span>{formatDateTime(issue.updatedAt)}</span>
+          <button className="work-item-summary work-item-rich" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
+            <span className={`work-item-state-icon work-item-state-${issue.status}`}>
+              <CircleDot aria-hidden="true" size={18} />
+              <span className="sr-only">{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
+            </span>
+            <span className="work-item-body">
+              <span className="work-item-heading">
+                <span className="work-item-title">{issue.title}</span>
+                <WorkItemLabels labels={issue.labels} />
+              </span>
+              <span className="work-item-subtitle">
+                <span>#{issue.id}</span>
+                <WorkItemAuthor type={issue.createdByType} />
+                <span>{t("issues.updated")} {formatDateTime(issue.updatedAt)}</span>
+              </span>
+              {issue.lastAgentStopReason ? <span className="work-item-stop-reason">{t("agents.stopReason")}: {issue.lastAgentStopReason}</span> : null}
+            </span>
+            <AgentCheckSummary status={issue.lastAgentStatus} />
+            <span className="work-item-stat" title={`${issue.commentCount} ${t("issues.comments")}`}>
+              <MessageCircle aria-hidden="true" size={16} />
+              <span>{issue.commentCount}</span>
+              <span className="sr-only">{t("issues.comments")}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -480,6 +924,22 @@ function IssueRelatedLinks(props: {
   );
 }
 
+function objectiveEvidenceCount(objective: ObjectiveRunDto | null): number {
+  const items = objective?.evidence?.items;
+  return Array.isArray(items) ? items.length : 0;
+}
+
+function objectiveWorkflowStageLabel(stage: ObjectiveWorkflowStage): string {
+  if (stage === "requirements") return t("objectives.stageRequirements");
+  if (stage === "implementation") return t("objectives.stageImplementation");
+  if (stage === "review") return t("objectives.stageReview");
+  if (stage === "fix") return t("objectives.stageFix");
+  if (stage === "qa") return t("objectives.stageQa");
+  if (stage === "verification") return t("objectives.stageVerification");
+  if (stage === "ready_to_merge") return t("objectives.stageReadyToMerge");
+  return t("objectives.stageMerged");
+}
+
 function IssueDetailScreen(props: {
   project: ProjectDto;
   issueId: number;
@@ -489,28 +949,70 @@ function IssueDetailScreen(props: {
 }) {
   const [issue, setIssue] = useState<IssueDto | null>(null);
   const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [relatedPullRequests, setRelatedPullRequests] = useState<PullRequestDto[]>([]);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
+  const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isClosing, setClosing] = useState(false);
+  const [isRetrying, setRetrying] = useState(false);
+  const [isUpdatingStatus, setUpdatingStatus] = useState(false);
+  const loadedIssueId = useRef<number | null>(null);
+  const activeIssueId = useRef(props.issueId);
+  const activeIssueProjectId = useRef(props.project.id);
 
   async function load() {
-    const [issueResponse, commentsResponse, pullRequestResponse, agentJobResponse] = await Promise.all([
+    const [issueResponse, commentsResponse, activityResponse, pullRequestResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getIssue(props.project.id, props.issueId),
       api.listIssueComments(props.project.id, props.issueId),
+      api.listIssueActivities(props.project.id, props.issueId),
       api.listPullRequests(props.project.id, { issueId: props.issueId, status: null }),
-      api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId })
+      api.listAgentJobs(props.project.id, { targetType: "issue", targetId: props.issueId }),
+      api.getIssueObjective(props.project.id, props.issueId)
     ]);
+    if (activeIssueProjectId.current !== props.project.id || activeIssueId.current !== props.issueId) return;
     setIssue(issueResponse);
     setComments(commentsResponse);
+    setActivities(activityResponse);
     setRelatedPullRequests(pullRequestResponse.items);
     setRelatedAgentJobs(agentJobResponse);
+    setObjective(objectiveResponse);
+    loadedIssueId.current = issueResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load issue.";
+    if (loadedIssueId.current === props.issueId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedIssueId.current === props.issueId);
+    void load().catch(handleLoadError);
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+    activeIssueProjectId.current = props.project.id;
+    activeIssueId.current = props.issueId;
+    loadedIssueId.current = null;
+    setIssue(null);
+    setComments([]);
+    setActivities([]);
+    setRelatedPullRequests([]);
+    setRelatedAgentJobs([]);
+    setObjective(null);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load issue."));
+      void load().catch(handleLoadError);
     }, 4000);
     return () => window.clearInterval(interval);
   }, [props.project.id, props.issueId]);
@@ -520,31 +1022,37 @@ function IssueDetailScreen(props: {
     await load();
   }
 
-  async function queueAgent(agentType: "requirements" | "implementation") {
-    await api.createAgentJob(props.project.id, {
-      agentType,
-      targetType: "issue",
-      targetId: props.issueId,
-      triggerType: "manual"
-    });
+  async function updateComment(comment: CommentDto, body: string): Promise<void> {
+    await api.updateComment(props.project.id, comment.id, { body, expectedUpdatedAt: comment.updatedAt });
     await load();
   }
 
-  async function closeIssue() {
-    if (!issue || issue.status === "closed") {
+  function loadCommentRevisions(commentId: number): Promise<CommentRevisionDto[]> {
+    return api.listCommentRevisions(props.project.id, commentId);
+  }
+
+
+
+  async function updateIssueStatus(status: IssueDto["status"]) {
+    if (!issue || issue.status === status) {
       return;
     }
-    setClosing(true);
+    setUpdatingStatus(true);
     setError(null);
     try {
-      const response = await api.updateIssue(props.project.id, issue.id, { status: "closed" });
+      const response = await api.updateIssue(props.project.id, issue.id, { status });
       setIssue(response.issue);
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to close issue.");
+      setError(err instanceof Error ? err.message : `Failed to ${status === "closed" ? "close" : "reopen"} issue.`);
     } finally {
-      setClosing(false);
+      setUpdatingStatus(false);
     }
   }
+
+  const awaitingInitialRequest = relatedAgentJobs.some(
+    (job) => job.status === "waiting_human" && job.triggerType === "repository_imported" && job.input.onboarding === true
+  ) && !comments.some((comment) => comment.authorType === "user");
 
   return (
     <div className="detail-page">
@@ -556,11 +1064,26 @@ function IssueDetailScreen(props: {
         {issue ? (
           <div className="header-actions">
             {issue.status === "open" ? (
-              <button className="secondary-button" disabled={isClosing} onClick={() => void closeIssue()} type="button">
+              <button
+                className="secondary-button"
+                disabled={isUpdatingStatus}
+                onClick={() => void updateIssueStatus("closed")}
+                type="button"
+              >
                 <CheckCircle2 size={16} />
                 {t("issues.closeIssue")}
               </button>
-            ) : null}
+            ) : (
+              <button
+                className="secondary-button"
+                disabled={isUpdatingStatus}
+                onClick={() => void updateIssueStatus("open")}
+                type="button"
+              >
+                <RefreshCw size={16} />
+                {t("issues.reopenIssue")}
+              </button>
+            )}
             <button className="secondary-button" onClick={() => props.onEdit(issue.id)} type="button">
               <Pencil size={16} />
               {t("actions.edit")}
@@ -568,8 +1091,16 @@ function IssueDetailScreen(props: {
           </div>
         ) : null}
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
-      <div className="detail-layout">
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
+      {issue ? <WorkItemDetailMeta item={issue} /> : null}
+      <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
+      {!issue && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      <div className={issue ? "detail-layout" : "detail-layout pending"}>
         <section className="page-section detail-main">
           {issue?.body ? <MarkdownContent content={issue.body} /> : <div className="empty-state">{t("issues.noDescription")}</div>}
           <h2>{t("issues.conversation")}</h2>
@@ -578,13 +1109,32 @@ function IssueDetailScreen(props: {
             pullRequests={relatedPullRequests}
           />
           <ConversationTimeline
+            activities={activities}
             agentJobs={relatedAgentJobs}
             comments={comments}
+            onLoadCommentRevisions={loadCommentRevisions}
             onOpenAgentJob={props.onOpenAgentJob}
+            onUpdateComment={updateComment}
           />
-          <CommentForm onSubmit={addComment} />
+          {awaitingInitialRequest ? (
+            <div className="initial-request-callout">
+              <MessageCircle aria-hidden="true" size={20} />
+              <div>
+                <strong>{t("issues.initialRequestTitle")}</strong>
+                <p>{t("issues.initialRequestDescription")}</p>
+              </div>
+            </div>
+          ) : null}
+          <CommentForm
+            autoFocus={awaitingInitialRequest}
+            onSubmit={addComment}
+            placeholder={awaitingInitialRequest ? t("issues.initialRequestPlaceholder") : undefined}
+          />
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("issues.checks")}</h2>
+          <AutomationChecksSummary jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
+          <DevelopmentLoopPanel projectId={props.project.id} issueId={props.issueId} />
           <h2>{t("labels.title")}</h2>
           <div className="label-row">
             {issue?.labels.length ? (
@@ -596,17 +1146,6 @@ function IssueDetailScreen(props: {
             ) : (
               <span className="muted-text">{t("labels.none")}</span>
             )}
-          </div>
-          <h2>{t("agents.title")}</h2>
-          <div className="action-row">
-            <button className="secondary-button" onClick={() => void queueAgent("requirements")} type="button">
-              <ListTodo size={16} />
-              {t("agents.queueRequirements")}
-            </button>
-            <button className="secondary-button" onClick={() => void queueAgent("implementation")} type="button">
-              <Terminal size={16} />
-              {t("agents.queueImplementation")}
-            </button>
           </div>
         </aside>
       </div>
@@ -627,6 +1166,7 @@ function IssueEditScreen(props: {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [status, setStatus] = useState<IssueDto["status"]>("open");
+  const [goalChangeReason, setGoalChangeReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
@@ -641,6 +1181,7 @@ function IssueEditScreen(props: {
     setBody(issueResponse.body);
     setStatus(issueResponse.status);
     setSelectedLabelIds(issueResponse.labels.map((label) => label.id));
+    setGoalChangeReason("");
     setLabels(labelResponse);
   }
 
@@ -660,7 +1201,8 @@ function IssueEditScreen(props: {
         title,
         body,
         status,
-        labelIds: selectedLabelIds
+        labelIds: selectedLabelIds,
+        goalChangeReason: goalChangeReason.trim() || undefined
       });
       props.onSaved(response.issue.id);
     } catch (err) {
@@ -706,6 +1248,19 @@ function IssueEditScreen(props: {
             {t("issues.bodyField")}
             <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} />
           </label>
+          {issue && body !== issue.body ? (
+            <label>
+              {t("issues.goalChangeReason")}
+              <textarea
+                onChange={(event) => setGoalChangeReason(event.target.value)}
+                placeholder={t("issues.goalChangeReasonPlaceholder")}
+                required
+                rows={3}
+                value={goalChangeReason}
+              />
+              <small>{t("issues.goalChangeReasonDescription")}</small>
+            </label>
+          ) : null}
         </section>
         <aside className="side-panel">
           <label>
@@ -808,21 +1363,36 @@ function IssuesView(props: {
 
 function RepositoryView(props: { project: ProjectDto }) {
   const [commands, setCommands] = useState<ProjectCommandDto[]>([]);
+  const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [status, setStatus] = useState<RepositoryStatusDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
 
   async function load() {
-    const [commandResponse, statusResponse] = await Promise.all([
-      api.listCommands(props.project.id),
-      api.getRepositoryStatus(props.project.id)
-    ]);
-    setCommands(commandResponse);
-    setStatus(statusResponse);
+    try {
+      const [commandResponse, statusResponse, commitResponse] = await Promise.all([
+        api.listCommands(props.project.id),
+        api.getRepositoryStatus(props.project.id),
+        api.listRepositoryCommits(props.project.id)
+      ]);
+      setCommands(commandResponse);
+      setStatus(statusResponse);
+      setCommits(commitResponse);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load commands."));
   }, [props.project.id]);
+
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1);
+    if (!/^commit-[0-9a-f]{7,64}$/i.test(anchor) || commits.length === 0) return;
+    const target = document.getElementById(anchor);
+    target?.scrollIntoView({ block: "center" });
+  }, [commits]);
 
   async function detectAgain() {
     await api.detectCommands(props.project.id);
@@ -881,6 +1451,28 @@ function RepositoryView(props: { project: ProjectDto }) {
           ))}
         </tbody>
       </table>
+      <h2>{t("repository.commits")}</h2>
+      {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      {!isLoading && commits.length === 0 ? <AsyncState kind="empty" message={t("repository.noCommits")} /> : null}
+      <div className="repository-commit-list">
+        {commits.map((commit) => {
+          const anchor = repositoryCommitAnchor(commit.hash);
+          return (
+            <article className="repository-commit" id={anchor ?? undefined} key={commit.hash}>
+              <div>
+                <strong>{commit.subject}</strong>
+                <span>{commit.authorName} · {formatDateTime(commit.date)}</span>
+              </div>
+              {anchor ? (
+                <a className="repository-commit-hash" href={`#${anchor}`} title={commit.hash}>
+                  <GitCommitHorizontal aria-hidden="true" size={14} />
+                  <code>{commit.hash.slice(0, 12)}</code>
+                </a>
+              ) : <code>{commit.hash.slice(0, 12)}</code>}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -899,15 +1491,33 @@ function PullRequestsListScreen(props: {
 }) {
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [isRetrying, setRetrying] = useState(false);
 
   async function load() {
-    const response = await api.listPullRequests(props.project.id);
-    setPullRequests(response.items);
+    try {
+      const response = await api.listPullRequests(props.project.id);
+      setPullRequests(response.items);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull requests."));
   }, [props.project.id]);
+
+  async function retryLoad(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load pull requests.");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   return (
     <section className="page-section">
@@ -920,20 +1530,58 @@ function PullRequestsListScreen(props: {
           </button>
         </div>
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={() => void retryLoad()} />
+      ) : null}
       <div className="work-item-list">
-        {pullRequests.length === 0 ? <div className="empty-state">{t("pullRequests.noPullRequests")}</div> : null}
+        {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+        {!isLoading && !error && pullRequests.length === 0 ? <AsyncState kind="empty" message={t("pullRequests.noPullRequests")} /> : null}
         {pullRequests.map((pullRequest) => (
           <button
-            className="work-item-summary"
+            className="work-item-summary work-item-rich"
             key={pullRequest.id}
             onClick={() => props.onOpen(pullRequest.id)}
             type="button"
           >
-            <span className="work-item-title">#{pullRequest.id} {pullRequest.title}</span>
-            <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
-            <span>{pullRequest.commentCount} {t("issues.comments")}</span>
-            <span>{formatDateTime(pullRequest.updatedAt)}</span>
+            <span className={`work-item-state-icon work-item-state-${pullRequest.status}`}>
+              {pullRequest.status === "merged" ? <GitMerge aria-hidden="true" size={18} /> : <GitPullRequest aria-hidden="true" size={18} />}
+              <span className="sr-only">{formatPullRequestStatus(pullRequest.status)}</span>
+            </span>
+            <span className="work-item-body">
+              <span className="work-item-heading">
+                <span className="work-item-title">{pullRequest.title}</span>
+                <WorkItemLabels labels={pullRequest.labels} />
+              </span>
+              <span className="work-item-subtitle">
+                <span>#{pullRequest.id}</span>
+                <WorkItemAuthor type={pullRequest.createdByType} />
+                <code>{pullRequest.sourceBranch}</code>
+                <span aria-hidden="true">→</span>
+                <code>{pullRequest.targetBranch}</code>
+                {pullRequest.issueId ? <span>· {t("pullRequests.relatedIssue")} #{pullRequest.issueId}</span> : null}
+                <span>· {t("issues.updated")} {formatDateTime(pullRequest.updatedAt)}</span>
+              </span>
+              {pullRequest.lastAgentStopReason ? <span className="work-item-stop-reason">{t("agents.stopReason")}: {pullRequest.lastAgentStopReason}</span> : null}
+            </span>
+            <AgentCheckSummary status={pullRequest.lastAgentStatus} />
+            <span className="work-item-stats">
+              <span className="work-item-stat" title={`${pullRequest.commentCount} ${t("issues.comments")}`}>
+                <MessageCircle aria-hidden="true" size={16} />
+                <span>{pullRequest.commentCount}</span>
+                <span className="sr-only">{t("issues.comments")}</span>
+              </span>
+              <span className="work-item-stat" title={`${pullRequest.commitCount} ${t("pullRequests.commits")}`}>
+                <GitCommitHorizontal aria-hidden="true" size={16} />
+                <span>{pullRequest.commitCount}</span>
+                <span className="sr-only">{t("pullRequests.commits")}</span>
+              </span>
+              <span className="work-item-stat" title={`${pullRequest.changedFileCount} ${t("pullRequests.files")}`}>
+                <Files aria-hidden="true" size={16} />
+                <span>{pullRequest.changedFileCount}</span>
+                <span className="sr-only">{t("pullRequests.files")}</span>
+              </span>
+            </span>
           </button>
         ))}
       </div>
@@ -1099,61 +1747,162 @@ function PullRequestDetailScreen(props: {
   const [linkedIssue, setLinkedIssue] = useState<IssueDto | null>(null);
   const [relatedAgentJobs, setRelatedAgentJobs] = useState<AgentJobDto[]>([]);
   const [comments, setComments] = useState<CommentDto[]>([]);
+  const [activities, setActivities] = useState<ActivityDto[]>([]);
+  const [objective, setObjective] = useState<ObjectiveRunDto | null>(null);
   const [files, setFiles] = useState<RepositoryFileChangeDto[]>([]);
+  const [findings, setFindings] = useState<PullRequestFindingDto[]>([]);
+  const [lineComments, setLineComments] = useState<PullRequestLineCommentDto[]>([]);
+  const [diffRevision, setDiffRevision] = useState<{ sourceCommit: string; targetCommit: string } | null>(null);
   const [commits, setCommits] = useState<RepositoryCommitDto[]>([]);
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflictDto | null>(null);
-  const [tab, setTab] = useState<"conversation" | "files" | "commits">("conversation");
+  const [tab, setTab] = useState<"conversation" | "files" | "commits">(() =>
+    window.location.hash.startsWith("#diff-") ? "files" : "conversation"
+  );
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setRetrying] = useState(false);
   const [mergeMessage, setMergeMessage] = useState<string | null>(null);
   const [isMerging, setMerging] = useState(false);
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
+  const loadedPullRequestId = useRef<number | null>(null);
+  const activePullRequestId = useRef(props.pullRequestId);
+  const activePullRequestProjectId = useRef(props.project.id);
 
   async function load() {
-    const [pullRequestResponse, commentsResponse, agentJobResponse] = await Promise.all([
+    const [pullRequestResponse, commentsResponse, activityResponse, agentJobResponse, objectiveResponse] = await Promise.all([
       api.getPullRequest(props.project.id, props.pullRequestId),
       api.listPullRequestComments(props.project.id, props.pullRequestId),
-      api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId })
+      api.listPullRequestActivities(props.project.id, props.pullRequestId),
+      api.listAgentJobs(props.project.id, { targetType: "pull_request", targetId: props.pullRequestId }),
+      api.getPullRequestObjective(props.project.id, props.pullRequestId)
     ]);
     const linkedIssuePromise = pullRequestResponse.issueId
       ? api.getIssue(props.project.id, pullRequestResponse.issueId).catch(() => null)
       : Promise.resolve(null);
-    const [filesResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
+    const [filesResponse, findingsResponse, lineCommentsResponse, commitsResponse, conflictsResponse, linkedIssueResponse] = await Promise.all([
       api.listPullRequestFiles(props.project.id, props.pullRequestId),
+      api.listPullRequestFindings(props.project.id, props.pullRequestId),
+      api.listPullRequestLineComments(props.project.id, props.pullRequestId),
       api.listPullRequestCommits(props.project.id, props.pullRequestId),
       api.getPullRequestMergeConflicts(props.project.id, props.pullRequestId),
       linkedIssuePromise
     ]);
+    if (activePullRequestProjectId.current !== props.project.id || activePullRequestId.current !== props.pullRequestId) return;
     setPullRequest(pullRequestResponse);
     setLinkedIssue(linkedIssueResponse);
     setRelatedAgentJobs(agentJobResponse);
     setComments(commentsResponse);
-    setFiles(filesResponse);
+    setActivities(activityResponse);
+    setObjective(objectiveResponse);
+    setFiles(filesResponse.files);
+    setFindings(findingsResponse);
+    setLineComments(lineCommentsResponse);
+    setDiffRevision({ sourceCommit: filesResponse.sourceCommit, targetCommit: filesResponse.targetCommit });
     setCommits(commitsResponse);
     setMergeConflicts(conflictsResponse);
+    loadedPullRequestId.current = pullRequestResponse.id;
+    setError(null);
+    setRetrying(false);
+  }
+
+  function handleLoadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : "Failed to load pull request.";
+    if (loadedPullRequestId.current === props.pullRequestId) {
+      setError(null);
+      setRetrying(true);
+    } else {
+      setError(message);
+      setRetrying(false);
+    }
+  }
+
+  function retryLoad(): void {
+    setError(null);
+    setRetrying(loadedPullRequestId.current === props.pullRequestId);
+    void load().catch(handleLoadError);
+  }
+
+  function findingHref(finding: PullRequestFindingDto): string {
+    const file = files.find((candidate) => candidate.path === finding.path || candidate.previousPath === finding.path);
+    const path = file?.path ?? finding.path;
+    const anchor = finding.line === null ? diffFileAnchor(path) : diffLineAnchor(path, finding.side, finding.line);
+    return `/pulls/${props.pullRequestId}#${anchor}`;
+  }
+
+  function openFinding(finding: PullRequestFindingDto): void {
+    window.history.replaceState(null, "", findingHref(finding));
+    setTab("files");
+  }
+
+  function handleSubtabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const currentIndex = tabs.indexOf(event.target as HTMLButtonElement);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight"
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    const nextTab = next?.dataset.tab as typeof tab | undefined;
+    if (!next || !nextTab) return;
+    setTab(nextTab);
+    next.focus();
   }
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+    activePullRequestProjectId.current = props.project.id;
+    activePullRequestId.current = props.pullRequestId;
+    loadedPullRequestId.current = null;
+    setPullRequest(null);
+    setLinkedIssue(null);
+    setRelatedAgentJobs([]);
+    setComments([]);
+    setActivities([]);
+    setObjective(null);
+    setFiles([]);
+    setFindings([]);
+    setLineComments([]);
+    setDiffRevision(null);
+    setCommits([]);
+    setMergeConflicts(null);
+    setError(null);
+    setRetrying(false);
+    void load().catch(handleLoadError);
     const interval = window.setInterval(() => {
-      void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load pull request."));
+      void load().catch(handleLoadError);
     }, 4000);
     return () => window.clearInterval(interval);
   }, [props.project.id, props.pullRequestId]);
+
+  useEffect(() => {
+    function openLinkedDiff(): void {
+      if (window.location.hash.startsWith("#diff-")) {
+        setTab("files");
+      }
+    }
+    window.addEventListener("hashchange", openLinkedDiff);
+    return () => window.removeEventListener("hashchange", openLinkedDiff);
+  }, []);
 
   async function addComment(body: string) {
     await api.createPullRequestComment(props.project.id, props.pullRequestId, body);
     await load();
   }
 
-  async function queueAgent(agentType: "review" | "fix" | "qa") {
-    await api.createAgentJob(props.project.id, {
-      agentType,
-      targetType: "pull_request",
-      targetId: props.pullRequestId,
-      triggerType: "manual"
-    });
+  async function updateComment(comment: CommentDto, body: string): Promise<void> {
+    await api.updateComment(props.project.id, comment.id, { body, expectedUpdatedAt: comment.updatedAt });
     await load();
   }
+
+  function loadCommentRevisions(commentId: number): Promise<CommentRevisionDto[]> {
+    return api.listCommentRevisions(props.project.id, commentId);
+  }
+
+
 
   async function resolveConflicts() {
     setResolvingConflicts(true);
@@ -1182,7 +1931,7 @@ function PullRequestDetailScreen(props: {
     try {
       const response = await api.mergePullRequest(props.project.id, pullRequest.id);
       setPullRequest(response.pullRequest);
-      setMergeMessage(`${t("pullRequests.mergeSucceeded")} ${response.mergeCommit.slice(0, 12)}`);
+      setMergeMessage(response.queued ? t("development.mergeQueued") : `${t("pullRequests.mergeSucceeded")} ${response.mergeCommit?.slice(0, 12) ?? ""}`);
       setTab("conversation");
       await load();
     } catch (err) {
@@ -1217,8 +1966,16 @@ function PullRequestDetailScreen(props: {
           </button>
         ) : null}
       </div>
-      {error ? <div className="error-banner">{error}</div> : null}
-      <div className="detail-layout">
+      {isRetrying ? (
+        <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
+      ) : null}
+      {error ? (
+        <AsyncState actionLabel={t("status.retry")} kind="error" message={error} onAction={retryLoad} />
+      ) : null}
+      {pullRequest ? <WorkItemDetailMeta item={pullRequest} /> : null}
+      <AutomationGateBanner jobs={relatedAgentJobs} objective={objective} onOpenAgentJob={props.onOpenAgentJob} />
+      {!pullRequest && !error ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
+      <div className={pullRequest ? "detail-layout" : "detail-layout pending"}>
         <section className="page-section detail-main">
           {pullRequest ? (
             <>
@@ -1257,66 +2014,118 @@ function PullRequestDetailScreen(props: {
               </div>
             </div>
           ) : null}
-          <div className="subtabs">
-            <button className={tab === "conversation" ? "active" : ""} onClick={() => setTab("conversation")} type="button">
+          <div
+            aria-label={t("pullRequests.tabsNavigation")}
+            className="subtabs"
+            onKeyDown={handleSubtabKeyDown}
+            role="tablist"
+          >
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "conversation"}
+              className={tab === "conversation" ? "active" : ""}
+              data-tab="conversation"
+              id="pull-request-tab-conversation"
+              onClick={() => setTab("conversation")}
+              role="tab"
+              tabIndex={tab === "conversation" ? 0 : -1}
+              type="button"
+            >
               {t("issues.conversation")}
             </button>
-            <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")} type="button">
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "files"}
+              className={tab === "files" ? "active" : ""}
+              data-tab="files"
+              id="pull-request-tab-files"
+              onClick={() => setTab("files")}
+              role="tab"
+              tabIndex={tab === "files" ? 0 : -1}
+              type="button"
+            >
               {t("pullRequests.filesChanged")}
             </button>
-            <button className={tab === "commits" ? "active" : ""} onClick={() => setTab("commits")} type="button">
+            <button
+              aria-controls="pull-request-tabpanel"
+              aria-selected={tab === "commits"}
+              className={tab === "commits" ? "active" : ""}
+              data-tab="commits"
+              id="pull-request-tab-commits"
+              onClick={() => setTab("commits")}
+              role="tab"
+              tabIndex={tab === "commits" ? 0 : -1}
+              type="button"
+            >
               {t("pullRequests.commitsTab")}
             </button>
           </div>
-          {tab === "conversation" ? (
-            <>
-              <PullRequestRelatedLinks
-                issueId={pullRequest?.issueId ?? null}
-                linkedIssue={linkedIssue}
-                onOpenIssue={props.onOpenIssue}
-              />
-              <ConversationTimeline
-                agentJobs={relatedAgentJobs}
-                comments={comments}
-                onOpenAgentJob={props.onOpenAgentJob}
-              />
-              <CommentForm onSubmit={addComment} />
-            </>
-          ) : null}
-          {tab === "files" ? (
-            <div className="file-list">
-              {files.length === 0 ? <div className="empty-state">{t("pullRequests.noFiles")}</div> : null}
-              {files.map((file) => (
-                <article className="file-row" key={file.path}>
-                  <header>
-                    <strong>{file.path}</strong>
-                    <span>
-                      +{file.additions} -{file.deletions}
-                    </span>
-                  </header>
-                  {file.patch ? <DiffPreview patch={file.patch} /> : null}
-                </article>
-              ))}
-            </div>
-          ) : null}
-          {tab === "commits" ? (
-            <div className="commit-list">
-              {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
-              {commits.map((commit) => (
-                <article className="file-row commit-row" key={commit.hash}>
-                  <header>
-                    <strong>{commit.subject}</strong>
-                    <code>{commit.hash.slice(0, 8)}</code>
-                  </header>
-                  <p>
-                    {commit.authorName} - {new Date(commit.date).toLocaleString()}
-                  </p>
-                </article>
-              ))}
-            </div>
-          ) : null}
+          <div
+            aria-labelledby={`pull-request-tab-${tab}`}
+            id="pull-request-tabpanel"
+            role="tabpanel"
+            tabIndex={0}
+          >
+            {tab === "conversation" ? (
+              <>
+                <PullRequestRelatedLinks
+                  issueId={pullRequest?.issueId ?? null}
+                  linkedIssue={linkedIssue}
+                  onOpenIssue={props.onOpenIssue}
+                />
+                <ConversationTimeline
+                  activities={activities}
+                  agentJobs={relatedAgentJobs}
+                  comments={comments}
+                  onLoadCommentRevisions={loadCommentRevisions}
+                  onOpenAgentJob={props.onOpenAgentJob}
+                  onUpdateComment={updateComment}
+                />
+                <CommentForm onSubmit={addComment} />
+              </>
+            ) : null}
+            {tab === "files" ? (
+              <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+                <DiffViewer
+                  files={files}
+                  findings={findings}
+                  lineComments={lineComments}
+                  projectId={props.project.id}
+                  pullRequestId={props.pullRequestId}
+                  sourceCommit={diffRevision?.sourceCommit ?? null}
+                  targetCommit={diffRevision?.targetCommit ?? null}
+                />
+              </Suspense>
+            ) : null}
+            {tab === "commits" ? (
+              <div className="commit-list">
+                {commits.length === 0 ? <div className="empty-state">{t("pullRequests.noCommits")}</div> : null}
+                {commits.map((commit) => (
+                  <article className="file-row commit-row" key={commit.hash}>
+                    <header>
+                      <strong>{commit.subject}</strong>
+                      <code>{commit.hash.slice(0, 8)}</code>
+                    </header>
+                    <p>
+                      {commit.authorName} - {formatDateTime(commit.date)}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </section>
         <aside className="side-panel detail-sidebar">
+          <h2>{t("issues.checks")}</h2>
+          <AutomationChecksSummary
+            findingHref={findingHref}
+            findings={findings}
+            jobs={relatedAgentJobs}
+            objective={objective}
+            onOpenAgentJob={props.onOpenAgentJob}
+            onOpenFinding={openFinding}
+          />
+          <DevelopmentLoopPanel projectId={props.project.id} pullRequestId={props.pullRequestId} />
           <h2>{t("pullRequests.merge")}</h2>
           <div className="merge-panel">
             {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}
@@ -1342,21 +2151,6 @@ function PullRequestDetailScreen(props: {
             ) : (
               <span className="muted-text">{t("labels.none")}</span>
             )}
-          </div>
-          <h2>{t("agents.title")}</h2>
-          <div className="action-row">
-            <button className="secondary-button" onClick={() => void queueAgent("review")} type="button">
-              <GitPullRequest size={16} />
-              {t("agents.queueReview")}
-            </button>
-            <button className="secondary-button" onClick={() => void queueAgent("fix")} type="button">
-              <CircleAlert size={16} />
-              {t("agents.queueFix")}
-            </button>
-            <button className="secondary-button" onClick={() => void queueAgent("qa")} type="button">
-              <CheckCircle2 size={16} />
-              {t("agents.queueQa")}
-            </button>
           </div>
         </aside>
       </div>
@@ -1724,94 +2518,10 @@ function PullRequestsView(props: {
   );
 }
 
-function SettingsView(props: { project: ProjectDto }) {
-  const [settings, setSettings] = useState<ProjectSettingsDto | null>(null);
-  const [locale, setLocale] = useState(props.project.locale);
-  const [codexCommand, setCodexCommand] = useState(defaultCodexCommand);
-  const [codexModel, setCodexModel] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [isSaving, setSaving] = useState(false);
-
-  async function load() {
-    const response = await api.getSettings(props.project.id);
-    setSettings(response);
-    setLocale(response.project.locale);
-    setCodexCommand(response.ai.codexCommand);
-    setCodexModel(response.ai.model ?? "");
-  }
-
-  useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings."));
-  }, [props.project.id]);
-
-  async function saveSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    setSavedMessage(null);
-    try {
-      const response = await api.updateSettings(props.project.id, {
-        locale,
-        codexCommand,
-        model: codexModel || undefined
-      });
-      setSettings(response);
-      setSavedMessage(t("settings.saved"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <section className="page-section">
-      <div className="section-header">
-        <h1>{t("settings.title")}</h1>
-      </div>
-      {error ? <div className="error-banner">{error}</div> : null}
-      {savedMessage ? <div className="success-banner">{savedMessage}</div> : null}
-      <form className="settings-form" onSubmit={saveSettings}>
-        <label>
-          {t("settings.codexCommand")}
-          <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} required />
-        </label>
-        <label>
-          {t("settings.model")}
-          <input value={codexModel} onChange={(event) => setCodexModel(event.target.value)} />
-        </label>
-        <label>
-          {t("settings.locale")}
-          <input value={locale} onChange={(event) => setLocale(event.target.value)} required />
-        </label>
-        <button className="primary-button" disabled={isSaving} type="submit">
-          <Save size={16} />
-          {t("actions.save")}
-        </button>
-      </form>
-      <dl className="repository-facts">
-        <div>
-          <dt>{t("settings.server")}</dt>
-          <dd>
-            {settings ? `${settings.runtime.server.host}:${settings.runtime.server.port}` : "-"}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("settings.database")}</dt>
-          <dd>{settings?.runtime.database.url ?? "-"}</dd>
-        </div>
-        <div>
-          <dt>{t("settings.fullAccess")}</dt>
-          <dd>{settings?.ai.fullAccess ? t("status.ready") : "-"}</dd>
-        </div>
-      </dl>
-    </section>
-  );
-}
-
 export function App() {
+  const [developmentLoops, setDevelopmentLoops] = useState<DevelopmentLoopDto[]>([]);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [screen, setScreen] = useState<"setup" | "app">("setup");
   const [isLoading, setLoading] = useState(true);
   const [agentJobs, setAgentJobs] = useState<AgentJobDto[]>([]);
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
@@ -1822,7 +2532,6 @@ export function App() {
   const routePullRequestId = route.name === "pullRequest" || route.name === "pullRequestConflicts" ? route.pullRequestId : null;
   const routePullRequestScreen =
     route.name === "pullRequestConflicts" ? "conflicts" : route.name === "pullRequest" ? "detail" : null;
-
   const navigate = useCallback((nextRoute: AppRoute, mode: "push" | "replace" = "push") => {
     const path = routeToPath(nextRoute);
     setRoute(nextRoute);
@@ -1848,12 +2557,39 @@ export function App() {
     (pullRequestId: number) => navigate({ name: "pullRequestConflicts", pullRequestId }),
     [navigate]
   );
+  const handleProjectOpened = useCallback((result: ProjectOpenResult) => {
+    setProjects([result.project]);
+    setAgentJobs([]);
+    setScreen("app");
+    navigate(
+      result.onboardingIssueId
+        ? { name: "issue", issueId: result.onboardingIssueId }
+        : { name: "issues" },
+      "replace"
+    );
+  }, [navigate]);
+  const handleOpenFolder = useCallback(() => {
+    setAgentJobs([]);
+    setScreen("setup");
+  }, []);
+  if (project) {
+    setUiLocale(project.locale);
+  }
 
   useEffect(() => {
-    api
-      .listProjects()
-      .then(setProjects)
-      .finally(() => setLoading(false));
+    let disposed = false;
+    void api.listProjects()
+      .then((items) => {
+        if (disposed) return;
+        setProjects(items);
+        setScreen(items.length ? "app" : "setup");
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1866,22 +2602,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (project && window.location.pathname === "/") {
+    if (screen === "app" && project && window.location.pathname === "/") {
       navigate({ name: "issues" }, "replace");
     }
-  }, [project, navigate]);
+  }, [project, navigate, screen]);
 
   useEffect(() => {
-    if (!project) {
+    if (!project || screen !== "app") {
       setAgentJobs([]);
       return;
     }
 
     let disposed = false;
     async function loadAgentJobs() {
-      const jobs = await api.listAgentJobs(project.id);
+      const [jobs, loops] = await Promise.all([api.listAgentJobs(project.id), api.listDevelopmentLoops(project.id)]);
       if (!disposed) {
         setAgentJobs(jobs);
+        setDevelopmentLoops(loops);
       }
     }
 
@@ -1901,18 +2638,26 @@ export function App() {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [project]);
+  }, [project, screen]);
 
   if (isLoading) {
-    return <div className="loading-screen">{t("status.running")}</div>;
+    return <div className="loading-screen"><AsyncState kind="loading" message={t("status.loading")} /></div>;
   }
 
-  if (!project) {
-    return <SetupWizard onCreated={(created) => setProjects([created])} />;
+  if (screen === "setup" || !project) {
+    return <SetupWizard onOpened={handleProjectOpened} />;
   }
 
   return (
-    <AppShell view={view} onViewChange={handleViewChange} agentState={summarizeAgentJobs(agentJobs)}>
+    <AppShell
+      agentState={summarizeAgentJobs(agentJobs, developmentLoops)}
+      navigationKey={routeToPath(route)}
+      onOpenFolder={handleOpenFolder}
+      onViewChange={handleViewChange}
+      projectName={project.name}
+      repositoryPath={project.repoPath}
+      view={view}
+    >
       {view === "issues" ? (
         <IssuesView
           project={project}
@@ -1936,14 +2681,15 @@ export function App() {
         />
       ) : null}
       {view === "agentJobs" ? (
-        <AgentJobsView
-          project={project}
-          routeJobId={routeAgentJobId}
-          onOpenAgentJob={handleOpenAgentJob}
-        />
+        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+          <AgentJobsView
+            project={project}
+            routeJobId={routeAgentJobId}
+            onOpenAgentJob={handleOpenAgentJob}
+          />
+        </Suspense>
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
-      {view === "settings" ? <SettingsView project={project} /> : null}
     </AppShell>
   );
 }

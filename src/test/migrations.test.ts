@@ -18,9 +18,13 @@ describe("database migrations", () => {
 
     const repos = createRepositories(context.db);
     await repos.settings.set("ai", {
-      provider: "codex-cli",
-      codexCommand: defaultCodexCommand,
-      fullAccess: true
+      provider: "codex",
+      codex: {
+        command: defaultCodexCommand,
+        model: null,
+        fullAccess: true,
+        autoLogin: true
+      }
     });
     const aiSettings = await repos.settings.get("ai");
     const project = await repos.projects.create({
@@ -54,13 +58,31 @@ describe("database migrations", () => {
       title: "Review queued"
     });
 
-    expect(aiSettings?.codexCommand).toBe(defaultCodexCommand);
+    expect((aiSettings?.codex as { command?: string } | undefined)?.command).toBe(defaultCodexCommand);
     expect(project.id).toMatch(/^project_/);
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.requirements);
+    expect(labels.map((label) => label.name)).toContain(workflowLabelNames.readyToMerge);
     expect(labels.map((label) => label.name)).toContain(workflowLabelNames.done);
     expect(pullRequest.labels.map((label) => label.name)).toContain(workflowLabelNames.reviewing);
+    expect(pullRequest.createdByType).toBe("user");
     expect(job.status).toBe("queued");
+    expect(job.aiProvider).toBe("codex");
     expect(activity.title).toBe("Review queued");
+
+    const automatedIssue = await repos.issues.create({
+      projectId: project.id,
+      title: "Automated issue",
+      createdByType: "system"
+    });
+    const automatedPullRequest = await repos.pullRequests.create({
+      projectId: project.id,
+      title: "Automated PR",
+      sourceBranch: "feature/automated",
+      targetBranch: "main",
+      createdByType: "agent"
+    });
+    expect(automatedIssue.createdByType).toBe("system");
+    expect(automatedPullRequest.createdByType).toBe("agent");
 
     context.client.close();
   });

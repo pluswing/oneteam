@@ -64,6 +64,12 @@ export const systemLabels: SystemLabelSeed[] = [
     description: "QA agent is validating the pull request."
   },
   {
+    name: workflowLabelNames.readyToMerge,
+    color: "#1a7f37",
+    kind: "system",
+    description: "Pull request is verified and ready to merge."
+  },
+  {
     name: workflowLabelNames.done,
     color: "#1a7f37",
     kind: "system",

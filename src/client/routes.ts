@@ -1,4 +1,4 @@
-export type View = "issues" | "pullRequests" | "agentJobs" | "repository" | "settings";
+export type View = "issues" | "pullRequests" | "agentJobs" | "repository";
 
 export type AppRoute =
   | { name: "issues" }
@@ -8,8 +8,7 @@ export type AppRoute =
   | { name: "pullRequestConflicts"; pullRequestId: number }
   | { name: "agentJobs" }
   | { name: "agentJob"; jobId: number }
-  | { name: "repository" }
-  | { name: "settings" };
+  | { name: "repository" };
 
 export function parseRoute(pathname = window.location.pathname): AppRoute {
   const segments = pathname.split("/").filter(Boolean);
@@ -39,9 +38,7 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
   if (first === "repository") {
     return { name: "repository" };
   }
-  if (first === "settings") {
-    return { name: "settings" };
-  }
+  if (first === "loops" || first === "loop-runs") return { name: "agentJobs" };
 
   return { name: "issues" };
 }
@@ -64,8 +61,6 @@ export function routeToPath(route: AppRoute): string {
       return `/jobs/${route.jobId}`;
     case "repository":
       return "/repository";
-    case "settings":
-      return "/settings";
   }
 }
 

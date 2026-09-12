@@ -3,7 +3,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ActivityType } from "../../shared/types";
-import type { AgentAdapter, AgentActivityResult, AgentRunResult } from "./types";
+import type {
+  AgentAdapter,
+  AgentActivityResult,
+  AgentRunResult,
+  ProviderCapacityProbeResult
+} from "./types";
+import { unstructuredAdapterStopResult, validateAdapterStopResult } from "./adapter-guardrails";
 
 export type CodexAdapterOptions = {
   command: string;
@@ -11,32 +17,22 @@ export type CodexAdapterOptions = {
   loadOptions?: () => Promise<Partial<Pick<CodexAdapterOptions, "command" | "model">>>;
 };
 
-function extractJson(text: string): AgentRunResult {
+export function extractAgentRunResult(text: string, fallbackName = "Agent"): AgentRunResult {
   const trimmed = text.trim();
   const parsed = parseAgentRunResult(trimmed);
   if (parsed) {
-    return parsed;
+    return validateAdapterStopResult(parsed, fallbackName);
   }
 
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   if (fenced) {
     const parsedFenced = parseAgentRunResult(fenced[1]);
     if (parsedFenced) {
-      return parsedFenced;
+      return validateAdapterStopResult(parsedFenced, fallbackName);
     }
   }
 
-  return {
-    status: "succeeded",
-    message: trimmed || "Codex completed without a structured response.",
-    activities: [
-      {
-        type: "progress",
-        title: "Codex response captured",
-        body: trimmed
-      }
-    ]
-  };
+  return unstructuredAdapterStopResult(trimmed, fallbackName);
 }
 
 function parseAgentRunResult(candidate: string): AgentRunResult | null {
@@ -54,6 +50,13 @@ function parseAgentRunResult(candidate: string): AgentRunResult | null {
 export class CodexAdapter implements AgentAdapter {
   constructor(private readonly options: CodexAdapterOptions) {}
 
+  async probeCapacity(
+    input: Parameters<NonNullable<AgentAdapter["probeCapacity"]>>[0]
+  ): Promise<ProviderCapacityProbeResult> {
+    const options = await this.resolveOptions();
+    return probeCodexCapacity(resolveCommand(options.command), input.timeoutMs);
+  }
+
   async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentRunResult> {
     const options = await this.resolveOptions();
     const command = resolveCommand(options.command);
@@ -62,12 +65,13 @@ export class CodexAdapter implements AgentAdapter {
     const outputSchemaPath = join(tempDir, "agent-output.schema.json");
     await writeFile(outputSchemaPath, JSON.stringify(agentOutputSchema, null, 2), "utf8");
 
+    const resumeSessionId = resumableCodexSessionId(input.job);
     const args = [
       "exec",
+      ...(resumeSessionId ? ["resume"] : []),
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
-      "--cd",
-      input.repoPath,
+      ...(!resumeSessionId ? ["--cd", input.repoPath] : []),
       "--output-schema",
       outputSchemaPath,
       "--output-last-message",
@@ -78,6 +82,7 @@ export class CodexAdapter implements AgentAdapter {
       args.push("--model", options.model);
     }
 
+    if (resumeSessionId) args.push(resumeSessionId);
     args.push("-");
 
     await input.onActivity?.({
@@ -87,13 +92,15 @@ export class CodexAdapter implements AgentAdapter {
       payload: {
         command,
         args,
-        cwd: input.repoPath
+        cwd: input.repoPath,
+        resumeSessionId
       }
     });
 
     try {
       let activityQueue = Promise.resolve();
       let activityError: unknown = null;
+      const telemetry: CodexTelemetry = { sessionId: resumeSessionId, resumedSession: Boolean(resumeSessionId), usage: null };
       const enqueueActivity = (activity: AgentActivityResult) => {
         activityQueue = activityQueue.then(async () => {
           try {
@@ -105,7 +112,9 @@ export class CodexAdapter implements AgentAdapter {
       };
 
       const { stdout, stderr, exitCode, canceled } = await runProcess(command, args, input.prompt, {
+        cwd: input.repoPath,
         onStdoutLine: (line) => {
+          captureCodexTelemetry(line, telemetry);
           const activity = parseCodexJsonLine(line);
           if (activity) {
             enqueueActivity(activity);
@@ -122,13 +131,25 @@ export class CodexAdapter implements AgentAdapter {
         return {
           status: "canceled",
           message: "Codex CLI execution was canceled.",
+          stopReason: "canceled",
+          evidence: [
+            {
+              type: "system",
+              title: "Codex CLI canceled",
+              summary: "The running Codex process was terminated after the job was canceled.",
+              payload: null
+            }
+          ],
           activities: [
             {
               type: "system",
               title: "Codex CLI canceled",
               body: "The running Codex process was terminated after the job was canceled."
             }
-          ]
+          ],
+          metadata: {
+            providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+          }
         };
       }
 
@@ -149,12 +170,33 @@ export class CodexAdapter implements AgentAdapter {
         return {
           status: "failed",
           message: failureMessage ?? `Codex CLI failed with exit code ${exitCode}`,
-          activities: []
+          stopReason: "failed",
+          evidence: [
+            {
+              type: "command",
+              title: "Codex CLI failed",
+              summary: failureMessage ?? `Codex CLI failed with exit code ${exitCode}`,
+              payload: {
+                exitCode
+              }
+            }
+          ],
+          activities: [],
+          metadata: {
+            providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+          }
         };
       }
 
       const finalMessage = await readFile(lastMessagePath, "utf8").catch(() => stdout);
-      return extractJson(finalMessage);
+      const result = extractAgentRunResult(finalMessage, "Codex");
+      return {
+        ...result,
+        metadata: {
+          ...(result.metadata ?? {}),
+          providerExecution: providerExecutionMetadata(options.model ?? null, telemetry)
+        }
+      };
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -169,9 +211,226 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
-const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);
+type CodexTelemetry = {
+  sessionId: string | null;
+  resumedSession: boolean;
+  usage: Record<string, unknown> | null;
+};
 
-const agentOutputSchema = {
+function resumableCodexSessionId(job: Parameters<AgentAdapter["run"]>[0]["job"]): string | null {
+  if (job.aiProvider !== "codex" || job.waitReason !== "provider_quota_exhausted") return null;
+  const sessionId = job.waitMetadata?.sessionId;
+  return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+}
+
+function captureCodexTelemetry(line: string, telemetry: CodexTelemetry): void {
+  try {
+    const event = JSON.parse(line.trim()) as unknown;
+    if (!isRecord(event)) {
+      return;
+    }
+    if (event.type === "thread.started" && typeof event.thread_id === "string") {
+      telemetry.sessionId = event.thread_id;
+    }
+    if ((event.type === "turn.completed" || event.type === "turn.failed") && isRecord(event.usage)) {
+      telemetry.usage = event.usage;
+    }
+  } catch {
+    // Non-JSON stdout is handled by the normal CLI failure parser.
+  }
+}
+
+function providerExecutionMetadata(model: string | null, telemetry: CodexTelemetry) {
+  return {
+    model,
+    sessionId: telemetry.sessionId,
+    resumedSession: telemetry.resumedSession,
+    usage: telemetry.usage
+  };
+}
+
+export function classifyCodexRateLimitSnapshot(
+  value: unknown,
+  checkedAt = new Date()
+): Omit<ProviderCapacityProbeResult, "provider" | "checkedAt" | "source"> {
+  const response = isRecord(value) ? value : null;
+  const byLimitId = isRecord(response?.rateLimitsByLimitId) ? response.rateLimitsByLimitId : null;
+  const snapshot = isRecord(byLimitId?.codex)
+    ? byLimitId.codex
+    : isRecord(response?.rateLimits)
+      ? response.rateLimits
+      : null;
+  if (!snapshot) {
+    return {
+      status: "unknown",
+      message: "Codex app-server did not return a rate-limit snapshot.",
+      usageSnapshot: response,
+      resetAt: null
+    };
+  }
+
+  const primary = isRecord(snapshot.primary) ? snapshot.primary : null;
+  const secondary = isRecord(snapshot.secondary) ? snapshot.secondary : null;
+  const individualLimit = isRecord(snapshot.individualLimit) ? snapshot.individualLimit : null;
+  const primaryUsedPercent = numericValue(primary?.usedPercent);
+  const secondaryUsedPercent = numericValue(secondary?.usedPercent);
+  const individualRemainingPercent = numericValue(individualLimit?.remainingPercent);
+  const primaryExhausted = primaryUsedPercent !== null && primaryUsedPercent >= 100;
+  const secondaryExhausted = secondaryUsedPercent !== null && secondaryUsedPercent >= 100;
+  const individualExhausted = individualRemainingPercent !== null && individualRemainingPercent <= 0;
+  const reachedType = typeof snapshot.rateLimitReachedType === "string" ? snapshot.rateLimitReachedType : null;
+  const spendControlReached = snapshot.spendControlReached === true;
+  const exhausted = Boolean(
+    primaryExhausted || secondaryExhausted || individualExhausted || reachedType || spendControlReached
+  );
+  const hasAvailabilitySignal = Boolean(
+    primary || secondary || individualLimit || reachedType || typeof snapshot.spendControlReached === "boolean"
+  );
+  const resetCandidates = [
+    primaryExhausted ? timestampFromSeconds(primary?.resetsAt) : null,
+    secondaryExhausted ? timestampFromSeconds(secondary?.resetsAt) : null,
+    individualExhausted ? timestampFromSeconds(individualLimit?.resetsAt) : null
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > checkedAt.getTime());
+  const fallbackResetCandidates = [
+    timestampFromSeconds(primary?.resetsAt),
+    timestampFromSeconds(secondary?.resetsAt),
+    timestampFromSeconds(individualLimit?.resetsAt)
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > checkedAt.getTime());
+  const applicableResetCandidates = resetCandidates.length ? resetCandidates : fallbackResetCandidates;
+  const resetAt = exhausted && applicableResetCandidates.length
+    ? new Date(Math.min(...applicableResetCandidates)).toISOString()
+    : null;
+
+  return {
+    status: exhausted ? "exhausted" : hasAvailabilitySignal ? "available" : "unknown",
+    message: exhausted
+      ? `Codex capacity remains unavailable${reachedType ? ` (${reachedType})` : ""}.`
+      : hasAvailabilitySignal
+        ? "Codex rate-limit capacity is available."
+        : "Codex rate-limit availability could not be determined.",
+    usageSnapshot: response,
+    resetAt
+  };
+}
+
+async function probeCodexCapacity(command: string, timeoutMs = 10_000): Promise<ProviderCapacityProbeResult> {
+  const checkedAt = new Date();
+  return new Promise((resolveProbe) => {
+    const child = spawn(command, ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdoutBuffer = "";
+    let stderr = "";
+    let settled = false;
+    let rateLimitRequestSent = false;
+    const timer = setTimeout(() => {
+      finish({
+        status: "unknown",
+        message: `Codex capacity probe timed out after ${timeoutMs}ms.`,
+        usageSnapshot: null,
+        resetAt: null
+      });
+    }, timeoutMs);
+
+    function finish(result: Omit<ProviderCapacityProbeResult, "provider" | "checkedAt" | "source">) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.stdin.end();
+      child.kill("SIGTERM");
+      resolveProbe({
+        ...result,
+        provider: "codex",
+        checkedAt: checkedAt.toISOString(),
+        source: "codex_app_server_rate_limits"
+      });
+    }
+
+    function handleLine(line: string) {
+      let message: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (!isRecord(parsed)) return;
+        message = parsed;
+      } catch {
+        return;
+      }
+      if (message.id === 1 && !rateLimitRequestSent) {
+        rateLimitRequestSent = true;
+        child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
+        child.stdin.write(`${JSON.stringify({ id: 2, method: "account/rateLimits/read", params: null })}\n`);
+        return;
+      }
+      if (message.id !== 2) return;
+      if (isRecord(message.error)) {
+        finish({
+          status: "unknown",
+          message: `Codex capacity probe failed: ${String(message.error.message ?? "unknown app-server error")}`,
+          usageSnapshot: message.error,
+          resetAt: null
+        });
+        return;
+      }
+      finish(classifyCodexRateLimitSnapshot(message.result, checkedAt));
+    }
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString("utf8");
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) handleLine(line);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.stdin.on("error", () => undefined);
+    child.on("error", (error) => {
+      finish({ status: "unknown", message: error.message, usageSnapshot: null, resetAt: null });
+    });
+    child.on("close", () => {
+      if (stdoutBuffer) handleLine(stdoutBuffer);
+      if (!settled) {
+        finish({
+          status: "unknown",
+          message: stderr.trim() || "Codex app-server closed before returning rate limits.",
+          usageSnapshot: null,
+          resetAt: null
+        });
+      }
+    });
+    child.stdin.write(`${JSON.stringify({
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "oneteam-provider-probe", version: "0.1.0" },
+        capabilities: { experimentalApi: true }
+      }
+    })}\n`);
+  });
+}
+
+function numericValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timestampFromSeconds(value: unknown): number | null {
+  const numeric = numericValue(value);
+  if (numeric === null) return null;
+  return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+}
+
+const activityTypes = new Set<ActivityType>(["thinking", "progress", "command", "file_change", "test", "error", "system"]);
+const stopReasons = [
+  "passed",
+  "failed",
+  "waiting_human",
+  "timeout",
+  "max_rounds_exceeded",
+  "budget_exceeded",
+  "risk_detected",
+  "rollback_required",
+  "canceled"
+] as const;
+
+export const agentOutputSchema = {
   type: "object",
   properties: {
     status: {
@@ -195,9 +454,13 @@ const agentOutputSchema = {
             },
             body: {
               type: "string"
+            },
+            bodyFormat: {
+              type: ["string", "null"],
+              enum: ["markdown", "html", null]
             }
           },
-          required: ["targetType", "targetId", "body"],
+          required: ["targetType", "targetId", "body", "bodyFormat"],
           additionalProperties: false
         },
         {
@@ -300,6 +563,80 @@ const agentOutputSchema = {
         }
       ]
     },
+    stopReason: {
+      anyOf: [
+        {
+          type: "string",
+          enum: Array.from(stopReasons)
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
+    evidence: {
+      anyOf: [
+        {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string"
+              },
+              title: {
+                type: "string"
+              },
+              summary: {
+                type: ["string", "null"]
+              },
+              payload: {
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {},
+                    required: [],
+                    additionalProperties: false
+                  },
+                  {
+                    type: "object",
+                    properties: {
+                      artifact: {
+                        type: "object",
+                        properties: {
+                          kind: {
+                            type: "string",
+                            enum: ["image"]
+                          },
+                          path: {
+                            type: "string"
+                          },
+                          caption: {
+                            type: ["string", "null"]
+                          }
+                        },
+                        required: ["kind", "path", "caption"],
+                        additionalProperties: false
+                      }
+                    },
+                    required: ["artifact"],
+                    additionalProperties: false
+                  },
+                  {
+                    type: "null"
+                  }
+                ]
+              }
+            },
+            required: ["type", "title", "summary", "payload"],
+            additionalProperties: false
+          }
+        },
+        {
+          type: "null"
+        }
+      ]
+    },
     metadata: {
       anyOf: [
         {
@@ -307,6 +644,65 @@ const agentOutputSchema = {
           properties: {
             nextLabel: {
               type: ["string", "null"]
+            },
+            goalContract: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    evidenceRequired: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              type: {
+                                type: "string",
+                                enum: [
+                                  "test",
+                                  "lint",
+                                  "build",
+                                  "command",
+                                  "screenshot",
+                                  "ui_snapshot",
+                                  "file_change",
+                                  "diff_summary",
+                                  "performance",
+                                  "ci_status",
+                                  "review",
+                                  "qa",
+                                  "verifier"
+                                ]
+                              },
+                              required: {
+                                type: "boolean"
+                              },
+                              commitScope: {
+                                type: "string",
+                                enum: ["source", "target", "both", "none"]
+                              },
+                              maxAgeHours: {
+                                type: ["number", "null"]
+                              }
+                            },
+                            required: ["type", "required", "commitScope", "maxAgeHours"],
+                            additionalProperties: false
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["evidenceRequired"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
             },
             pullRequest: {
               anyOf: [
@@ -497,9 +893,55 @@ const agentOutputSchema = {
                   type: "null"
                 }
               ]
+            },
+            verifier: {
+              anyOf: [
+                {
+                  type: "object",
+                  properties: {
+                    verdict: {
+                      type: ["string", "null"]
+                    },
+                    stopConditionMet: {
+                      type: ["boolean", "null"]
+                    },
+                    missingEvidence: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    },
+                    notes: {
+                      anyOf: [
+                        {
+                          type: "array",
+                          items: {
+                            type: "string"
+                          }
+                        },
+                        {
+                          type: "null"
+                        }
+                      ]
+                    }
+                  },
+                  required: ["verdict", "stopConditionMet", "missingEvidence", "notes"],
+                  additionalProperties: false
+                },
+                {
+                  type: "null"
+                }
+              ]
             }
           },
-          required: ["nextLabel", "pullRequest", "review", "fix", "qa"],
+          required: ["nextLabel", "goalContract", "pullRequest", "review", "fix", "qa", "verifier"],
           additionalProperties: false
         },
         {
@@ -508,7 +950,18 @@ const agentOutputSchema = {
       ]
     }
   },
-  required: ["status", "message", "comment", "questions", "activities", "changedFiles", "testResults", "metadata"],
+  required: [
+    "status",
+    "message",
+    "comment",
+    "questions",
+    "activities",
+    "changedFiles",
+    "testResults",
+    "stopReason",
+    "evidence",
+    "metadata"
+  ],
   additionalProperties: false
 } as const;
 
@@ -752,6 +1205,7 @@ async function runProcess(
   args: string[],
   stdin: string,
   callbacks: {
+    cwd?: string;
     onStdoutLine?: (line: string) => void;
     isCanceled?: () => Promise<boolean> | boolean;
   } = {}
@@ -763,6 +1217,7 @@ async function runProcess(
 }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
+      cwd: callbacks.cwd,
       stdio: ["pipe", "pipe", "pipe"]
     });
     let stdout = "";
