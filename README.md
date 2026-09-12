@@ -6,28 +6,27 @@ OneTeam is a local Loop Engineering app powered by Codex. It keeps GitHub-style 
 
 After merging, Codex reviews the work, test results, retries and model choices. OneTeam saves the retrospective and applies proposed knowledge changes under `.oneteam/`. The next task receives that knowledge. A merged PR remains “Reflecting” until its knowledge update is saved.
 
-## Start
+## Download and start
 
-Requirements: Node.js 20.19+ or 22.12+, npm, Git, and a Codex login. The Codex CLI is included in the dependencies.
+Download the macOS app from [GitHub Releases](https://github.com/pluswing/oneteam/releases).
 
-```sh
-npm install
-npm run app:dev
-```
+1. Download the macOS release for your Mac and open the downloaded archive or disk image.
+2. Move **OneTeam.app** to **Applications** and launch it.
+3. Choose or drop your Git repository folder. Sign in to Codex if prompted when you start your first Issue.
+
+The app includes the Codex CLI. You do not need to clone or build OneTeam to use it. You need Git, a Codex login, and the tools required to build and test your own project.
 
 Drop a Git repository folder onto the desktop app or choose a folder. The repository must already have its first commit. OneTeam initializes `.oneteam` when needed and opens an empty Issue list. **Initialization creates no Issue or Agent job.** Later launches reopen the last folder; the folder button opens another one.
 
 Create an Issue describing the requested change and acceptance criteria. OneTeam queues it automatically. Loops execute one at a time in that folder. No project registration, provider selector, model selector or detailed settings screen is needed.
 
-For browser development:
+If authentication is needed, the app opens Codex login when execution starts. Complete the login and resume the Loop.
 
-```sh
-npm run dev
-# UI:  http://127.0.0.1:3579
-# API: http://127.0.0.1:3580
-```
+See the introduction and sample screenshots in [English](docs/index.html) or [日本語](docs/ja.html).
 
-Use the path form on the browser setup screen. Folder drag-and-drop is provided by the Electron app. If authentication is needed, the desktop app opens Codex login when execution starts. You can also run `npm run codex:login`, then resume the Loop.
+![OneTeam showing a sample tag-search Issue, its linked PR, and a Loop in review](docs/assets/screenshots/issue-en.png)
+
+*Actual app screen with sample data. Model selections, Agent logs, and progress in the introduction-page screenshots are illustrative.*
 
 ## Development workflow
 
@@ -77,6 +76,17 @@ Old `skills/` files remain readable as context, and old `memory/` files remain o
 
 ## Development and verification
 
+The following commands are for developing OneTeam itself. To use the app, download **OneTeam.app** from [GitHub Releases](https://github.com/pluswing/oneteam/releases).
+
+For a source checkout, install Node.js 20.19+ or 22.12+, npm, and Git:
+
+```sh
+npm install
+npm run app:dev     # build and launch the development desktop app
+```
+
+For browser development, run `npm run dev` and open `http://127.0.0.1:3579` (API: `http://127.0.0.1:3580`). Use the path form on the setup screen; folder drag-and-drop is provided by the desktop app. Developers can run `npm run codex:login` to sign in from the terminal.
+
 ```sh
 npm run typecheck
 npm run lint
@@ -86,6 +96,7 @@ npm run e2e:install  # once on a new machine
 npm run e2e
 npm run app:dir     # unpacked desktop app
 npm run app:pack    # packaged desktop app
+npm run docs:screenshots # recapture the introduction-page sample screens on macOS
 ```
 
 Vitest covers Loop sequencing, real Git merges, migration, restart recovery, knowledge application/restoration, workspace isolation and model routing. Playwright creates two Issues and runs the production Loop engine with a deterministic Agent fixture, then checks learning transfer, model logs, large diffs, line comments, keyboard navigation and English/Japanese contrast. Codex authentication and live execution are checked separately from reproducible tests.

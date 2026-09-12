@@ -460,6 +460,11 @@ function UnifiedDiff(props: DiffDiscussionProps) {
     <div className="diff-table-region">
       <div className="diff-table-scroll" onScroll={() => virtual.updateRange()} ref={virtual.scrollRef}>
         <table className="diff-table diff-unified">
+          <colgroup>
+            <col className="diff-number-column" />
+            <col className="diff-number-column" />
+            <col />
+          </colgroup>
           <tbody>
             <DiffVirtualSpacer colSpan={3} height={virtual.range.beforeHeight} />
             {items.slice(virtual.range.start, virtual.range.end).map((item) => {
@@ -547,6 +552,12 @@ function SplitDiff(props: DiffDiscussionProps) {
     <div className="diff-table-region">
       <div className="diff-table-scroll" onScroll={() => virtual.updateRange()} ref={virtual.scrollRef}>
         <table className="diff-table diff-split">
+          <colgroup>
+            <col className="diff-number-column" />
+            <col />
+            <col className="diff-number-column" />
+            <col />
+          </colgroup>
           <tbody>
             <DiffVirtualSpacer colSpan={4} height={virtual.range.beforeHeight} />
             {items.slice(virtual.range.start, virtual.range.end).map((item) => {
