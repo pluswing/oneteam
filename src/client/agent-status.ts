@@ -1,5 +1,7 @@
+import { formatDisplayValue } from "./formatters";
 import type { AgentJobDto } from "../shared/types";
 import type { DevelopmentLoopDto } from "../shared/development-loop";
+import type { AppRoute } from "./routes";
 import { t } from "./i18n";
 
 const activeAgentStatuses = new Set<AgentJobDto["status"]>(["queued", "running", "waiting_provider", "waiting_human"]);
@@ -11,6 +13,7 @@ export type AgentHeaderState = {
   label: string;
   count: number;
   title: string;
+  targetRoute: AppRoute | null;
 };
 
 export function isActiveAgentJob(job: AgentJobDto): boolean {
@@ -23,17 +26,23 @@ export function canRetryAgentJob(job: AgentJobDto): boolean {
 }
 
 export function formatJobTarget(job: AgentJobDto): string {
-  return job.targetType === "project" ? "project" : `${job.targetType} #${job.targetId}`;
+  return job.targetType === "project" ? formatDisplayValue("project") : `${formatDisplayValue(job.targetType)} #${job.targetId}`;
 }
 
 export function summarizeAgentJobs(jobs: AgentJobDto[], loops?: DevelopmentLoopDto[]): AgentHeaderState {
-  if (loops) {
-    const current = [...loops].sort((a, b) => a.id - b.id).find((loop) => !["succeeded", "canceled"].includes(loop.status));
-    if (!current) return { status: "ready", label: t("status.ready"), count: 0, title: t("status.ready") };
-    const status = current.status === "running" ? "running" : current.status === "queued" ? "queued" : current.status === "failed" ? "failed" : "waiting";
-    return { status, label: t(`development.${current.status}`), count: 1, title: `Loop #${current.id} · ${t(`development.${current.phase}`)}` };
-  }
+  const orderedLoops = [...(loops ?? [])].sort((a, b) => a.id - b.id);
+  const current = orderedLoops.find((loop) => loop.status === "running")
+    ?? orderedLoops.find((loop) => !["succeeded", "canceled"].includes(loop.status));
   const runningJobs = jobs.filter((job) => job.status === "running");
+  if (current && (current.status === "running" || !runningJobs.length)) {
+    const status = current.status === "running" ? "running" : current.status === "queued" ? "queued" : current.status === "failed" ? "failed" : "waiting";
+    const currentJob = jobs.find((job) => job.id === current.currentJobId && (isActiveAgentJob(job) || job.status === current.status));
+    const targetRoute: AppRoute = currentJob ? { name: "agentJob", jobId: currentJob.id }
+      : current.pullRequestId && ["merging", "reflecting"].includes(current.phase) ? { name: "pullRequest", pullRequestId: current.pullRequestId }
+      : { name: "issue", issueId: current.issueId };
+    return { status, label: t(`development.${current.status}`), count: 1,
+      title: `${t("loops.item")} #${current.id} · ${t(`development.${current.phase}`)}`, targetRoute };
+  }
   if (runningJobs.length) {
     return agentHeaderState("running", t("status.running"), runningJobs);
   }
@@ -67,7 +76,8 @@ export function summarizeAgentJobs(jobs: AgentJobDto[], loops?: DevelopmentLoopD
     status: "ready",
     label: t("status.ready"),
     count: 0,
-    title: t("status.ready")
+    title: t("status.ready"),
+    targetRoute: null
   };
 }
 
@@ -78,6 +88,7 @@ function agentHeaderState(status: AgentHeaderStatus, label: string, jobs: AgentJ
     status,
     label: `${label}${suffix}`,
     count: jobs.length,
-    title: firstJob ? `#${firstJob.id} ${firstJob.agentType} ${formatJobTarget(firstJob)}` : label
+    title: firstJob ? `#${firstJob.id} ${formatDisplayValue(firstJob.agentType)} ${formatJobTarget(firstJob)}` : label,
+    targetRoute: firstJob ? { name: "agentJob", jobId: firstJob.id } : null
   };
 }

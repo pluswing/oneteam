@@ -493,6 +493,29 @@ const migrations: Migration[] = [
         unique(project_id, loop_id, path)
       )`
     ]
+  },
+  {
+    id: "0017_internal_issues",
+    statements: [
+      "alter table issues add column internal integer not null default 0"
+    ]
+  },
+  {
+    id: "0018_chats",
+    statements: [
+      `create table chat_sessions (
+        id text primary key, project_id text not null references projects(id), title text not null,
+        model text, effort text, thread_id text, status text not null default 'idle', error text,
+        created_at text not null, updated_at text not null
+      )`,
+      `create table chat_messages (
+        id integer primary key autoincrement, project_id text not null references projects(id),
+        chat_id text not null references chat_sessions(id) on delete cascade, role text not null,
+        content text not null, status text not null, metadata_json text, created_at text not null
+      )`,
+      "create index chat_sessions_project_updated on chat_sessions(project_id, updated_at)",
+      "create index chat_messages_conversation on chat_messages(project_id, chat_id, id)"
+    ]
   }
 ];
 

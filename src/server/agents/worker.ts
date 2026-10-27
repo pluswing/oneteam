@@ -52,6 +52,7 @@ import {
 import { verifyMarkdownReferences } from "../services/verified-markdown-references";
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
+import { trackJobWork } from "../services/job-execution-state";
 
 export type AgentWorkerOptions = {
   pollIntervalMs: number;
@@ -108,7 +109,7 @@ export class AgentWorker {
       if (!job) {
         return;
       }
-      await this.runJob(job);
+      await trackJobWork(this.repos, job.projectId, job.id, () => this.runJob(job));
     } finally {
       this.isTicking = false;
     }

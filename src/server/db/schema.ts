@@ -61,6 +61,7 @@ export const issues = sqliteTable("issues", {
   body: text("body").notNull().default(""),
   status: text("status").notNull().default("open").$type<IssueStatus>(),
   createdByType: text("created_by_type").notNull().default("user").$type<"user" | "agent" | "system">(),
+  internal: integer("internal", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   closedAt: text("closed_at"),
@@ -308,3 +309,4 @@ export const triageItems = sqliteTable("triage_items", {
 });
 
 export * from "./development-schema";
+export * from "./chat-schema";

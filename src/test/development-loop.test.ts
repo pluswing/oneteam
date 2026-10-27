@@ -70,11 +70,11 @@ it("merges two loops in sequence, edits knowledge, and supplies that knowledge t
   expect(await git("status", "--porcelain")).toBe("");
 }, 30_000);
 
-it("routes by task complexity and escalates quality failures within the available catalog", () => {
+it("uses the catalog recommendation and adjusts supported effort to task complexity and quality failures", () => {
   const models: CodexModel[] = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"].map((model) => ({ model, id: model, displayName: model, hidden: false, isDefault: model === "gpt-5.5", defaultReasoningEffort: "low", supportedReasoningEfforts: ["low", "medium", "high"].map((reasoningEffort) => ({ reasoningEffort })) }));
-  expect(selectTaskModel(models, { text: "Fix a README typo", role: "implementation", fileCount: 1, qualityFailures: 0 }).model).toBe("gpt-5.4-mini");
-  expect(selectTaskModel(models, { text: "Add a filter", role: "implementation", fileCount: 3, qualityFailures: 0 }).model).toBe("gpt-5.4");
-  expect(selectTaskModel(models, { text: "認証の設計変更", role: "implementation", fileCount: 3, qualityFailures: 0 }).model).toBe("gpt-5.5");
-  expect(selectTaskModel(models, { text: "Fix a README typo", role: "implementation", fileCount: 1, qualityFailures: 1 }).model).toBe("gpt-5.5");
+  expect(selectTaskModel(models, { text: "Fix a README typo", role: "implementation", fileCount: 1, qualityFailures: 0 })).toMatchObject({ model: "gpt-5.5", effort: "low" });
+  expect(selectTaskModel(models, { text: "Add a filter", role: "implementation", fileCount: 3, qualityFailures: 0 })).toMatchObject({ model: "gpt-5.5", effort: "medium" });
+  expect(selectTaskModel(models, { text: "認証の設計変更", role: "implementation", fileCount: 3, qualityFailures: 0 })).toMatchObject({ model: "gpt-5.5", effort: "high" });
+  expect(selectTaskModel(models, { text: "Fix a README typo", role: "implementation", fileCount: 1, qualityFailures: 1 })).toMatchObject({ model: "gpt-5.5", effort: "high" });
   expect(selectTaskModel([models[1]], { text: "migration", role: "review", fileCount: 10, qualityFailures: 0 })).toMatchObject({ model: "gpt-5.4", effort: "high" });
 });

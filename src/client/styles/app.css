@@ -6,8 +6,95 @@
   text-rendering: optimizeLegibility;
 }
 
+.chat-workspace { display: grid; grid-template-columns: 250px minmax(0, 1fr); height: calc(100dvh - var(--app-header-height, 145px) - 48px); min-height: 520px; max-height: 1100px; overflow: hidden; border: 1px solid #d0d7de; border-radius: 10px; background: #fff; }
+.chat-sidebar { display: flex; flex-direction: column; min-height: 0; padding: 20px 12px 14px; border-right: 1px solid #d8dee4; background: #f6f8fa; }
+.chat-sidebar-heading { display: flex; align-items: center; gap: 9px; padding: 0 10px 17px; }
+.chat-sidebar-heading h1 { margin: 0; font-size: 17px; }
+.chat-new { justify-content: center; width: 100%; }
+.chat-session-list { flex: 1; overflow: auto; padding-top: 14px; }
+.chat-session { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 12px 10px; margin-bottom: 4px; border: 1px solid transparent; border-radius: 7px; color: #24292f; background: transparent; text-align: left; }
+.chat-session:hover { background: #eaeef2; }
+.chat-session.selected { background: #ddf4ff; border-color: #b6e3ff; }
+.chat-session > svg { flex-shrink: 0; margin-top: 2px; color: #57606a; }
+.chat-session > span { min-width: 0; }
+.chat-session strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.chat-session small { display: block; margin-top: 5px; color: #57606a; font-size: 11px; }
+.chat-sidebar-empty, .chat-context-note { padding: 8px 10px; color: #57606a; font-size: 12px; line-height: 1.7; }
+.chat-context-note { margin: 12px 0 0; border-top: 1px solid #d8dee4; padding-top: 14px; }
+.chat-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.chat-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 28px; border-bottom: 1px solid #d8dee4; }
+.chat-heading > div:first-child { min-width: 0; }
+.chat-heading h2 { margin: 0; font-size: 16px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chat-heading p { margin: 4px 0 0; font-size: 12px; color: #57606a; }
+.chat-heading-actions, .chat-title-form { display: flex; align-items: center; gap: 6px; }
+.chat-title-form input { min-width: 100px; max-width: 100%; border: 1px solid #8c959f; border-radius: 5px; padding: 6px 8px; }
+.chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(16px, 4vw, 60px); scroll-behavior: auto; }
+.chat-welcome { max-width: 650px; margin: 24px auto; text-align: center; }
+.chat-welcome-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 16px; color: #0969da; background: #ddf4ff; }
+.chat-welcome h2 { margin: 0 0 12px; font-size: clamp(20px, 2vw, 27px); }
+.chat-welcome > p { margin: 0 auto; max-width: 480px; color: #57606a; line-height: 1.8; font-size: 14px; }
+.chat-suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 26px; text-align: left; }
+.chat-suggestions button { display: flex; flex-direction: column; gap: 7px; padding: 16px; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; color: #24292f; text-align: left; line-height: 1.6; }
+.chat-suggestions button:hover { border-color: #54aeff; background: #f6fbff; }
+.chat-suggestions strong { font-size: 13px; }
+.chat-suggestions span { font-size: 12px; color: #57606a; }
+.chat-message { max-width: 850px; margin: 0 auto 24px; overflow-wrap: anywhere; }
+.chat-message-user { max-width: 720px; margin-left: auto; margin-right: 0; padding: 14px 18px; background: #f0f6fc; border: 1px solid #d8dee4; border-radius: 10px; }
+.chat-message-author { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; font-size: 12px; }
+.chat-message-author small { color: #57606a; font-size: 11px; font-weight: 400; }
+.chat-message .markdown-body { font-size: 14px; line-height: 1.85; }
+.chat-message .markdown-body > :last-child { margin-bottom: 0; }
+.chat-thinking { display: flex; align-items: center; gap: 8px; color: #57606a; font-size: 13px; }
+.chat-message-error { color: #cf222e; font-size: 13px; white-space: pre-wrap; }
+.chat-message-note { color: #57606a; font-size: 12px; }
+.chat-operation { margin: -6px auto 18px; max-width: 850px; border: 1px solid #d8dee4; border-radius: 6px; font-size: 12px; background: #f6f8fa; }
+.chat-operation summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.chat-operation summary small { margin-left: auto; color: #1a7f37; }
+.chat-operation-failed summary small { color: #cf222e; }
+.chat-operation-running summary small { color: #7d4e00; }
+.chat-operation pre { max-height: 300px; overflow: auto; padding: 12px; margin: 0; border-top: 1px solid #d8dee4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-compose-area { padding: 12px clamp(16px, 3vw, 40px) 10px; background: #fff; }
+.chat-composer { border: 1px solid #8c959f; border-radius: 10px; background: #fff; box-shadow: 0 1px 4px #1f23280a; }
+.chat-composer:focus-within { border-color: #0969da; box-shadow: 0 0 0 2px #0969da24; }
+.chat-composer textarea { display: block; width: 100%; min-height: 78px; max-height: 240px; resize: vertical; padding: 15px 16px 8px; border: 0; border-radius: 10px; outline: none; background: transparent; color: #24292f; line-height: 1.65; font-size: 14px; }
+.chat-composer textarea:focus-visible { outline: none; }
+.chat-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 10px; }
+.chat-model-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-model-controls select { max-width: 180px; min-width: 0; padding: 5px; border: 1px solid #d0d7de; border-radius: 5px; color: #57606a; background: #f6f8fa; font-size: 11px; }
+.chat-model-controls label { min-width: 0; }
+.chat-composer-hint { text-align: center; margin: 8px 0 0; color: #57606a; font-size: 11px; line-height: 1.5; }
+.chat-compose-area > .async-state { margin-bottom: 10px; }
+.chat-spinner { animation: chat-spin 1s linear infinite; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@keyframes chat-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .chat-spinner { animation: none; } }
+@media (max-width: 850px) {
+  .chat-workspace { grid-template-columns: 190px minmax(0, 1fr); }
+  .chat-heading { padding: 16px; }
+  .chat-suggestions { grid-template-columns: 1fr; }
+  .chat-welcome { margin-top: 12px; }
+}
+@media (max-width: 600px) {
+  .chat-workspace { display: flex; flex-direction: column; min-height: 650px; height: calc(100dvh - var(--app-header-height, 145px) - 24px); }
+  .chat-sidebar { padding: 10px; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid #d8dee4; }
+  .chat-sidebar-heading, .chat-context-note, .chat-sidebar-empty { display: none; }
+  .chat-new { width: auto; align-self: flex-start; }
+  .chat-session-list { display: flex; gap: 6px; padding-top: 8px; overflow-x: auto; }
+  .chat-session { flex: 0 0 160px; margin: 0; padding: 8px; }
+  .chat-session strong { -webkit-line-clamp: 1; }
+  .chat-session small { display: none; }
+  .chat-main { flex: 1; }
+  .chat-model-controls { flex-wrap: wrap; gap: 5px; }
+  .chat-model-controls select { max-width: 150px; }
+  .chat-composer-toolbar { align-items: flex-end; }
+}
+
 * {
   box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: var(--app-header-height, 0px);
 }
 
 body {
@@ -39,6 +126,12 @@ button {
 .app-shell {
   min-height: 100vh;
   background: #f6f8fa;
+}
+
+.app-header {
+  position: sticky;
+  z-index: 10;
+  top: 0;
 }
 
 .skip-link {
@@ -245,6 +338,15 @@ button {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.agent-state[href] {
+  text-decoration: none;
+}
+
+.agent-state[href]:hover {
+  border-color: rgba(240, 246, 252, 0.4);
+  background: rgba(240, 246, 252, 0.14);
 }
 
 .agent-state-ready {
@@ -1110,6 +1212,28 @@ textarea {
 
 .agent-job-list .job-row {
   padding: 14px;
+}
+
+.agent-log-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0;
+}
+
+.agent-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #57606a;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agent-log-toggle input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 
 .agent-job-summary {
@@ -2490,6 +2614,67 @@ textarea {
 .activity-item header span {
   color: #57606a;
   font-size: 13px;
+}
+
+.agent-activities, .activity-structured, .activity-content, .activity-command { display: grid; gap: 16px; min-width: 0; }
+.activity-section-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.activity-section-heading p { margin: 6px 0 0; color: #57606a; font-size: 12px; line-height: 1.6; }
+.activity-history-toggle { flex-shrink: 0; }
+.activity-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; padding: 1px 6px; border-radius: 12px; background: #eaeef2; color: #424a53; font-size: 12px; font-weight: 600; }
+.activity-card { min-width: 0; padding: 20px; gap: 18px; background: #fff; }
+.activity-latest { border-color: #b6d8f5; box-shadow: 0 2px 6px #1f23280a; }
+.activity-card .activity-card-header { display: flex; align-items: flex-start; justify-content: flex-start; flex-wrap: nowrap; gap: 12px; }
+.activity-type-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border: 1px solid #d8dee4; border-radius: 8px; background: #f6f8fa; color: #57606a; }
+.activity-type-error { color: #a40e26; background: #ffebe9; border-color: #ffcecb; }
+.activity-card-heading { min-width: 0; flex: 1; }
+.activity-card-heading > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; line-height: 1.5; }
+.activity-card-heading strong { font-size: 14px; }
+.activity-card-heading time { display: block; margin-top: 4px; font-size: 12px; color: #57606a; }
+.activity-card-header .activity-latest-label { color: #0550ae; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 4px; background: #ddf4ff; }
+.activity-status { display: inline-flex; align-items: center; gap: 5px; width: fit-content; white-space: normal; vertical-align: middle; }
+.activity-status.status-neutral { color: #424a53; background: #f6f8fa; border-color: #d0d7de; }
+.activity-status svg { flex-shrink: 0; }
+.activity-message { font-size: 14px; line-height: 1.8; }
+.activity-message > :first-child { margin-top: 0; }
+.activity-message > :last-child { margin-bottom: 0; }
+.activity-result-section { min-width: 0; display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid #eaeef2; }
+.activity-result-section h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; }
+.activity-files { list-style: none; display: grid; margin: 0; padding: 0; gap: 0; }
+.activity-files > li { display: flex; align-items: flex-start; min-width: 0; gap: 9px; padding: 9px 0; border-bottom: 1px solid #f0f2f4; }
+.activity-files > li:last-child { border-bottom: 0; }
+.activity-files > li > svg { flex-shrink: 0; margin-top: 2px; color: #57606a; }
+.activity-file-path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.activity-file-path code, .activity-code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.activity-change-kind { display: inline-block; margin-left: 10px; font-size: 11px; color: #57606a; }
+.activity-data-list { display: grid; gap: 8px; margin: 0; padding-left: 21px; min-width: 0; }
+.activity-data-list > li { min-width: 0; overflow-wrap: anywhere; }
+.activity-records { list-style: none; display: grid; gap: 10px; padding: 0; margin: 0; min-width: 0; }
+.activity-records > li { min-width: 0; padding: 12px 14px; border: 1px solid #d8dee4; border-radius: 6px; background: #f6f8fa; }
+.activity-record-heading, .activity-command-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.activity-record-heading strong { min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.activity-data-fields { display: grid; gap: 10px; margin: 0; min-width: 0; }
+.activity-record-heading + .activity-data-fields { margin-top: 12px; }
+.activity-data-fields > div { display: grid; grid-template-columns: minmax(90px, 130px) minmax(0, 1fr); gap: 12px; min-width: 0; }
+.activity-data-fields dt { color: #57606a; font-size: 12px; overflow-wrap: anywhere; }
+.activity-data-fields dd { margin: 0; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.activity-data-fields dd .markdown-body > :first-child { margin-top: 0; }
+.activity-data-fields dd .markdown-body > :last-child { margin-bottom: 0; }
+.activity-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-output { max-height: 320px; margin: 0; padding: 12px 14px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; background: #0d1117; color: #e6edf3; font-size: 12px; line-height: 1.65; }
+.activity-output code { color: inherit; background: transparent; padding: 0; font-size: inherit; }
+.activity-command-heading > code { min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+.activity-more { min-width: 0; }
+.activity-more > summary { color: #57606a; cursor: pointer; font-size: 12px; width: fit-content; }
+.activity-more[open] > summary { margin-bottom: 12px; }
+.activity-more > summary:focus-visible { outline: 2px solid #0969da; outline-offset: 4px; border-radius: 2px; }
+.activity-history { padding-left: 18px; border-left: 2px solid #d8dee4; }
+.activity-history > h3 { margin: 0 0 14px; color: #57606a; font-size: 13px; font-weight: 500; }
+.activity-history[hidden] { display: none; }
+@media (max-width: 600px) {
+  .activity-card { padding: 14px; }
+  .activity-section-heading { flex-direction: column; }
+  .activity-data-fields > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .activity-history { padding-left: 10px; }
 }
 
 .comment-form {
@@ -3907,3 +4092,133 @@ a.diff-finding-card {
 
 .codex-connection { color: #f0f6fc; font-size: 12px; }
 @media (max-width: 600px) { .codex-connection { display: none; } }
+
+.vulnerabilities-page { min-width: 0; }
+.vulnerabilities-page h1 { display: flex; align-items: center; gap: 10px; }
+.vulnerabilities-page .section-header { flex-wrap: wrap; gap: 12px; }
+.vulnerability-notice { min-height: 18px; margin: 8px 0; color: #1a7f37; font-size: 13px; }
+.vulnerability-settings { padding: 16px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; }
+.vulnerability-settings-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 24px; }
+.vulnerability-settings-controls label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; }
+.vulnerability-settings-controls input { width: 16px; height: 16px; margin: 0; accent-color: #0969da; }
+.vulnerabilities-page select { width: auto; min-height: 34px; padding: 4px 28px 4px 8px; border: 1px solid #d0d7de; border-radius: 6px; color: #24292f; background: #ffffff; font-size: 13px; }
+.vulnerability-settings p { margin: 10px 0 0; font-size: 12px; }
+.vulnerability-scan-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 20px; margin: 20px 0; }
+.vulnerability-scan-facts dt, .vulnerability-dates dt { color: #57606a; font-size: 12px; }
+.vulnerability-scan-facts dd { margin: 5px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.vulnerability-coverage { padding: 12px 16px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; font-size: 13px; overflow-wrap: anywhere; }
+.vulnerability-coverage.coverage-partial, .vulnerability-coverage.coverage-unsupported { border-color: #d4a72c; background: #fff8c5; }
+.vulnerability-targets { margin-top: 20px; }
+.vulnerability-targets > summary { padding: 8px 0; }
+.vulnerability-targets h2 { display: inline; margin: 0; font-size: 16px; }
+.vulnerability-targets > p { font-size: 12px; }
+.vulnerability-target-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; padding: 0; list-style: none; }
+.vulnerability-target { min-width: 0; padding: 14px 16px; border: 1px solid #d0d7de; border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.vulnerability-target header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.vulnerability-target header strong { font-size: 13px; }
+.vulnerability-target dl { margin-bottom: 0; }
+.vulnerability-target dl > div { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; }
+.vulnerability-target dt { color: #57606a; }
+.vulnerability-target dd { min-width: 0; margin: 0; }
+.vulnerability-target code { font-size: 11px; }
+.vulnerability-target-status { padding: 2px 8px; border: 1px solid #d0d7de; border-radius: 999px; color: #57606a; background: #f6f8fa; white-space: nowrap; }
+.vulnerability-target-status.target-scanned { color: #1a7f37; background: #dafbe1; border-color: #82c991; }
+.vulnerability-target-status.target-failed, .vulnerability-target-status.target-unavailable, .vulnerability-target-status.target-unsupported { color: #7d4e00; background: #fff8c5; border-color: #d4a72c; }
+.vulnerability-target-error { margin: 12px 0 0; color: #7d4e00; }
+.vulnerability-target-error strong { display: block; margin-bottom: 4px; }
+.vulnerabilities-page summary { cursor: pointer; }
+.vulnerability-summary { display: grid; grid-template-columns: repeat(4, 1fr); margin: 20px 0; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; }
+.vulnerability-summary > div { display: flex; flex-direction: column; gap: 3px; padding: 14px 18px; border-right: 1px solid #d0d7de; }
+.vulnerability-summary > div:last-child { border: 0; }
+.vulnerability-summary strong { font-size: 24px; }
+.vulnerability-summary span { font-size: 12px; color: #57606a; }
+.vulnerability-critical-count { color: #b42318; }
+.vulnerability-results { min-width: 0; margin-top: 24px; }
+.vulnerability-plan { min-width: 0; margin: 24px 0; padding: 20px 24px; border: 1px solid #0969da; border-radius: 8px; background: #f6faff; font-size: 13px; overflow-wrap: anywhere; }
+.vulnerability-plan h2 { margin: 0 0 12px; font-size: 18px; }
+.vulnerability-plan p { line-height: 1.6; }
+.vulnerability-plan-counts { font-weight: 600; }
+.vulnerability-plan-actions { padding-left: 24px; margin: 20px 0; }
+.vulnerability-plan-actions > li { padding: 4px 0 12px 4px; }
+.vulnerability-plan-actions > li:last-child { padding-bottom: 0; }
+.vulnerability-plan-actions p { margin: 6px 0; }
+.vulnerability-plan-actions ul { padding-left: 18px; }
+.vulnerability-plan-files { color: #57606a; font-size: 12px; }
+.vulnerability-plan-blockers { margin: 16px 0; padding: 12px 16px; border: 1px solid #d4a72c; border-radius: 6px; background: #fff8c5; color: #633c01; }
+.vulnerability-plan-blockers ul { margin-bottom: 0; padding-left: 18px; }
+.vulnerability-plan-blockers li + li { margin-top: 8px; }
+.vulnerability-plan-confirmation { margin-top: 20px; padding-top: 4px; border-top: 1px solid #b6d6f9; }
+.vulnerability-plan-deferred { color: #57606a; }
+.vulnerability-plan-lists { display: grid; gap: 28px; margin-top: 24px; }
+.vulnerability-plan-lists h3 { margin: 0; font-size: 16px; }
+.vulnerability-plan-lists > section > p { font-size: 13px; line-height: 1.6; }
+.vulnerability-results-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.vulnerability-results-header h2 { margin: 0; font-size: 16px; }
+.vulnerability-result-count { margin: 0; font-size: 12px; }
+.vulnerability-groups { display: grid; gap: 16px; margin-top: 16px; }
+.vulnerability-group-total { margin: 0; font-size: 13px; }
+.vulnerability-group { min-width: 0; padding: 18px; border: 1px solid #d0d7de; border-left: 4px solid #8c959f; border-radius: 8px; background: #ffffff; overflow-wrap: anywhere; }
+.vulnerability-group.group-severity-critical { border-left-color: #b42318; }
+.vulnerability-group.group-severity-high { border-left-color: #bc4c00; }
+.vulnerability-group.group-severity-medium { border-left-color: #9a6700; }
+.vulnerability-group-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.vulnerability-group-header > div:first-child { flex: 1; min-width: 200px; }
+.vulnerability-group h3 { margin: 8px 0; font-size: 16px; }
+.vulnerability-group-risk, .vulnerability-group-subject, .vulnerability-group-counts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vulnerability-group-subject, .vulnerability-group-explanation, .vulnerability-group-targets, .vulnerability-group-counts, .vulnerability-group > p { font-size: 12px; }
+.vulnerability-group-subject > span, .vulnerability-group-counts > span:last-child { color: #57606a; }
+.vulnerability-group-explanation { margin: 12px 0 8px; color: #57606a; }
+.vulnerability-group-targets { margin: 8px 0 12px; padding-left: 18px; }
+.vulnerability-group-children { margin-top: 16px; }
+.vulnerability-group-children > summary { color: #0969da; font-size: 13px; }
+.vulnerability-filters { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.vulnerability-status-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.vulnerability-status-filters button { border: 0; border-radius: 6px; padding: 8px 12px; background: transparent; color: #57606a; font-size: 13px; }
+.vulnerability-status-filters button.active { color: #0969da; background: #ddf4ff; font-weight: 600; }
+.vulnerability-filter-selects { display: flex; flex-wrap: wrap; gap: 8px; }
+.vulnerability-table-scroll { overflow-x: auto; margin-top: 16px; border: 1px solid #d0d7de; border-radius: 8px; }
+.vulnerability-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.vulnerability-table th { padding: 12px; border-bottom: 1px solid #d0d7de; background: #f6f8fa; font-weight: 600; white-space: nowrap; }
+.vulnerability-table td { padding: 16px 12px; border-bottom: 1px solid #d8dee4; vertical-align: top; }
+.vulnerability-table tr:last-child td { border-bottom: 0; }
+.vulnerability-advisory { min-width: 210px; width: 40%; max-width: 480px; }
+.vulnerability-advisory > strong, .vulnerability-advisory > code { display: block; overflow-wrap: anywhere; }
+.vulnerability-advisory > code { margin: 5px 0 10px; color: #57606a; font-size: 11px; }
+.vulnerability-advisory summary { color: #0969da; font-size: 12px; }
+.vulnerability-details { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vulnerability-translation-status { display: block; color: #57606a; font-size: 12px; margin-top: 4px; }
+.vulnerability-original { margin-top: 8px; font-size: 12px; }
+.vulnerability-message > p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vulnerability-sources { padding-left: 16px; }
+.vulnerability-sources li { margin: 6px 0; overflow-wrap: anywhere; }
+.vulnerability-sources a { display: inline; }
+.vulnerability-sources svg { margin-left: 4px; vertical-align: middle; }
+.vulnerability-dates div { margin-top: 6px; }
+.vulnerability-dates dd { margin: 2px 0 0; font-size: 11px; }
+.vulnerability-dependency { min-width: 160px; max-width: 250px; }
+.vulnerability-dependency > * { display: block; margin-bottom: 5px; overflow-wrap: anywhere; }
+.vulnerability-dependency > span, .vulnerability-dependency > code { color: #57606a; font-size: 11px; }
+.vulnerability-severity { display: inline-block; padding: 2px 8px; border: 1px solid #d0d7de; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.severity-critical { color: #82071e; background: #ffebe9; border-color: #ff8182; }
+.severity-high { color: #bc4c00; background: #fff1e5; border-color: #ffbc69; }
+.severity-medium { color: #7d4e00; background: #fff8c5; border-color: #eac54f; }
+.severity-low { color: #0969da; background: #ddf4ff; border-color: #80ccff; }
+.severity-unknown { color: #57606a; background: #f6f8fa; }
+.finding-kind-coverage_gap { color: #0969da; background: #ddf4ff; border-color: #80ccff; }
+.vulnerability-versions { overflow-wrap: anywhere; }
+.vulnerability-response { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 110px; max-width: 180px; }
+.vulnerability-response .secondary-button { font-size: 12px; }
+.vulnerability-resolved { display: inline-flex; align-items: center; gap: 5px; color: #1a7f37; }
+.vulnerability-remediations { margin-top: 32px; }
+.vulnerability-remediation { padding: 16px; border: 1px solid #d0d7de; border-radius: 8px; margin: 12px 0; font-size: 13px; }
+.vulnerability-remediation > header { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.vulnerability-remediation time { margin-left: auto; color: #57606a; font-size: 12px; }
+.vulnerability-remediation-packages { overflow-wrap: anywhere; }
+.vulnerability-remediation details { margin-top: 16px; }
+.vulnerability-remediation .secondary-button { text-decoration: none; }
+@media (max-width: 780px) {
+  .vulnerability-scan-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vulnerability-summary > div { padding: 12px; }
+  .vulnerability-summary strong { font-size: 20px; }
+  .vulnerability-remediation time { width: 100%; margin-left: 0; }
+}

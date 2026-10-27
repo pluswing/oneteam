@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { z } from "zod";
 import { resolveCodexCommandPath } from "../services/codex-auth";
 
 export type RpcMessage = { id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message: string; code?: number } };
@@ -16,8 +17,8 @@ export class CodexRpc {
   private decoder = new StringDecoder("utf8");
   private exited: Promise<void>;
 
-  constructor(command: string, cwd?: string) {
-    this.child = spawn(resolveCodexCommandPath(command), ["app-server", "--listen", "stdio://", "-c", 'model_provider="openai"'], {
+  constructor(command: string, cwd?: string, configOverrides: readonly string[] = []) {
+    this.child = spawn(resolveCodexCommandPath(command), ["app-server", "--listen", "stdio://", ...configOverrides.flatMap((config) => ["-c", config]), "-c", 'model_provider="openai"'], {
       cwd, stdio: ["pipe", "pipe", "pipe"]
     });
     this.exited = new Promise((resolve) => { this.child.once("close", () => resolve()); });
@@ -36,8 +37,8 @@ export class CodexRpc {
     this.child.on("close", (code) => this.fail(new Error(`Codex connection closed (${code}). ${this.stderr}`)));
   }
 
-  async initialize(): Promise<void> {
-    await this.request("initialize", { clientInfo: { name: "oneteam", version: "0.2.0" } });
+  async initialize(capabilities?: { experimentalApi?: boolean }): Promise<void> {
+    await this.request("initialize", { clientInfo: { name: "oneteam", version: "0.2.0" }, ...(capabilities ? { capabilities } : {}) });
     this.send({ method: "initialized" });
   }
 
@@ -109,15 +110,30 @@ export type CodexModel = {
   isDefault: boolean;
   defaultReasoningEffort: string;
   supportedReasoningEfforts: Array<{ reasoningEffort: string }>;
+  upgrade?: string | null;
+  upgradeInfo?: { model: string } | null;
 };
+
+const modelCatalogPageSchema = z.object({
+  data: z.array(z.object({
+    id: z.string().min(1), model: z.string().trim().min(1), displayName: z.string(), hidden: z.boolean(), isDefault: z.boolean(),
+    defaultReasoningEffort: z.string().min(1), supportedReasoningEfforts: z.array(z.object({ reasoningEffort: z.string().min(1) }).passthrough()),
+    upgrade: z.string().nullable().optional(),
+    upgradeInfo: z.object({ model: z.string() }).passthrough().nullable().optional().catch(undefined)
+  }).passthrough()),
+  nextCursor: z.string().nullable()
+});
 
 export async function listCodexModels(rpc: CodexRpc): Promise<CodexModel[]> {
   const models: CodexModel[] = [];
+  const modelIds = new Set<string>();
   let cursor: string | null = null;
   const seen = new Set<string>();
   do {
-    const page: { data: CodexModel[]; nextCursor: string | null } = await rpc.request("model/list", { limit: 100, includeHidden: false, cursor });
-    models.push(...page.data.filter((model) => !model.hidden));
+    const page = modelCatalogPageSchema.parse(await rpc.request("model/list", { limit: 100, includeHidden: false, cursor }));
+    for (const model of page.data) {
+      if (!model.hidden && !modelIds.has(model.model)) { models.push(model); modelIds.add(model.model); }
+    }
     cursor = page.nextCursor;
     if (cursor && seen.has(cursor)) throw new Error("Codex returned a repeated model catalog cursor.");
     if (cursor) seen.add(cursor);

@@ -15,6 +15,9 @@ import { recoverInterruptedAgentJobs } from "./services/runtime-recovery";
 import { acquireWorkspaceLock, backupBeforeLoopMigration, completeWorkspace, inspectWorkspace, prepareWorkspace } from "./services/workspace";
 import { ensureKnowledgeFiles } from "./services/knowledge-files";
 import { detectRepositoryCommands } from "./services/command-detection";
+import { VulnerabilityMonitor } from "./services/vulnerability-monitor";
+import { VulnerabilityTranslator } from "./services/vulnerability-translation";
+import { ChatService } from "./services/chat-service";
 
 export type OneTeamRuntime = {
   app: Hono;
@@ -24,7 +27,7 @@ export type OneTeamRuntime = {
 };
 export type StartedOneTeamServer = OneTeamRuntime & { server: ServerType; url: string };
 type OneTeamRuntimeOptions = { staticRoot?: string; codexLogin?: CodexLoginOptions };
-type WorkspaceRuntime = { context: DatabaseContext; repos: Repositories; app: Hono; worker: LoopEngine | null; release: (() => Promise<void>) | null; url: string };
+type WorkspaceRuntime = { context: DatabaseContext; repos: Repositories; app: Hono; worker: LoopEngine | null; chats: ChatService; vulnerabilities: VulnerabilityMonitor; monitoring: boolean; release: (() => Promise<void>) | null; url: string };
 
 export async function createOneTeamRuntime(config: AppConfig = loadConfig(), options: OneTeamRuntimeOptions = {}): Promise<OneTeamRuntime> {
   const runtime = { server: { ...config.server }, database: { ...config.database } };
@@ -43,7 +46,13 @@ export async function createOneTeamRuntime(config: AppConfig = loadConfig(), opt
       await backupBeforeLoopMigration(context.client, url);
       await runMigrations(context.client);
       const repos = createRepositories(context.db);
-      return { context, repos, release, worker: null, url, app: createApp({ repos, runtime, staticRoot: options.staticRoot }) };
+      const chats = new ChatService(repos, { command: config.agents.ai.codex.command, ensureReady: async () => {
+        const result = await ensureCodexLogin(config.agents.ai.codex.command, { enabled: config.agents.ai.codex.autoLogin, launcher: options.codexLogin?.launcher });
+        if (result.status === "failed" || result.status === "login_started") throw new Error(result.message);
+      } });
+      await chats.recover();
+      const vulnerabilities = new VulnerabilityMonitor(repos, { translator: new VulnerabilityTranslator(repos, { command: config.agents.ai.codex.command }) });
+      return { context, repos, release, worker: null, chats, vulnerabilities, monitoring: false, url, app: createApp({ repos, chats, vulnerabilities, runtime, staticRoot: options.staticRoot }) };
     } catch (error) {
       context?.client.close();
       await release?.();
@@ -52,10 +61,16 @@ export async function createOneTeamRuntime(config: AppConfig = loadConfig(), opt
   }
 
   async function startWorker(workspace: WorkspaceRuntime): Promise<void> {
-    if (stopped || !config.agents.workerEnabled || workspace.worker) return;
+    if (stopped) return;
     const projects = await workspace.repos.projects.list();
     if (!projects.length) return;
     if (!workspace.release) workspace.release = await acquireWorkspaceLock(projects[0].repoPath);
+    if (!workspace.monitoring) {
+      await workspace.vulnerabilities.initialize();
+      workspace.vulnerabilities.start();
+      workspace.monitoring = true;
+    }
+    if (!config.agents.workerEnabled || workspace.worker) return;
     await recoverInterruptedAgentJobs(workspace.repos);
     for (const project of projects) await workspace.repos.development.executions.interrupt(project.id);
     const adapter = new CodexRuntime({
@@ -71,8 +86,11 @@ export async function createOneTeamRuntime(config: AppConfig = loadConfig(), opt
   }
 
   async function closeWorkspace(workspace: WorkspaceRuntime): Promise<void> {
+    await workspace.chats.stopAndDrain();
     await workspace.worker?.stopAndDrain();
     workspace.worker = null;
+    await workspace.vulnerabilities.stopAndDrain();
+    workspace.monitoring = false;
     workspace.context.client.close();
     await workspace.release?.();
   }
@@ -121,6 +139,8 @@ export async function createOneTeamRuntime(config: AppConfig = loadConfig(), opt
       await drainRequests();
       await active.worker?.stopAndDrain();
       active.worker = null;
+      await active.vulnerabilities.stopAndDrain();
+      active.monitoring = false;
       next = active.url === url ? active : await openDatabase(url, inspected.repoPath);
       let project = (await next.repos.projects.list())[0];
       if (project && project.repoPath !== inspected.repoPath) {

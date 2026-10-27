@@ -1,4 +1,6 @@
 import type { AiProvider } from "../shared/ai-providers";
+import type { ChatDetail, ChatSessionDto, ChatModelsResponse } from "../shared/chat";
+import type { VulnerabilityDashboard, VulnerabilitySettings } from "../shared/vulnerabilities";
 import type { AgentExecutionDto, DevelopmentLoopDto, KnowledgeRevisionDto, RetrospectiveDto } from "../shared/development-loop";
 import type { AgentJobDto, ActivityDto, CommentDto, CommentRevisionDto, IssueDto, LabelDto, MergeConflictDto, ObjectiveRunDto, ProjectCommandDto, ProjectDto, PullRequestDto, PullRequestFindingDto, PullRequestLineCommentDto, RepositoryCommitDto, RepositoryDiffSummaryDto, RepositoryFileChangeDto, RepositoryStatusDto, SkillFileDto } from "../shared/types";
 
@@ -70,6 +72,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async listChats(projectId: string): Promise<ChatSessionDto[]> {
+    return (await request<ListResponse<ChatSessionDto>>(`/api/projects/${projectId}/chats`)).items;
+  },
+  async createChat(projectId: string): Promise<ChatSessionDto> {
+    return (await request<{ chat: ChatSessionDto }>(`/api/projects/${projectId}/chats`, { method: "POST", body: "{}" })).chat;
+  },
+  async getChat(projectId: string, id: string): Promise<ChatDetail> { return request(`/api/projects/${projectId}/chats/${id}`); },
+  async updateChat(projectId: string, id: string, patch: Partial<Pick<ChatSessionDto, "title" | "model" | "effort">>): Promise<ChatSessionDto> {
+    return (await request<{ chat: ChatSessionDto }>(`/api/projects/${projectId}/chats/${id}`, { method: "PATCH", body: JSON.stringify(patch) })).chat;
+  },
+  async deleteChat(projectId: string, id: string): Promise<void> { await request(`/api/projects/${projectId}/chats/${id}`, { method: "DELETE" }); },
+  async sendChatMessage(projectId: string, id: string, content: string, requestId?: string): Promise<ChatDetail> {
+    return request(`/api/projects/${projectId}/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, requestId }) });
+  },
+  async stopChat(projectId: string, id: string): Promise<ChatDetail> { return request(`/api/projects/${projectId}/chats/${id}/stop`, { method: "POST", body: "{}" }); },
+  async getChatModels(projectId: string): Promise<ChatModelsResponse> { return request(`/api/projects/${projectId}/models`); },
+  async getVulnerabilities(projectId: string, signal?: AbortSignal): Promise<VulnerabilityDashboard> {
+    return request(`/api/projects/${projectId}/vulnerabilities`, { signal });
+  },
+  async refreshVulnerabilities(projectId: string): Promise<VulnerabilityDashboard> {
+    return request(`/api/projects/${projectId}/vulnerabilities/refresh`, { method: "POST" });
+  },
+  async updateVulnerabilitySettings(projectId: string, input: Partial<VulnerabilitySettings>): Promise<VulnerabilityDashboard> {
+    return request(`/api/projects/${projectId}/vulnerabilities/settings`, { method: "PATCH", body: JSON.stringify(input) });
+  },
+  async remediateVulnerabilities(projectId: string, planId: string): Promise<VulnerabilityDashboard> {
+    return request(`/api/projects/${projectId}/vulnerabilities/remediate`, { method: "POST", body: JSON.stringify({ planId }) });
+  },
   async codexStatus(): Promise<{ status: "connected" | "login_required" }> { return request("/api/codex/status"); },
   async restoreKnowledgeRevision(projectId: string, revisionId: number): Promise<void> {
     await request(`/api/projects/${projectId}/knowledge-revisions/${revisionId}/restore`, { method: "POST" });

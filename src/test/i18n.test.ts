@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildAgentPrompt } from "../server/agents/prompts";
 import type { AgentJobDto, ProjectDto } from "../shared/types";
+import { formatDisplayValue } from "../client/formatters";
+import { formatJobTarget } from "../client/agent-status";
 import { setLocale, t } from "../client/i18n";
 
 describe("i18n", () => {
@@ -12,6 +14,22 @@ describe("i18n", () => {
     expect(t("projects.title")).toBe("プロジェクトを選択");
 
     setLocale("en");
+  });
+
+  it("localizes navigation, task states and roles while preserving identifiers", () => {
+    setLocale("ja");
+    expect(t("nav.issues")).toBe("課題");
+    expect(t("nav.pullRequests")).toBe("プルリクエスト");
+    expect(t("nav.agentRuns")).toBe("ジョブ");
+    expect(t("issues.triageConvert")).toBe("課題に変換");
+    expect(t("development.empty")).toContain("課題");
+    expect(formatDisplayValue("implementation")).toBe("実装");
+    expect(formatDisplayValue("waiting_human")).toBe("確認待ち");
+    expect(formatDisplayValue("gpt-6.1-sol")).toBe("gpt-6.1-sol");
+    expect(formatJobTarget({ ...fakeJob, targetType: "issue", targetId: 42 })).toBe("課題 #42");
+    setLocale("en");
+    expect(formatDisplayValue("implementation")).toBe("implementation");
+    expect(formatJobTarget({ ...fakeJob, targetType: "pull_request", targetId: 42 })).toBe("pull_request #42");
   });
 
   it("adds the project output language to agent prompts", () => {

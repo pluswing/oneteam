@@ -30,6 +30,7 @@ import { defaultAutomationSettings, readAutomationSettings } from "./automation-
 import { buildSystemComment, markdownCode, type SystemCommentSection } from "./system-comment";
 import { runVerificationCommands, type VerificationCommandResult } from "./verification-runner";
 import { cleanupWorktree, preparePullRequestWorktree } from "./worktree-service";
+import { verifyVulnerabilityRemediation, type VulnerabilityVerification } from "./vulnerability-verification";
 import { ensureSystemLoop, startLoopRun } from "./loop-runner";
 import {
   applyAutomaticMergeCommandPolicy,
@@ -48,7 +49,7 @@ import {
 export type PullRequestMergeResult =
   | { state: "merged"; pullRequest: PullRequestDto; mergeCommit: string; output: string }
   | { state: "requeued"; reason: string; verifierJob: AgentJobDto }
-  | { state: "blocked"; reason: string }
+  | { state: "blocked"; reason: string; fixRequired?: boolean }
   | { state: "skipped"; reason: string };
 
 class AutomaticMergeSnapshotDriftError extends Error {
@@ -157,7 +158,7 @@ export async function mergePullRequest(
         verification.stopReason,
         verification.evidence
       );
-      return { state: "blocked", reason: verification.blockedReason };
+      return { state: "blocked", reason: verification.blockedReason, fixRequired: verification.fixRequired };
     }
   }
   const conflicts = await detectMergeConflicts(project.repoPath, pullRequest.sourceBranch, pullRequest.targetBranch);
@@ -190,7 +191,7 @@ export async function mergePullRequest(
     return { state: "blocked", reason };
   }
 
-  const developmentLoop = await repos.development.forPullRequest(project.id, pullRequest.id);
+  const developmentLoop = managedLoop && !["succeeded", "canceled"].includes(managedLoop.status) ? managedLoop : null;
   if (developmentLoop) await repos.development.update(project.id, developmentLoop.id, { phase: "merging", sourceCommit: sourceHead, targetCommit: targetHead });
   const mergeRetries: GitRetryEvent[] = [];
   let mergeResult: Awaited<ReturnType<typeof mergeBranch>>;
@@ -397,6 +398,7 @@ export async function mergePullRequest(
 }
 
 type AutomaticGateEvidence = {
+  vulnerabilityVerification?: VulnerabilityVerification | null;
   capturedAt: string;
   sourceHead: string;
   targetHead: string;
@@ -430,6 +432,7 @@ function automaticMergeEvidenceSections(evidence: AutomaticGateEvidence, pullReq
       title: "Verification evidence",
       items: [
         `Verifier evidence captured at ${markdownCode(evidence.verifierEvidenceCapturedAt)}.`,
+        ...(evidence.vulnerabilityVerification ? [`[${evidence.vulnerabilityVerification.passed ? "PASS" : "BLOCK"}] ${evidence.vulnerabilityVerification.summary}`] : []),
         ...commandItems,
         `${evidence.changedFiles.length} changed files and ${evidence.diffLineCount} changed lines were evaluated.`,
         evidence.loopPolicy
@@ -484,6 +487,7 @@ async function verifyAutomaticMergeCandidate(
   evidence: AutomaticGateEvidence;
   reverification: boolean;
   stopReason?: "risk_detected";
+  fixRequired?: boolean;
 }> {
   const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);
   const verifierEvidence = objective ? currentVerifierEvidence(objective, verifierJob, sourceHead) : null;
@@ -539,6 +543,7 @@ async function verifyAutomaticMergeCandidate(
     }
 
     const commandResults = await runVerificationCommands(worktree.repoPath, commandPolicy.commands);
+    const vulnerabilityVerification = await verifyVulnerabilityRemediation(repos, project.id, pullRequest.issueId, worktree.repoPath);
     const [changedFiles, diffLineCount, diffPatch] = await Promise.all([
       getChangedFilesSince(worktree.repoPath, pullRequest.targetBranch),
       getDiffLineCountSince(worktree.repoPath, pullRequest.targetBranch),
@@ -559,6 +564,7 @@ async function verifyAutomaticMergeCandidate(
     const blockingLoopRiskSignals = loopRiskSignals.filter((signal) => signal.blocking);
     const evidence: AutomaticGateEvidence = {
       ...emptyEvidence,
+      vulnerabilityVerification,
       capturedAt: new Date().toISOString(),
       changedFiles,
       importantDiffs,
@@ -582,6 +588,11 @@ async function verifyAutomaticMergeCandidate(
       const reason = `Required commands failed: ${failedCommands.map((result) => result.commandType).join(", ")}.`;
       await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
       return { blockedReason: reason, evidence, reverification: false };
+    }
+    if (vulnerabilityVerification && !vulnerabilityVerification.passed) {
+      const reason = vulnerabilityVerification.summary;
+      await persistAutomaticGateEvidence(repos, objective, evidence, "failed", reason);
+      return { blockedReason: reason, evidence, reverification: false, stopReason: "risk_detected", fixRequired: vulnerabilityVerification.fixRequired };
     }
     if (blockingScoreRiskSignals.length || blockingLoopRiskSignals.length) {
       const reason = `Risk signals block automatic merge: ${[
@@ -700,6 +711,9 @@ async function checkAutomaticMergeGate(
   currentTargetHead?: string;
 } | null> {
   const managed = await repos.development.forPullRequest(project.id, pullRequest.id);
+  if (managed && ["succeeded", "canceled"].includes(managed.status)) {
+    return { state: "skipped", reason: "This Loop has ended. Use manual merge for an open pull request.", conflicts: false };
+  }
   if (!managed && !automation.autoMergeEnabled) {
     return { state: "skipped", reason: "Automatic merge is disabled in project settings.", conflicts: false };
   }
@@ -716,14 +730,20 @@ async function checkAutomaticMergeGate(
   if (!verifierJob || verifierJob.agentType !== "verifier") {
     return { state: "skipped", reason: "A successful verifier job is required for automatic merge.", conflicts: false };
   }
+  if (managed && (managed.currentJobId !== verifierJob.id || verifierJob.status !== "succeeded"
+    || (verifierJob.output?.metadata as { verifier?: { stopConditionMet?: boolean } } | undefined)?.verifier?.stopConditionMet !== true)) {
+    return { state: "blocked", reason: "Complete verification before merging this Loop.", conflicts: false };
+  }
   if (pullRequest.status !== "open") {
     return { state: "skipped", reason: "The pull request is no longer open.", conflicts: false };
   }
   const labelNames = new Set(pullRequest.labels.map((label) => label.name));
-  if (!labelNames.has(workflowLabelNames.readyToMerge)) {
+  // DevelopmentLoop and its verifier are authoritative for managed work. Labels
+  // are a legacy projection and can remain stale after a resumed human gate.
+  if (!managed && !labelNames.has(workflowLabelNames.readyToMerge)) {
     return { state: "skipped", reason: "The pull request is not marked ready-to-merge.", conflicts: false };
   }
-  if (labelNames.has(workflowLabelNames.needsInput)) {
+  if (!managed && labelNames.has(workflowLabelNames.needsInput)) {
     return { state: "blocked", reason: "The pull request still requires human input.", conflicts: false };
   }
   const objective = await repos.objectives.findByPullRequest(project.id, pullRequest.id);

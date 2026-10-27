@@ -1,13 +1,15 @@
 import ReactMarkdown from "react-markdown";
+import { useMemo } from "react";
 import type { CommentBodyFormat } from "../../shared/types";
 import { isSafeImageDimension, isSafeRichTextUrl, sanitizeRichTextStyle } from "../html-sanitizer-policy";
 
 export function MarkdownContent(props: { content: string; className?: string; format?: CommentBodyFormat }) {
+  const sanitized = useMemo(() => props.format === "html" ? { __html: sanitizeHtml(props.content) } : undefined, [props.content, props.format]);
   if (props.format === "html") {
     return (
       <div
         className={["markdown-body", "html-body", props.className].filter(Boolean).join(" ")}
-        dangerouslySetInnerHTML={{ __html: sanitizeHtml(props.content) }}
+        dangerouslySetInnerHTML={sanitized}
       />
     );
   }

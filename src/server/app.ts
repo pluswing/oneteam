@@ -1,4 +1,6 @@
 import { developmentApi } from "./development-api";
+import { vulnerabilityApi } from "./vulnerability-api";
+import { VulnerabilityMonitor } from "./services/vulnerability-monitor";
 import { controlDevelopmentLoop } from "./services/development-loop";
 import { ensureDevelopmentLoop } from "./services/development-loop";
 import { readFile } from "node:fs/promises";
@@ -52,10 +54,15 @@ import { recordIssueReopened, reopenedIssueWorkflowLabel } from "./services/issu
 import { recordGoalContractChange } from "./services/goal-contract-change";
 import { agentJobReferencesArtifact, readStoredEvidenceArtifact } from "./services/evidence-artifacts";
 import { inspectWorkspace } from "./services/workspace";
+import { ChatService } from "./services/chat-service";
+import { chatApi } from "./chat-api";
+import { defaultCodexCommand } from "../shared/codex";
 
 export type AppDependencies = {
   ai?: ProjectSettingsDto["ai"];
   repos: Repositories;
+  vulnerabilities?: VulnerabilityMonitor;
+  chats?: ChatService;
   runtime?: ProjectSettingsDto["runtime"];
   staticRoot?: string;
   switchDatabaseForRepository?: (repoPath: string, name?: string) => Promise<KnownRepositoryDto | null>;
@@ -365,11 +372,16 @@ async function resumeWaitingJobForComment(
 
 export function createApp({
   repos,
+  vulnerabilities = new VulnerabilityMonitor(repos),
+  chats = new ChatService(repos, { command: process.env.ONETEAM_CODEX_COMMAND ?? defaultCodexCommand }),
   staticRoot = "./dist/client",
   switchDatabaseForRepository
 }: AppDependencies): Hono {
   const app = new Hono();
   app.route("/", developmentApi(repos));
+  app.route("/", vulnerabilityApi(repos, vulnerabilities));
+  chats.setApi({ request: async (path, init) => app.request(path, init), routes: () => app.routes });
+  app.route("/", chatApi(repos, chats));
 
   app.onError((error, c) => {
     if (error instanceof HTTPException) {
@@ -474,6 +486,8 @@ export function createApp({
     const q = url.searchParams.get("q") ?? undefined;
     const result = await repos.issues.list({
       projectId: c.req.param("projectId"),
+      // System repair tasks linked from Loops must also be discoverable in Issues.
+      includeInternal: true,
       status: status ?? undefined,
       q,
       limit,
@@ -972,13 +986,14 @@ export function createApp({
       notFound("Pull request was not found.");
     }
     const loop = await repos.development.forPullRequest(project.id, pullRequestId);
-    if (loop && pullRequest.status === "open") {
-      if (["succeeded", "canceled"].includes(loop.status)) conflict("This Loop has ended.");
+    if (loop && !["succeeded", "canceled"].includes(loop.status) && pullRequest.status === "open") {
       const verifier = loop.currentJobId ? await repos.agentJobs.get(project.id, loop.currentJobId) : null;
       if (verifier?.agentType !== "verifier" || verifier.status !== "succeeded") conflict("Complete verification before merging this Loop.");
       await repos.development.update(project.id, loop.id, { phase: "merging", status: "running", summary: "Merge requested. Rechecking the verified changes." });
       return c.json({ pullRequest, mergeCommit: null, output: "Merge queued", queued: true }, 202);
     }
+    // Ending automation does not close the PR. The explicit merge action still
+    // uses the manual Git checks, without restarting the ended Loop.
     let mergeResult: Awaited<ReturnType<typeof mergePullRequest>>;
     try {
       mergeResult = await mergePullRequest(repos, { project, pullRequest, mode: "manual" });

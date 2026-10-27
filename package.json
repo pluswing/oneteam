@@ -24,7 +24,7 @@
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
     "docs:screenshots": "npm run build && tsx scripts/capture-docs.ts",
-    "e2e:server": "node scripts/e2e-setup.mjs && concurrently -k -s first -n api,web \"ONETEAM_DATABASE_URL=file:./.tmp/e2e/oneteam.db ONETEAM_AGENT_WORKER=false PORT=4580 tsx src/server/index.ts\" \"VITE_API_TARGET=http://127.0.0.1:4580 vite --host 127.0.0.1 --port 4579\"",
+    "e2e:server": "node scripts/e2e-setup.mjs && concurrently -k -s first -n api,web \"ONETEAM_TRIVY_COMMAND='$PWD/.tmp/e2e/fake-trivy.mjs' ONETEAM_DATABASE_URL=file:./.tmp/e2e/oneteam.db ONETEAM_AGENT_WORKER=false PORT=4580 tsx src/server/index.ts\" \"VITE_API_TARGET=http://127.0.0.1:4580 vite --host 127.0.0.1 --port 4579\"",
     "lint": "eslint .",
     "db:migrate": "tsx src/server/db/migrate.ts",
     "codex:version": "codex --version",
@@ -40,10 +40,10 @@
     "files": [
       "dist/**/*",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@openai/codex*/**/*"
     ],
     "asarUnpack": [
-      "node_modules/@openai/codex*/**/*",
       "node_modules/@libsql/**/*.node"
     ],
     "mac": {
@@ -59,13 +59,13 @@
     "@hono/node-server": "^1.19.6",
     "@hono/zod-validator": "^0.7.5",
     "@libsql/client": "^0.15.15",
-    "@openai/codex": "^0.132.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.10.7",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "yaml": "^2.9.1",
     "zod": "^4.1.13"
   },
   "devDependencies": {

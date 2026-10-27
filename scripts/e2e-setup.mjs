@@ -15,6 +15,7 @@ writeFileSync(
     {
       name: "oneteam-e2e-repo",
       private: true,
+      dependencies: { "e2e-fixture-package": "fixture-version" },
       scripts: {
         dev: "node -e \"console.log('dev')\"",
         build: "node -e \"console.log('build')\"",
@@ -26,7 +27,10 @@ writeFileSync(
     2
   )
 );
-writeFileSync(resolve(repo, "package-lock.json"), "{}\n");
+writeFileSync(resolve(repo, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: {
+  "": { dependencies: { "e2e-fixture-package": "fixture-version" } },
+  "node_modules/e2e-fixture-package": { version: "fixture-version" }
+} }) + "\n");
 writeFileSync(resolve(repo, "README.md"), "# E2E repository\n");
 
 execFileSync("git", ["init", "-b", "main"], { cwd: repo });
@@ -47,3 +51,10 @@ process.exit(0);
 `
 );
 chmodSync(fakeCodex, 0o755);
+
+// Browser tests exercise the real monitor lifecycle without downloading tools or databases.
+const fakeTrivy = resolve(root, "fake-trivy.mjs");
+// A complete synthetic inventory keeps the ordinary workflow fixture separate
+// from warning recovery. The vulnerability E2Es supply their own mocked reports.
+writeFileSync(fakeTrivy, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ SchemaVersion: 2, Results: [{ Class: "lang-pkgs", Type: "npm", Target: "package-lock.json", Packages: [{ Name: "e2e-fixture-package", Version: "fixture-version" }], Vulnerabilities: [] }] }));\n`);
+chmodSync(fakeTrivy, 0o755);

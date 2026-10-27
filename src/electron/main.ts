@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { loadConfig } from "../server/config";
 import { startOneTeamServer, type StartedOneTeamServer } from "../server/runtime";
+import { desktopCliPath } from "../server/services/desktop-cli-path";
 
 const appName = "OneTeam";
 
@@ -31,7 +32,7 @@ function distRoot(): string {
 
 async function createWindow(): Promise<void> {
   debugLog("createWindow:start");
-  configureRuntimeEnvironment();
+  await configureRuntimeEnvironment();
   const config = loadConfig();
   config.server.host = "127.0.0.1";
   config.server.port = 0;
@@ -110,91 +111,11 @@ function showStartupError(error: unknown): void {
   app.quit();
 }
 
-function configureRuntimeEnvironment(): void {
+let runtimeEnvironmentReady: Promise<void> | null = null;
+async function configureRuntimeEnvironment(): Promise<void> {
   process.env.ONETEAM_HOME ??= app.getPath("userData");
-
-  if (process.env.ONETEAM_CODEX_COMMAND) {
-    return;
-  }
-
-  const codex = resolveBundledCodex();
-  if (!codex) {
-    return;
-  }
-
-  process.env.ONETEAM_CODEX_COMMAND = codex.command;
-  process.env.CODEX_MANAGED_BY_NPM ??= "1";
-  process.env.CODEX_MANAGED_PACKAGE_ROOT ??= join(appPackageRoot(), "node_modules", "@openai", "codex");
-
-  if (codex.pathDir) {
-    process.env.PATH = [codex.pathDir, process.env.PATH].filter(Boolean).join(delimiter);
-  }
-}
-
-function appPackageRoot(): string {
-  const appPath = app.getAppPath();
-  return appPath.endsWith(".asar") ? appPath.replace(/\.asar$/, ".asar.unpacked") : appPath;
-}
-
-function resolveBundledCodex(): { command: string; pathDir?: string } | null {
-  const target = codexTarget();
-  if (!target) {
-    return null;
-  }
-
-  const vendorRoot = join(appPackageRoot(), "node_modules", target.packageName, "vendor", target.triple);
-  const binaryName = process.platform === "win32" ? "codex.exe" : "codex";
-  const command = join(vendorRoot, "codex", binaryName);
-  if (!existsSync(command)) {
-    return null;
-  }
-
-  const pathDir = join(vendorRoot, "path");
-  return {
-    command,
-    pathDir: existsSync(pathDir) ? pathDir : undefined
-  };
-}
-
-function codexTarget(): { packageName: string; triple: string } | null {
-  if (process.platform === "darwin" && process.arch === "arm64") {
-    return {
-      packageName: "@openai/codex-darwin-arm64",
-      triple: "aarch64-apple-darwin"
-    };
-  }
-  if (process.platform === "darwin" && process.arch === "x64") {
-    return {
-      packageName: "@openai/codex-darwin-x64",
-      triple: "x86_64-apple-darwin"
-    };
-  }
-  if (process.platform === "linux" && process.arch === "arm64") {
-    return {
-      packageName: "@openai/codex-linux-arm64",
-      triple: "aarch64-unknown-linux-musl"
-    };
-  }
-  if (process.platform === "linux" && process.arch === "x64") {
-    return {
-      packageName: "@openai/codex-linux-x64",
-      triple: "x86_64-unknown-linux-musl"
-    };
-  }
-  if (process.platform === "win32" && process.arch === "arm64") {
-    return {
-      packageName: "@openai/codex-win32-arm64",
-      triple: "aarch64-pc-windows-msvc"
-    };
-  }
-  if (process.platform === "win32" && process.arch === "x64") {
-    return {
-      packageName: "@openai/codex-win32-x64",
-      triple: "x86_64-pc-windows-msvc"
-    };
-  }
-
-  return null;
+  runtimeEnvironmentReady ??= desktopCliPath().then((path) => { process.env.PATH = path; });
+  await runtimeEnvironmentReady;
 }
 
 async function launchLoginCommand(input: { command: string; args: string[] }): Promise<void> {

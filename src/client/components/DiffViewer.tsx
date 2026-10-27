@@ -1,3 +1,4 @@
+import { formatDisplayValue } from "../formatters";
 import { Check, ChevronDown, ChevronUp, FileCode2, Plus, Search } from "lucide-react";
 import { Fragment, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -134,8 +135,8 @@ function findingLineLabel(finding: PullRequestFindingDto): string {
 function FindingCard(props: { finding: PullRequestFindingDto; href?: string; onOpen?: () => void }) {
   const content = (
     <>
-      <span className={`diff-finding-severity severity-${props.finding.severity}`}>{props.finding.severity}</span>
-      <span className="diff-finding-source">{props.finding.source} #{props.finding.agentJobId}</span>
+      <span className={`diff-finding-severity severity-${formatDisplayValue(props.finding.severity)}`}>{formatDisplayValue(props.finding.severity)}</span>
+      <span className="diff-finding-source">{formatDisplayValue(props.finding.source)} #{props.finding.agentJobId}</span>
       <strong>{props.finding.title}</strong>
       {props.finding.body ? <span className="diff-finding-body">{props.finding.body}</span> : null}
       <span className={`diff-finding-status status-${props.finding.status}`}>

@@ -1,14 +1,17 @@
 import type { Repositories } from "../db/repositories";
 import { agentOutputSchema, classifyCodexRateLimitSnapshot, extractAgentRunResult } from "./codex-adapter";
 import { CodexRpc, listCodexModels, type CodexModel, type RpcMessage } from "./codex-rpc";
+import { assertAutomaticModelFallback, modelSelectionCandidates, selectTaskModel } from "./model-router";
+import { requestedJobModel } from "../services/model-settings";
 import type { AgentAdapter, AgentActivityResult, AgentRunResult, ProviderCapacityProbeResult } from "./types";
 
 export type ModelSelection = { model: string; effort: string | null; reason: string; policyVersion: string };
 export type ModelSelector = (models: CodexModel[], input: Parameters<AgentAdapter["run"]>[0]) => Promise<ModelSelection> | ModelSelection;
+export const codexModelCatalogKey = "codex:model-catalog";
 
 export class CodexRuntime implements AgentAdapter {
-  private unavailableModels = new Map<string, number>();
-  private cachedModels: { at: number; models: CodexModel[] } | null = null;
+  private unlistedModelRejections = new Map<string, number>();
+
   constructor(private readonly options: {
     command: string;
     repos: Repositories;
@@ -28,17 +31,29 @@ export class CodexRuntime implements AgentAdapter {
   }
 
   async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentRunResult> {
+    return this.runAttempt(input, new Set());
+  }
+
+  private async runAttempt(input: Parameters<AgentAdapter["run"]>[0], rejectedModels: Set<string>): Promise<AgentRunResult> {
     await this.options.ensureReady?.();
     const rpc = this.connect(input.repoPath);
     let executionId: number | null = null;
     let threadId: string | null = null;
     let turnId: string | null = null;
     let model: string | null = null;
+    let selectedModel: string | null = null;
+    let selectedFromCatalog = true;
     let usage: Record<string, unknown> | null = null;
     let performedWork = false;
-    const previous = (await this.options.repos.development.executions.list(input.job.projectId, input.job.id)).at(-1);
+    let rerouted = false;
+    const previousExecutions = await this.options.repos.development.executions.list(input.job.projectId, input.job.id);
+    const previous = previousExecutions.at(-1);
     const resumeId = typeof input.job.waitMetadata?.sessionId === "string" ? input.job.waitMetadata.sessionId : previous?.threadId;
     const resumedSession = Boolean(resumeId);
+    const requestedModel = await requestedJobModel(this.options.repos, input.job);
+    const earlier = previousExecutions.filter((execution) => execution.threadId === resumeId);
+    const hasKnownBaseline = !resumeId || earlier.length > 0 && earlier.every((execution) => execution.usage?.costBasis === "turn_total");
+    const baseline = (key: string) => earlier.reduce((sum, execution) => sum + Number(execution.usage?.[key] ?? 0), 0);
     let activityQueue = Promise.resolve();
     let activityError: unknown;
     const emit = (activity: AgentActivityResult) => {
@@ -49,14 +64,29 @@ export class CodexRuntime implements AgentAdapter {
     try {
       if (await input.isCanceled?.()) return { status: "canceled", message: "Execution canceled before starting Codex.", stopReason: "canceled" };
       await rpc.initialize();
-      const models = (await this.models(rpc)).filter((candidate) => (this.unavailableModels.get(candidate.model) ?? 0) < Date.now());
-      const defaultModel = models.find((candidate) => candidate.isDefault) ?? models[0];
-      if (!defaultModel) throw new Error("Codex did not return any available models. Reconnect and retry.");
-      const selection = Number(input.job.input.modelFallbacks ?? 0) > 0 && defaultModel.isDefault
-        ? { model: defaultModel.model, effort: defaultModel.defaultReasoningEffort, reason: "The preferred model was rejected for this account. Retrying with Codex's available default.", policyVersion: "availability-fallback-v1" }
-        : this.options.selectModel
+      const catalog = await listCodexModels(rpc);
+      await this.options.repos.settings.set(codexModelCatalogKey, {
+        source: "codex_app_server", fetchedAt: new Date().toISOString(), models: catalog
+      });
+      const listedModels = new Set(catalog.map((candidate) => candidate.model));
+      const models = modelSelectionCandidates(catalog).filter((candidate) => !rejectedModels.has(candidate.model)
+        && (candidate.model === requestedModel || listedModels.has(candidate.model) || (this.unlistedModelRejections.get(candidate.model) ?? 0) <= Date.now()));
+      if (!models.length) throw new Error("Codex did not return any available models. Reconnect and retry.");
+      const selection = this.options.selectModel
         ? await this.options.selectModel(models, input)
-        : { model: defaultModel.model, effort: defaultModel.defaultReasoningEffort, reason: "Codex default available model", policyVersion: "default-v1" };
+        : selectTaskModel(models, { text: input.prompt, fileCount: 0, qualityFailures: Number(input.job.input.qualityFailures ?? 0), role: input.job.agentType });
+      if (!requestedModel) {
+        const unavailable = new Set([...rejectedModels, ...[...this.unlistedModelRejections].filter(([id, until]) => !listedModels.has(id) && until > Date.now()).map(([id]) => id)]);
+        assertAutomaticModelFallback(selection.model, unavailable);
+        if (unavailable.size) selection.reason += ` Unavailable models excluded: ${[...unavailable].join(", ")}.`;
+      }
+      const candidate = models.find((entry) => entry.model === selection.model);
+      if (!candidate) throw new Error("The selected Codex model is absent from the current catalog and reviewed candidates.");
+      if (selection.effort !== null && !candidate.supportedReasoningEfforts.some((option) => option.reasoningEffort === selection.effort)) {
+        throw new Error("The selected reasoning effort is unsupported by the current Codex model.");
+      }
+      selectedModel = selection.model;
+      selectedFromCatalog = listedModels.has(selectedModel);
       await this.options.repos.development.setJobModel(input.job.projectId, input.job.id, selection.model);
       const execution = await this.options.repos.development.executions.create({
         projectId: input.job.projectId, jobId: input.job.id, selectedModel: selection.model,
@@ -64,10 +94,11 @@ export class CodexRuntime implements AgentAdapter {
       });
       executionId = execution.id;
       emit({ type: "system", title: "Model selected", body: `${selection.model} · ${selection.effort ?? "default"}\n${selection.reason}`, payload: { ...selection, executionId } });
-      const writing = ["implementation", "fix"].includes(input.job.agentType);
       const started = await rpc.request<{ thread: { id: string }; model: string }>(resumeId ? "thread/resume" : "thread/start", {
         ...(resumeId ? { threadId: resumeId } : {}), model: selection.model, modelProvider: "openai", cwd: input.repoPath,
-        approvalPolicy: "never", sandbox: writing ? "workspace-write" : "read-only"
+        // Git worktrees write into the source repository's .git directory; project
+        // tools also use user caches and local daemons outside the worktree.
+        approvalPolicy: "never", sandbox: "danger-full-access"
       });
       threadId = started.thread.id;
       model = started.model;
@@ -96,13 +127,26 @@ export class CodexRuntime implements AgentAdapter {
           if (typeof turn.id === "string") turnId = turn.id;
         }
         if (message.method === "model/rerouted") {
+          rerouted = true;
+          if (usage) usage = { ...usage, costBasis: "mixed_models" };
           model = String(params.toModel);
-          activityQueue = activityQueue.then(() => this.options.repos.development.executions.update(input.job.projectId, executionId!, { resolvedModel: model })).catch((error: unknown) => { activityError ??= error; });
+          const resolved = model;
+          activityQueue = activityQueue.then(async () => {
+            await this.options.repos.development.executions.update(input.job.projectId, executionId!, { resolvedModel: resolved });
+            await this.options.repos.development.setJobModel(input.job.projectId, input.job.id, resolved);
+          }).catch((error: unknown) => { activityError ??= error; });
           emit({ type: "system", title: "Codex model changed", body: `${params.fromModel} → ${params.toModel}: ${params.reason}`, payload: { ...params, executionId } });
         }
         if (message.method === "thread/tokenUsage/updated") {
-          const last = asRecord(asRecord(params.tokenUsage).last);
-          usage = { input_tokens: last.inputTokens, cached_input_tokens: last.cachedInputTokens, output_tokens: last.outputTokens, reasoning_output_tokens: last.reasoningOutputTokens, total_tokens: last.totalTokens };
+          const tokenUsage = asRecord(params.tokenUsage);
+          const total = asRecord(tokenUsage.total);
+          const hasTotal = typeof total.inputTokens === "number" && typeof total.outputTokens === "number";
+          const counts = hasTotal ? total : asRecord(tokenUsage.last);
+          const delta = (source: string, key: string) => typeof counts[source] === "number" ? Math.max(0, Number(counts[source]) - (hasTotal && hasKnownBaseline ? baseline(key) : 0)) : undefined;
+          usage = { input_tokens: delta("inputTokens", "input_tokens"), cached_input_tokens: delta("cachedInputTokens", "cached_input_tokens"),
+            cache_write_input_tokens: delta("cacheWriteInputTokens", "cache_write_input_tokens"),
+            output_tokens: delta("outputTokens", "output_tokens"), reasoning_output_tokens: delta("reasoningOutputTokens", "reasoning_output_tokens"),
+            total_tokens: delta("totalTokens", "total_tokens"), costBasis: rerouted ? "mixed_models" : hasTotal && hasKnownBaseline ? "turn_total" : "partial_turn" };
         }
         if (message.method === "item/completed" || message.method === "item/started") {
           const item = asRecord(params.item);
@@ -135,7 +179,10 @@ export class CodexRuntime implements AgentAdapter {
         }
       });
       const turn = await rpc.request<{ turn: { id: string } }>("turn/start", {
-        threadId, input: [{ type: "text", text: input.prompt }], effort: selection.effort,
+        threadId, model: selection.model, input: [{ type: "text", text: input.prompt }], effort: selection.effort,
+        serviceTierForTurn: "default",
+        // Reapply for resumed threads so older filesystem/network restrictions do not persist.
+        approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" },
         outputSchema: input.job.agentType === "retrospective" ? retrospectiveOutputSchema : agentOutputSchema
       });
       turnId = turn.turn.id;
@@ -163,16 +210,20 @@ export class CodexRuntime implements AgentAdapter {
       await this.options.repos.development.executions.update(input.job.projectId, executionId, { resolvedModel: model, usage, status: result.status, finishedAt: new Date().toISOString() });
       return { ...result, metadata: { ...result.metadata, providerExecution: { model, sessionId: threadId, turnId, resumedSession, usage } } };
     } catch (error) {
-      if (executionId !== null) await this.options.repos.development.executions.update(input.job.projectId, executionId, { resolvedModel: model, threadId, turnId, status: "failed", finishedAt: new Date().toISOString() });
       const message = error instanceof Error ? error.message : String(error);
-      if (executionId !== null && !performedWork && isUnavailableModel(message) && Number(input.job.input.modelFallbacks ?? 0) < 2) {
-        const attempts = await this.options.repos.development.executions.list(input.job.projectId, input.job.id);
-        const rejected = attempts.at(-1)?.selectedModel;
-        if (rejected) this.unavailableModels.set(rejected, Date.now() + 15 * 60_000);
-        emit({ type: "system", title: "Model unavailable; selecting another", body: message, payload: { rejectedModel: rejected, executionId } });
+      if (executionId !== null) await this.options.repos.development.executions.update(input.job.projectId, executionId, { resolvedModel: model, threadId, turnId, usage, status: "failed", finishedAt: new Date().toISOString(),
+        ...(isUnavailableModel(message) ? { selectionReason: `Model unavailable: ${message}` } : {}) });
+      if (!requestedModel && selectedModel && !performedWork && isUnavailableModel(message) && rejectedModels.size < 10) {
+        rejectedModels.add(selectedModel);
+        // Avoid repeating an unavailable release probe for every Loop role. A new
+        // catalog advertising the model bypasses this short, process-local cooldown.
+        if (!selectedFromCatalog) this.unlistedModelRejections.set(selectedModel, Date.now() + 10 * 60_000);
+        emit({ type: "system", title: "Model unavailable; selecting another", body: message, payload: { rejectedModel: selectedModel, executionId } });
+        if (cancellationTimer) clearInterval(cancellationTimer);
+        unsubscribe?.();
         await rpc.closeAndDrain();
         await activityQueue;
-        return this.run({ ...input, job: { ...input.job, input: { ...input.job.input, modelFallbacks: Number(input.job.input.modelFallbacks ?? 0) + 1 } } });
+        return this.runAttempt(input, rejectedModels);
       }
       throw error;
     } finally {
@@ -184,21 +235,10 @@ export class CodexRuntime implements AgentAdapter {
   }
 
   private connect(cwd?: string): CodexRpc { return (this.options.createRpc ?? ((command, path) => new CodexRpc(command, path)))(this.options.command, cwd); }
-  private async models(rpc: CodexRpc): Promise<CodexModel[]> {
-    if (this.cachedModels && Date.now() - this.cachedModels.at < 5 * 60_000) return this.cachedModels.models;
-    try {
-      const models = await listCodexModels(rpc);
-      this.cachedModels = { at: Date.now(), models };
-      return models;
-    } catch (error) {
-      if (this.cachedModels && Date.now() - this.cachedModels.at < 60 * 60_000) return this.cachedModels.models;
-      throw error;
-    }
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
-function isUnavailableModel(message: string): boolean { return /model.*(not found|not supported|unavailable|does not exist|do not have access)/i.test(message); }
+function isUnavailableModel(message: string): boolean { return /model[_ -]not[_ -]found|model.*(not found|not supported|unsupported|unavailable|does not exist|do not have access|not available)|(?:do not have access|not have access).*model/is.test(message); }
 
 function activityForItem(item: Record<string, unknown>, completed: boolean): AgentActivityResult | null {
   if (item.type === "commandExecution") return {

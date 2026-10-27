@@ -1,4 +1,5 @@
 import { createDevelopmentRepositories } from "./development-repositories";
+import { createChatRepositories } from "./chat-repositories";
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
@@ -528,6 +529,7 @@ export function createRepositories(db: Database) {
 
   return {
     development: createDevelopmentRepositories(db),
+    chats: createChatRepositories(db),
     projects: {
       async list(): Promise<ProjectDto[]> {
         const rows = await db.select().from(projects).orderBy(desc(projects.updatedAt));
@@ -704,10 +706,14 @@ export function createRepositories(db: Database) {
         projectId: string;
         status?: IssueStatus;
         q?: string;
+        includeInternal?: boolean;
         limit: number;
         offset: number;
       }): Promise<{ items: IssueDto[]; total: number }> {
         const filters: SQL[] = [eq(issues.projectId, input.projectId), isNull(issues.deletedAt)];
+        if (!input.includeInternal) {
+          filters.push(eq(issues.internal, false));
+        }
         if (input.status) {
           filters.push(eq(issues.status, input.status));
         }
@@ -756,6 +762,7 @@ export function createRepositories(db: Database) {
         title: string;
         body?: string;
         createdByType?: IssueDto["createdByType"];
+        internal?: boolean;
         labelIds?: number[];
       }): Promise<IssueDto> {
         const timestamp = now();
@@ -767,6 +774,7 @@ export function createRepositories(db: Database) {
             body: input.body ?? "",
             status: "open",
             createdByType: input.createdByType ?? "user",
+            internal: input.internal ?? false,
             createdAt: timestamp,
             updatedAt: timestamp
           })

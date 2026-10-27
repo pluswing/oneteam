@@ -1,3 +1,5 @@
+import { formatDisplayValue } from "./formatters";
+import { ActivityContent } from "./components/ActivityContent";
 import { ArrowLeft, Bot, CheckCircle2, CircleAlert, CircleDot, Clock3, Files, GitCommitHorizontal, GitMerge, GitPullRequest, Link2, MessageCircle, Pencil, Plus, RefreshCw, Save, Settings, Tag, UserRound } from "lucide-react";
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -11,7 +13,9 @@ import {
 } from "../shared/workflow-labels";
 import { api, type ProjectOpenResult } from "./api";
 import { agentJobMessage, isNoisyCodexText } from "./agent-job-message";
-import { summarizeAgentJobs } from "./agent-status";
+import { isAgentDiagnosticActivity } from "./agent-log-visibility";
+import { isActiveAgentJob, summarizeAgentJobs } from "./agent-status";
+import { AgentLogToggle, useAgentLogDisplay } from "./components/AgentLogDisplay";
 import { AppShell } from "./components/AppShell";
 import { AsyncState } from "./components/AsyncState";
 import { MarkdownContent } from "./components/MarkdownContent";
@@ -24,6 +28,8 @@ import { DevelopmentLoopPanel } from "./components/DevelopmentLoopPanel";
 import type { DevelopmentLoopDto } from "../shared/development-loop";
 
 const AgentJobsView = lazy(async () => ({ default: (await import("./views/AgentJobsView")).AgentJobsView }));
+const ChatsView = lazy(async () => ({ default: (await import("./views/ChatsView")).ChatsView }));
+const VulnerabilitiesView = lazy(async () => ({ default: (await import("./views/VulnerabilitiesView")).VulnerabilitiesView }));
 const DiffViewer = lazy(async () => ({ default: (await import("./components/DiffViewer")).DiffViewer }));
 
 const issueWorkflowLabelNames = new Set<string>(issueWorkflowLabels);
@@ -55,7 +61,7 @@ function AgentCheckSummary(props: { status: AgentJobDto["status"] | null }) {
     <span className="work-item-check" title={t("issues.checks")}>
       <CheckCircle2 aria-hidden="true" size={15} />
       {props.status ? (
-        <span className={`status-pill status-${props.status}`}>{props.status}</span>
+        <span className={`status-pill status-${props.status}`}>{formatDisplayValue(props.status)}</span>
       ) : (
         <span>{t("issues.noChecks")}</span>
       )}
@@ -109,7 +115,9 @@ function AutomationChecksSummary(props: {
   onOpenAgentJob: (jobId: number) => void;
   onOpenFinding?: (finding: PullRequestFindingDto) => void;
 }) {
-  const latestJobs = props.jobs.filter(
+  const { showDetails } = useAgentLogDisplay();
+  const jobs = showDetails ? props.jobs : props.jobs.filter(isActiveAgentJob);
+  const latestJobs = jobs.filter(
     (job, index, jobs) => jobs.findIndex((candidate) => candidate.agentType === job.agentType) === index
   );
 
@@ -140,7 +148,7 @@ function AutomationChecksSummary(props: {
     <div className="automation-checks">
       {props.objective ? (
         <div className="automation-checks-objective">
-          <span className={`status-pill status-${props.objective.status}`}>{props.objective.status}</span>
+          <span className={`status-pill status-${props.objective.status}`}>{formatDisplayValue(props.objective.status)}</span>
           <span>{objectiveWorkflowStageLabel(props.objective.workflowStage)}</span>
           <span>{objectiveEvidenceCount(props.objective)} {t("objectives.evidence")}</span>
           {props.objective.evidenceRequirements.length ? (
@@ -166,8 +174,8 @@ function AutomationChecksSummary(props: {
                   ) : (
                     <Bot aria-hidden="true" size={16} />
                   )}
-                  <strong>{job.agentType}</strong>
-                  <span className={`status-pill status-${job.status}`}>{job.status}</span>
+                  <strong>{formatDisplayValue(job.agentType)}</strong>
+                  <span className={`status-pill status-${job.status}`}>{formatDisplayValue(job.status)}</span>
                 </button>
                 <span className="automation-check-links">
                   {hasOutputItems(job, "evidence") ? (
@@ -198,7 +206,7 @@ function AutomationChecksSummary(props: {
           })}
         </div>
       ) : (
-        <p className="muted-text">{t("issues.noChecks")}</p>
+        <p className="muted-text">{t(showDetails ? "issues.noChecks" : "agents.noActiveJobs")}</p>
       )}
     </div>
   );
@@ -309,8 +317,8 @@ function conversationActivityIsRelevant(activity: ActivityDto): boolean {
   return activity.activityType === "system" || activity.title.toLowerCase().includes("committed");
 }
 
-function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[], activities: ActivityDto[]): ConversationEntry[] {
-  const relevantActivities = activities.filter(conversationActivityIsRelevant);
+function conversationEntries(comments: CommentDto[], agentJobs: AgentJobDto[], activities: ActivityDto[], showDetails: boolean): ConversationEntry[] {
+  const relevantActivities = showDetails ? activities : activities.filter((activity) => !isAgentDiagnosticActivity(activity) && conversationActivityIsRelevant(activity));
   const activityCommentIds = new Set<number>();
   for (const activity of relevantActivities) {
     if (!activity.body.trim()) continue;
@@ -410,7 +418,7 @@ function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJo
           </strong>
           <ConversationPermalink anchor={`activity-${props.activity.id}`} createdAt={props.activity.lastOccurredAt} />
         </header>
-        {props.activity.body ? <CollapsibleConversationMarkdown content={props.activity.body} /> : null}
+        <ActivityContent activity={props.activity} pullRequestId={props.activity.targetType === "pull_request" ? props.activity.targetId : undefined} />
         {props.activity.agentJobId ? (
           <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.activity.agentJobId!)} type="button">
             {t("issues.openGate")}
@@ -423,9 +431,9 @@ function ConversationActivityEvent(props: { activity: ActivityDto; onOpenAgentJo
 
 function commentAuthorLabel(comment: CommentDto): string {
   if (comment.authorType === "agent" && comment.agentType) {
-    return `${comment.agentType} agent`;
+    return `${formatDisplayValue(comment.agentType)} ${t("issues.authorAgent")}`;
   }
-  return comment.authorType;
+  return formatDisplayValue(comment.authorType);
 }
 
 function readableCommentBody(comment: CommentDto, relatedJob?: AgentJobDto): string {
@@ -569,7 +577,7 @@ function ConversationAgentJobCard(props: {
     <article className="conversation-agent-job" id={`agent-job-${props.job.id}`}>
       <header className="conversation-agent-job-header">
         <div>
-          <strong>#{props.job.id} {props.job.agentType}</strong>
+          <strong>#{props.job.id} {formatDisplayValue(props.job.agentType)}</strong>
           <ConversationPermalink anchor={`agent-job-${props.job.id}`} createdAt={props.job.createdAt} />
         </div>
         <button className="secondary-button" onClick={() => props.onOpenAgentJob(props.job.id)} type="button">
@@ -577,8 +585,8 @@ function ConversationAgentJobCard(props: {
         </button>
       </header>
       <div className="conversation-agent-job-meta">
-        <span className={`status-pill status-${props.job.status}`}>{props.job.status}</span>
-        <span>{props.job.triggerType}</span>
+        <span className={`status-pill status-${props.job.status}`}>{formatDisplayValue(props.job.status)}</span>
+        <span>{formatDisplayValue(props.job.triggerType)}</span>
         {props.job.finishedAt ? <span>{formatDateTime(props.job.finishedAt)}</span> : null}
       </div>
       {message ? (
@@ -612,7 +620,9 @@ function ConversationTimeline(props: {
   onUpdateComment: (comment: CommentDto, body: string) => Promise<void>;
   onOpenAgentJob: (jobId: number) => void;
 }) {
-  const entries = conversationEntries(props.comments, props.agentJobs, props.activities);
+  const { showDetails } = useAgentLogDisplay();
+  const jobs = showDetails ? props.agentJobs : props.agentJobs.filter(isActiveAgentJob);
+  const entries = conversationEntries(props.comments, jobs, props.activities, showDetails);
   useEffect(() => {
     const anchor = window.location.hash.slice(1);
     if (!/^(?:(?:comment|activity|agent-job)-\d+|merge-summary|completion-summary)$/.test(anchor)) return;
@@ -630,34 +640,34 @@ function ConversationTimeline(props: {
     animationFrame = window.requestAnimationFrame(reveal);
     return () => window.cancelAnimationFrame(animationFrame);
   }, [entries.length]);
-  if (entries.length === 0) {
-    return <div className="empty-state">{t("issues.noComments")}</div>;
-  }
-
   return (
-    <div className="conversation-timeline">
-      {entries.map((entry) =>
-        entry.kind === "comment" ? (
-          <ConversationCommentCard
-            comment={entry.comment}
-            key={`comment-${entry.comment.id}`}
-            onLoadRevisions={props.onLoadCommentRevisions}
-            onUpdate={props.onUpdateComment}
-          />
-        ) : entry.kind === "activity" ? (
-          <ConversationActivityEvent activity={entry.activity} key={`activity-${entry.activity.id}`} onOpenAgentJob={props.onOpenAgentJob} />
-        ) : (
-          <ConversationAgentJobCard
-            comments={entry.comments}
-            job={entry.job}
-            key={`agent-job-${entry.job.id}`}
-            onLoadCommentRevisions={props.onLoadCommentRevisions}
-            onOpenAgentJob={props.onOpenAgentJob}
-            onUpdateComment={props.onUpdateComment}
-          />
-        )
-      )}
-    </div>
+    <>
+      <div className="agent-log-controls"><AgentLogToggle /></div>
+      {entries.length === 0 ? <div className="empty-state">{t("issues.noComments")}</div> : null}
+      <div className="conversation-timeline">
+        {entries.map((entry) =>
+          entry.kind === "comment" ? (
+            <ConversationCommentCard
+              comment={entry.comment}
+              key={`comment-${entry.comment.id}`}
+              onLoadRevisions={props.onLoadCommentRevisions}
+              onUpdate={props.onUpdateComment}
+            />
+          ) : entry.kind === "activity" ? (
+            <ConversationActivityEvent activity={entry.activity} key={`activity-${entry.activity.id}`} onOpenAgentJob={props.onOpenAgentJob} />
+          ) : (
+            <ConversationAgentJobCard
+              comments={entry.comments}
+              job={entry.job}
+              key={`agent-job-${entry.job.id}`}
+              onLoadCommentRevisions={props.onLoadCommentRevisions}
+              onOpenAgentJob={props.onOpenAgentJob}
+              onUpdateComment={props.onUpdateComment}
+            />
+          )
+        )}
+      </div>
+    </>
   );
 }
 
@@ -783,7 +793,7 @@ function IssuesListScreen(props: { project: ProjectDto; onNew: () => void; onOpe
         {!isLoading && !error && issues.length === 0 ? <AsyncState kind="empty" message={t("issues.noIssues")} /> : null}
         {issues.map((issue) => (
           <button className="work-item-summary work-item-rich" key={issue.id} onClick={() => props.onOpen(issue.id)} type="button">
-            <span className={`work-item-state-icon work-item-state-${issue.status}`}>
+            <span className={`work-item-state-icon work-item-state-${formatDisplayValue(issue.status)}`}>
               <CircleDot aria-hidden="true" size={18} />
               <span className="sr-only">{issue.status === "open" ? t("issues.open") : t("issues.closed")}</span>
             </span>
@@ -1058,8 +1068,8 @@ function IssueDetailScreen(props: {
     <div className="detail-page">
       <div className="page-toolbar">
         <div className="page-title-block">
-          <h1>{issue ? `#${issue.id} ${issue.title}` : "Issue"}</h1>
-          {issue ? <span className={`status-pill status-${issue.status}`}>{issue.status}</span> : null}
+          <h1>{issue ? `#${issue.id} ${issue.title}` : t("issues.title")}</h1>
+          {issue ? <span className={`status-pill status-${issue.status}`}>{formatDisplayValue(issue.status)}</span> : null}
         </div>
         {issue ? (
           <div className="header-actions">
@@ -1761,6 +1771,7 @@ function PullRequestDetailScreen(props: {
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setRetrying] = useState(false);
   const [mergeMessage, setMergeMessage] = useState<string | null>(null);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const [isMerging, setMerging] = useState(false);
   const [isResolvingConflicts, setResolvingConflicts] = useState(false);
   const loadedPullRequestId = useRef<number | null>(null);
@@ -1869,6 +1880,8 @@ function PullRequestDetailScreen(props: {
     setDiffRevision(null);
     setCommits([]);
     setMergeConflicts(null);
+    setMergeMessage(null);
+    setMergeError(null);
     setError(null);
     setRetrying(false);
     void load().catch(handleLoadError);
@@ -1926,7 +1939,7 @@ function PullRequestDetailScreen(props: {
       return;
     }
     setMerging(true);
-    setError(null);
+    setMergeError(null);
     setMergeMessage(null);
     try {
       const response = await api.mergePullRequest(props.project.id, pullRequest.id);
@@ -1935,7 +1948,7 @@ function PullRequestDetailScreen(props: {
       setTab("conversation");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to merge pull request.");
+      setMergeError(err instanceof Error ? err.message : "Failed to merge pull request.");
     } finally {
       setMerging(false);
     }
@@ -1954,7 +1967,7 @@ function PullRequestDetailScreen(props: {
     <div className="detail-page">
       <div className="page-toolbar">
         <div className="page-title-block">
-          <h1>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : "Pull request"}</h1>
+          <h1>{pullRequest ? `#${pullRequest.id} ${pullRequest.title}` : t("pullRequests.title")}</h1>
           {pullRequest ? (
             <span className={`status-pill status-${pullRequest.status}`}>{formatPullRequestStatus(pullRequest.status)}</span>
           ) : null}
@@ -2129,6 +2142,7 @@ function PullRequestDetailScreen(props: {
           <h2>{t("pullRequests.merge")}</h2>
           <div className="merge-panel">
             {mergeMessage ? <div className="success-banner">{mergeMessage}</div> : null}
+            {mergeError ? <AsyncState compact kind="error" message={mergeError} /> : null}
             <button
               className="primary-button full-width"
               disabled={mergeDisabled}
@@ -2560,6 +2574,7 @@ export function App() {
   const handleProjectOpened = useCallback((result: ProjectOpenResult) => {
     setProjects([result.project]);
     setAgentJobs([]);
+    setDevelopmentLoops([]);
     setScreen("app");
     navigate(
       result.onboardingIssueId
@@ -2570,6 +2585,7 @@ export function App() {
   }, [navigate]);
   const handleOpenFolder = useCallback(() => {
     setAgentJobs([]);
+    setDevelopmentLoops([]);
     setScreen("setup");
   }, []);
   if (project) {
@@ -2610,6 +2626,7 @@ export function App() {
   useEffect(() => {
     if (!project || screen !== "app") {
       setAgentJobs([]);
+      setDevelopmentLoops([]);
       return;
     }
 
@@ -2625,12 +2642,14 @@ export function App() {
     void loadAgentJobs().catch(() => {
       if (!disposed) {
         setAgentJobs([]);
+        setDevelopmentLoops([]);
       }
     });
     const interval = window.setInterval(() => {
       void loadAgentJobs().catch(() => {
         if (!disposed) {
           setAgentJobs([]);
+          setDevelopmentLoops([]);
         }
       });
     }, 3000);
@@ -2653,11 +2672,18 @@ export function App() {
       agentState={summarizeAgentJobs(agentJobs, developmentLoops)}
       navigationKey={routeToPath(route)}
       onOpenFolder={handleOpenFolder}
+      onNavigate={navigate}
       onViewChange={handleViewChange}
       projectName={project.name}
       repositoryPath={project.repoPath}
       view={view}
     >
+      {view === "chats" ? (
+        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+          <ChatsView key={project.id} project={project} chatId={route.name === "chat" ? route.chatId : null}
+            onSelectChat={(chatId) => navigate(chatId ? { name: "chat", chatId } : { name: "chats" })} />
+        </Suspense>
+      ) : null}
       {view === "issues" ? (
         <IssuesView
           project={project}
@@ -2690,6 +2716,11 @@ export function App() {
         </Suspense>
       ) : null}
       {view === "repository" ? <RepositoryView project={project} /> : null}
+      {view === "vulnerabilities" ? (
+        <Suspense fallback={<AsyncState kind="loading" message={t("status.loading")} />}>
+          <VulnerabilitiesView key={project.id} project={project} onOpenPullRequest={handleOpenPullRequest} onOpenAgentJob={handleOpenAgentJob} />
+        </Suspense>
+      ) : null}
     </AppShell>
   );
 }

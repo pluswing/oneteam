@@ -50,6 +50,9 @@ export function createDevelopmentRepositories(db: Database) {
       async list(projectId: string, jobId: number): Promise<AgentExecutionDto[]> {
         return (await db.select().from(agentExecutions).where(and(eq(agentExecutions.projectId, projectId), eq(agentExecutions.jobId, jobId))).orderBy(asc(agentExecutions.id))).map(executionDto);
       },
+      async recent(projectId: string, limit = 5000): Promise<AgentExecutionDto[]> {
+        return (await db.select().from(agentExecutions).where(eq(agentExecutions.projectId, projectId)).orderBy(desc(agentExecutions.id)).limit(limit)).map(executionDto);
+      },
       async interrupt(projectId: string): Promise<void> {
         await db.update(agentExecutions).set({ status: "interrupted", finishedAt: now() }).where(and(eq(agentExecutions.projectId, projectId), inArray(agentExecutions.status, ["starting", "running"])));
       }

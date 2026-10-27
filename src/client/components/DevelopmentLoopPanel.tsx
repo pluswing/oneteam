@@ -1,13 +1,16 @@
+import { formatDisplayValue } from "../formatters";
 import { useEffect, useState } from "react";
 import type { DevelopmentLoopDto } from "../../shared/development-loop";
 import { api } from "../api";
 import { t } from "../i18n";
 import { MarkdownContent } from "./MarkdownContent";
+import { useAgentLogDisplay } from "./AgentLogDisplay";
 
 type LoopDetail = Awaited<ReturnType<typeof api.getDevelopmentLoop>>;
 const stages = ["planning", "implementing", "reviewing", "validating", "merging", "reflecting", "completed"];
 
 function LoopCard({ loop, refresh }: { loop: DevelopmentLoopDto; refresh: () => Promise<void> }) {
+  const { showDetails } = useAgentLogDisplay();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<LoopDetail | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,13 +37,13 @@ function LoopCard({ loop, refresh }: { loop: DevelopmentLoopDto; refresh: () => 
   const needsResume = ["paused", "failed", "waiting_input"].includes(loop.status);
   const stage = stages.indexOf(loop.phase === "fixing" ? "reviewing" : loop.phase);
   return <article className="development-loop-card">
-    <header><strong>Loop #{loop.id} · <a href={`/issues/${loop.issueId}`}>Issue #{loop.issueId}</a></strong><span className={`status-pill status-${loop.status}`}>{t(`development.${loop.status}`)}</span></header>
+    <header><strong>{t("loops.item")} #{loop.id} · <a href={`/issues/${loop.issueId}`}>{t("issues.item")} #{loop.issueId}</a></strong><span className={`status-pill status-${loop.status}`}>{t(`development.${loop.status}`)}</span></header>
     <ol className="development-stages" aria-label={t("development.progress")}>
       {stages.map((name, index) => <li key={name} aria-current={index === stage ? "step" : undefined} className={index <= stage ? "reached" : ""}>{t(`development.${index === stage && loop.phase === "fixing" ? "fixing" : name}`)}</li>)}
     </ol>
     {loop.summary ? <p className="loop-summary">{loop.summary}</p> : null}
     <div className="loop-links">
-      {loop.pullRequestId ? <a href={`/pulls/${loop.pullRequestId}`}>PR #{loop.pullRequestId}</a> : null}
+      {loop.pullRequestId ? <a href={`/pulls/${loop.pullRequestId}`}>{t("pullRequests.item")} #{loop.pullRequestId}</a> : null}
       {loop.currentJobId ? <a href={`/jobs/${loop.currentJobId}`}>{t("development.agentLog")} #{loop.currentJobId}</a> : null}
       {loop.mergeCommit ? <code title={loop.mergeCommit}>{loop.mergeCommit.slice(0, 10)}</code> : null}
     </div>
@@ -49,27 +52,28 @@ function LoopCard({ loop, refresh }: { loop: DevelopmentLoopDto; refresh: () => 
       <button className="danger-button" type="button" disabled={busy || mergeBusy} onClick={() => void control("cancel")}>{t("development.cancel")}</button>
     </div> : null}
     {error ? <p role="alert">{error}</p> : null}
-    <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+    {showDetails ? <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary>{t("development.retrospectiveAndHistory")}</summary>
       {detail ? <>
-        <ol className="loop-job-history">{detail.jobs.map((job) => <li key={job.id}><a href={`/jobs/${job.id}`}>#{job.id} {job.agentType}</a> · {job.aiModel ?? t("development.autoModel")} · {job.status}</li>)}</ol>
+        <ol className="loop-job-history">{detail.jobs.map((job) => <li key={job.id}><a href={`/jobs/${job.id}`}>#{job.id} {formatDisplayValue(job.agentType)}</a> · {job.aiModel ?? t("development.autoModel")} · {formatDisplayValue(job.status)}</li>)}</ol>
         {detail.retrospective ? <>
           <h3>{detail.retrospective.summary}</h3>
           <MarkdownContent content={detail.retrospective.body} />
           {detail.retrospective.error ? <p role="alert">{detail.retrospective.error}</p> : null}
           {detail.revisions.map((revision) => <details key={revision.id} className="knowledge-revision">
-            <summary>{revision.path} · {revision.status}</summary><p>{revision.reason}</p>
+            <summary>{revision.path} · {formatDisplayValue(revision.status)}</summary><p>{revision.reason}</p>
             <h4>{t("development.before")}</h4><pre>{revision.beforeBody ?? "—"}</pre>
             <h4>{t("development.after")}</h4><pre>{revision.afterBody ?? "—"}</pre>
             {["applied", "restoring"].includes(revision.status) && !revision.path.startsWith("retrospectives/") ? <button className="secondary-button" disabled={busy} type="button" onClick={() => void restore(revision.id)}>{t("development.restore")}</button> : null}
           </details>)}
         </> : <p className="muted-text">{t("development.awaitRetrospective")}</p>}
       </> : <p>{t("status.loading")}</p>}
-    </details>
+    </details> : null}
   </article>;
 }
 
 export function DevelopmentLoopPanel(props: { projectId: string; issueId?: number; pullRequestId?: number; all?: boolean }) {
+  const { showDetails } = useAgentLogDisplay();
   const [loops, setLoops] = useState<DevelopmentLoopDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   async function load() {
@@ -85,11 +89,12 @@ export function DevelopmentLoopPanel(props: { projectId: string; issueId?: numbe
     void poll(); const timer = window.setInterval(() => void poll(), 3000);
     return () => { disposed = true; window.clearInterval(timer); };
   }, [props.projectId]);
-  const visible = loops.filter((loop) => props.all || (props.issueId !== undefined && loop.issueId === props.issueId) || (props.pullRequestId !== undefined && loop.pullRequestId === props.pullRequestId));
-  return <section className="development-loops" aria-label="Development Loops">
+  const visible = loops.filter((loop) => (showDetails || ["queued", "running", "waiting_input", "waiting_capacity"].includes(loop.status))
+    && (props.all || (props.issueId !== undefined && loop.issueId === props.issueId) || (props.pullRequestId !== undefined && loop.pullRequestId === props.pullRequestId)));
+  return <section className="development-loops" aria-label={t("development.title")}>
     <h2>{t("development.title")}</h2>
     {error ? <p role="alert">{error}</p> : null}
-    {!visible.length ? <p className="muted-text">{t("development.empty")}</p> : null}
+    {!visible.length ? <p className="muted-text">{t(showDetails ? "development.empty" : "agents.noActiveJobs")}</p> : null}
     {visible.map((loop) => <LoopCard key={loop.id} loop={loop} refresh={load} />)}
   </section>;
 }

@@ -1,7 +1,10 @@
+import { formatDisplayValue } from "../formatters";
 import type { AgentExecutionDto } from "../../shared/development-loop";
 import { DevelopmentLoopPanel } from "../components/DevelopmentLoopPanel";
+import { AgentLogToggle, useAgentLogDisplay } from "../components/AgentLogDisplay";
+import { AgentActivityLog } from "../components/AgentActivityLog";
 import { Play, RotateCcw, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { aiProviderLabel, type AiProvider } from "../../shared/ai-providers";
 import type { ActivityDto, AgentJobDto, ProjectDto } from "../../shared/types";
 import { api } from "../api";
@@ -92,63 +95,6 @@ function AgentJobActions(props: {
           </button>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-const noisyAgentActivityTitles = new Set([
-  "Agent job queued",
-  "Started Codex CLI",
-  "Codex thread started",
-  "Codex turn started",
-  "Codex turn completed",
-  "Codex CLI completed",
-  "Codex CLI failed",
-  "Codex error",
-  "Codex turn failed",
-  "Codex command started",
-  "Codex command completed",
-  "Codex thinking summary",
-  "AI provider selected",
-  "Started Claude Code",
-  "Claude Code session started",
-  "Claude Code completed",
-  "Started LM Studio"
-]);
-
-function isRelevantAgentActivity(job: AgentJobDto, activity: ActivityDto): boolean {
-  if (activity.title === `${job.agentType} agent started`) {
-    return false;
-  }
-
-  if (noisyAgentActivityTitles.has(activity.title)) {
-    return false;
-  }
-
-  return true;
-}
-
-function ActivityLog(props: { activities: ActivityDto[] }) {
-  if (props.activities.length === 0) {
-    return <div className="empty-state">{t("activities.none")}</div>;
-  }
-
-  return (
-    <div className="activity-list">
-      {props.activities.map((activity) => (
-        <article className="activity-item" key={activity.id}>
-          <header>
-            <strong>
-              {activity.title}
-              {activity.occurrenceCount > 1 ? (
-                <span className="activity-occurrence-count">×{activity.occurrenceCount}</span>
-              ) : null}
-            </strong>
-            <span>{formatDateTime(activity.lastOccurredAt)}</span>
-          </header>
-          {activity.body ? <MarkdownContent content={activity.body} /> : null}
-        </article>
-      ))}
     </div>
   );
 }
@@ -310,6 +256,7 @@ function AgentJobResultSummary(props: { job: AgentJobDto; activities: ActivityDt
 }
 
 function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: number) => void }) {
+  const { showDetails } = useAgentLogDisplay();
   const [jobs, setJobs] = useState<AgentJobDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
@@ -346,10 +293,12 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
     return () => window.clearInterval(interval);
   }, [props.project.id]);
 
+  const visibleJobs = showDetails ? jobs : jobs.filter(isActiveAgentJob);
   return (
     <section className="page-section">
       <div className="section-header">
         <h1>{t("agents.title")}</h1>
+        <AgentLogToggle />
       </div>
       {isRetrying ? <AsyncState kind="retrying" message={t("status.retrying")} /> : null}
       {error ? (
@@ -358,11 +307,11 @@ function AgentJobsListScreen(props: { project: ProjectDto; onOpen: (jobId: numbe
       <DevelopmentLoopPanel projectId={props.project.id} all />
       <div className="agent-job-list">
         {isLoading ? <AsyncState kind="loading" message={t("status.loading")} /> : null}
-        {!isLoading && !error && jobs.length === 0 ? <AsyncState kind="empty" message={t("agents.noJobs")} /> : null}
-        {jobs.map((job) => (
+        {!isLoading && !error && visibleJobs.length === 0 ? <AsyncState kind="empty" message={t(showDetails ? "agents.noJobs" : "agents.noActiveJobs")} /> : null}
+        {visibleJobs.map((job) => (
           <button className="agent-job-summary" key={job.id} onClick={() => props.onOpen(job.id)} type="button">
-            <span className="agent-job-title">#{job.id} {job.agentType}</span>
-            <span className={`status-pill status-${job.status}`}>{job.status}</span>
+            <span className="agent-job-title">#{job.id} {formatDisplayValue(job.agentType)}</span>
+            <span className={`status-pill status-${job.status}`}>{formatDisplayValue(job.status)}</span>
             <span>{formatJobTarget(job)} · {job.aiModel ?? t("development.autoModel")}</span>
             <span>{formatDateTime(job.createdAt)}</span>
           </button>
@@ -377,6 +326,7 @@ function AgentJobDetailScreen(props: {
   jobId: number;
   onOpen: (jobId: number) => void;
 }) {
+  const { showDetails } = useAgentLogDisplay();
   const [job, setJob] = useState<AgentJobDto | null>(null);
   const [activities, setActivities] = useState<ActivityDto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -480,11 +430,6 @@ function AgentJobDetailScreen(props: {
     }
   }
 
-  const visibleActivities = useMemo(
-    () => (job ? activities.filter((activity) => isRelevantAgentActivity(job, activity)) : []),
-    [activities, job]
-  );
-
   useEffect(() => {
     if (!job) return;
     const anchor = window.location.hash.slice(1);
@@ -502,7 +447,7 @@ function AgentJobDetailScreen(props: {
     }
     animationFrame = window.requestAnimationFrame(reveal);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [job, visibleActivities.length]);
+  }, [job, activities.length]);
 
   const providerProbe = recordValue(job?.waitMetadata?.lastProbe);
   const providerProbeCount = numberValue(job?.waitMetadata?.probeCount) ?? 0;
@@ -513,9 +458,10 @@ function AgentJobDetailScreen(props: {
     <div className="detail-page">
       <div className="page-toolbar">
         <div className="page-title-block">
-          <h1>{job ? `#${job.id} ${job.agentType}` : t("agents.detail")}</h1>
-          {job ? <span className={`status-pill status-${job.status}`}>{job.status}</span> : null}
+          <h1>{job ? `#${job.id} ${formatDisplayValue(job.agentType)}` : t("agents.detail")}</h1>
+          {job ? <span className={`status-pill status-${job.status}`}>{formatDisplayValue(job.status)}</span> : null}
         </div>
+        <AgentLogToggle />
       </div>
       {isRetrying ? (
         <AsyncState actionLabel={t("status.retry")} kind="retrying" message={t("status.retrying")} onAction={retryLoad} />
@@ -563,7 +509,7 @@ function AgentJobDetailScreen(props: {
                 </div>
                 <div>
                   <dt>{t("agents.trigger")}</dt>
-                  <dd>{job.triggerType}</dd>
+                  <dd>{formatDisplayValue(job.triggerType)}</dd>
                 </div>
                 <div>
                   <dt>{t("agents.provider")}</dt>
@@ -592,20 +538,19 @@ function AgentJobDetailScreen(props: {
               </dl>
             </div>
             <div className="agent-job-main-content">
-              {executions.length ? <section className="execution-history">
+              {showDetails && executions.length ? <section className="execution-history">
                 <h2>{t("development.executions")}</h2>
                 {executions.map((execution) => <article className="execution-record" key={execution.id}>
-                  <header><strong>{execution.resolvedModel ?? execution.selectedModel}</strong><span className="status-pill">{execution.status}</span></header>
-                  <p>{t("development.effort")}: {execution.effort ?? "—"} · {formatDateTime(execution.startedAt)}</p>
+                  <header><strong>{execution.resolvedModel ?? execution.selectedModel}</strong><span className="status-pill">{formatDisplayValue(execution.status)}</span></header>
+                  <p>{t("development.effort")}: {execution.effort ? formatDisplayValue(execution.effort) : "—"} · {formatDateTime(execution.startedAt)}</p>
                   <p>{execution.selectionReason}</p>
                   {execution.resolvedModel && execution.resolvedModel !== execution.selectedModel ? <p>{t("development.selectedModel")}: {execution.selectedModel}</p> : null}
                   <details><summary>{t("development.executionDetails")}</summary><pre>{JSON.stringify({ policy: execution.policyVersion, threadId: execution.threadId, turnId: execution.turnId, usage: execution.usage }, null, 2)}</pre></details>
                 </article>)}
               </section> : null}
+              <AgentActivityLog key={`${props.project.id}:${job.id}`} activities={activities} pullRequestId={job.targetType === "pull_request" ? job.targetId : undefined} />
               <h2 id="job-result">{t("agents.result")}</h2>
               <AgentJobResultSummary job={job} activities={activities} />
-              <h2 id="job-activities">{t("agents.activities")}</h2>
-              <ActivityLog activities={visibleActivities} />
             </div>
           </>
         ) : null}

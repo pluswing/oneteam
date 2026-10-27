@@ -128,9 +128,12 @@ test("folder initialization, two learning loops, agent logs and GitHub-style rev
   await expect(editedUserComment.locator(".comment-revision-history")).toContainText("Initial implementation note");
 
   await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.locator(".development-loop-card")).toHaveCount(0);
+  await page.getByLabel("Show detailed logs and history").check();
   await expect(page.locator(".development-loop-card .status-pill")).toHaveText("Paused");
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   await expect(page.locator(".development-loop-card .status-pill")).toHaveText("Running");
+  await page.getByLabel("Show detailed logs and history").uncheck();
   await page.locator(".page-toolbar").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Body")).toHaveValue("Exercise setup, label automation, and job controls.");
   await page.getByLabel("Body").fill("Exercise setup, label automation, job controls, and Goal Contract auditing.");
@@ -162,6 +165,9 @@ test("folder initialization, two learning loops, agent logs and GitHub-style rev
   ]);
   fixtureContext.client.close();
   await page.getByRole("button", { name: "Agent runs" }).click();
+  await expect(page.getByLabel("Show detailed logs and history")).not.toBeChecked();
+  await expect(page.locator(".agent-job-summary")).toHaveCount(0);
+  await page.getByLabel("Show detailed logs and history").check();
   await expect(page.locator(".development-loop-card")).toHaveCount(2);
   await expect(page.locator(".development-loop-card").first()).toContainText("Completed");
   await page.locator(".development-loop-card").last().getByText("Retrospective & history").click();
@@ -171,7 +177,9 @@ test("folder initialization, two learning loops, agent logs and GitHub-style rev
   await page.locator(".agent-job-summary").filter({ hasText: "requirements" }).first().click();
   await expect(page.locator(".execution-history")).toContainText("fixture-light");
   await expect(page.locator(".execution-history")).toContainText("Deterministic browser test model selection.");
-  await expect(page.locator(".activity-list")).toContainText("Learning received");
+  const activityHistory = page.getByRole("button", { name: /Show history/ });
+  if (await activityHistory.isVisible()) await activityHistory.click();
+  await expect(page.locator(".agent-activities")).toContainText("Learning received");
   await expectScreenContrast(page, "agent model history");
   await page.screenshot({ path: ".tmp/e2e/agent-model-history.png", fullPage: true });
 
@@ -436,16 +444,19 @@ test("folder initialization, two learning loops, agent logs and GitHub-style rev
   localeDb.client.close();
   await page.reload();
 
-  await page.getByRole("button", { name: "Pull Request", exact: true }).click();
+  await page.getByRole("button", { name: "プルリクエスト", exact: true }).click();
   await page.getByRole("button", { name: /Review a large generated diff/ }).click();
   await expect(page.getByRole("tab", { name: "変更ファイル", exact: true })).toBeVisible();
-  await expect(page.locator(".automation-checks")).toContainText("review");
+  await page.getByLabel("詳細ログと履歴を表示").check();
+  await expect(page.locator(".automation-checks")).toContainText("レビュー");
   const bilingualReport = page.locator(".html-body section").filter({ hasText: "日英表示検証レポート" });
   await expect(bilingualReport).toBeVisible();
   await expectScreenContrast(page, "Japanese pull request conversation");
   const bilingualTable = bilingualReport.locator("table");
   await expect(bilingualTable).toBeVisible();
   await expect(bilingualTable).toContainText("Gate / 判定");
+  await bilingualTable.scrollIntoViewIfNeeded();
+  await expect.poll(() => bilingualTable.evaluate((element) => element.clientWidth)).toBeGreaterThan(0);
   const tableMetrics = await bilingualTable.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
@@ -465,7 +476,7 @@ test("folder initialization, two learning loops, agent logs and GitHub-style rev
   await expect(page.getByPlaceholder("変更ファイルを検索")).toBeVisible();
   const longPathEntry = page.locator(".diff-file-list > button").filter({ hasText: longDiffPath });
   await expect(longPathEntry).toBeVisible();
-  await expect(page.locator(".diff-virtual-status")).toContainText("表示中のdiff行:");
+  await expect(page.locator(".diff-virtual-status")).toContainText("表示中の差分行:");
   const diffPageMetrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth

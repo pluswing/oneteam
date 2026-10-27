@@ -1,11 +1,14 @@
-export type View = "issues" | "pullRequests" | "agentJobs" | "repository";
+export type View = "chats" | "issues" | "pullRequests" | "vulnerabilities" | "agentJobs" | "repository";
 
 export type AppRoute =
+  | { name: "chats" }
+  | { name: "chat"; chatId: string }
   | { name: "issues" }
   | { name: "issue"; issueId: number }
   | { name: "pullRequests" }
   | { name: "pullRequest"; pullRequestId: number }
   | { name: "pullRequestConflicts"; pullRequestId: number }
+  | { name: "vulnerabilities" }
   | { name: "agentJobs" }
   | { name: "agentJob"; jobId: number }
   | { name: "repository" };
@@ -14,6 +17,7 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
   const segments = pathname.split("/").filter(Boolean);
   const [first, second, third] = segments;
   const id = numericSegment(second);
+  if (first === "chats") return second ? { name: "chat", chatId: second } : { name: "chats" };
 
   if (!first || (first === "issues" && id === null)) {
     return { name: "issues" };
@@ -38,6 +42,9 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
   if (first === "repository") {
     return { name: "repository" };
   }
+  if (first === "vulnerabilities") {
+    return { name: "vulnerabilities" };
+  }
   if (first === "loops" || first === "loop-runs") return { name: "agentJobs" };
 
   return { name: "issues" };
@@ -45,6 +52,8 @@ export function parseRoute(pathname = window.location.pathname): AppRoute {
 
 export function routeToPath(route: AppRoute): string {
   switch (route.name) {
+    case "chats": return "/chats";
+    case "chat": return `/chats/${encodeURIComponent(route.chatId)}`;
     case "issues":
       return "/issues";
     case "issue":
@@ -57,6 +66,8 @@ export function routeToPath(route: AppRoute): string {
       return `/pulls/${route.pullRequestId}/conflicts`;
     case "agentJobs":
       return "/jobs";
+    case "vulnerabilities":
+      return "/vulnerabilities";
     case "agentJob":
       return `/jobs/${route.jobId}`;
     case "repository":
@@ -65,6 +76,7 @@ export function routeToPath(route: AppRoute): string {
 }
 
 export function viewForRoute(route: AppRoute): View {
+  if (route.name === "chat") return "chats";
   if (route.name === "issue") {
     return "issues";
   }

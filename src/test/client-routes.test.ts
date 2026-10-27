@@ -3,6 +3,8 @@ import { parseRoute, routeToPath, viewForRoute } from "../client/routes";
 
 describe("client routes", () => {
   it("maps list and detail routes to stable paths", () => {
+    expect(routeToPath({ name: "chats" })).toBe("/chats");
+    expect(routeToPath({ name: "chat", chatId: "independent-context" })).toBe("/chats/independent-context");
     expect(routeToPath({ name: "issues" })).toBe("/issues");
     expect(routeToPath({ name: "issue", issueId: 1 })).toBe("/issues/1");
     expect(routeToPath({ name: "pullRequests" })).toBe("/pulls");
@@ -11,15 +13,20 @@ describe("client routes", () => {
     expect(routeToPath({ name: "agentJobs" })).toBe("/jobs");
     expect(routeToPath({ name: "agentJob", jobId: 3 })).toBe("/jobs/3");
     expect(routeToPath({ name: "repository" })).toBe("/repository");
+    expect(routeToPath({ name: "vulnerabilities" })).toBe("/vulnerabilities");
   });
 
   it("parses detail routes into their owning views", () => {
+    expect(parseRoute("/chats/independent-context")).toEqual({ name: "chat", chatId: "independent-context" });
+    expect(viewForRoute(parseRoute("/chats/independent-context"))).toBe("chats");
     expect(parseRoute("/issues/1")).toEqual({ name: "issue", issueId: 1 });
     expect(viewForRoute(parseRoute("/issues/1"))).toBe("issues");
     expect(parseRoute("/pulls/2/conflicts")).toEqual({ name: "pullRequestConflicts", pullRequestId: 2 });
     expect(viewForRoute(parseRoute("/pulls/2/conflicts"))).toBe("pullRequests");
     expect(parseRoute("/jobs/3")).toEqual({ name: "agentJob", jobId: 3 });
     expect(viewForRoute(parseRoute("/jobs/3"))).toBe("agentJobs");
+    expect(parseRoute("/vulnerabilities")).toEqual({ name: "vulnerabilities" });
+    expect(viewForRoute(parseRoute("/vulnerabilities"))).toBe("vulnerabilities");
     expect(parseRoute("/loops/4")).toEqual({ name: "agentJobs" });
     expect(viewForRoute(parseRoute("/loops/4"))).toBe("agentJobs");
     expect(parseRoute("/loop-runs/5")).toEqual({ name: "agentJobs" });

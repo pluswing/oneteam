@@ -1,56 +1,35 @@
-# AI provider setup
+# Local Codex setup
 
-OneTeam can run agent jobs with Codex, Claude Code, or LM Studio. The active
-provider is selected during first setup and can be changed later from Settings.
-New agent jobs store the selected provider so existing queued jobs remain
-reproducible after a provider switch.
-
-## Codex
+OneTeam uses the Codex CLI installed on your machine. It does not bundle, install or update Codex. Install and maintain it using the [official CLI instructions](https://learn.chatgpt.com/docs/cli), then verify and sign in from your terminal:
 
 ```sh
-npm run codex:version
-npm run codex:login
+codex --version
+codex login
+codex login status
 ```
 
-Codex uses the CLI installed in this project under `node_modules`. Before a
-Codex job runs, OneTeam checks `codex login status`. If authentication is
-missing, it starts `codex login`. `npm run codex:login` remains available as a
-manual fallback.
+The default command is `codex`, resolved from PATH. On macOS, OneTeam loads the login shell's PATH so Finder launches can find the same Codex and Node.js installation as your terminal. Jobs, chat, advisory translation and authentication use the same configured command and the usual Codex account/configuration directory. For a custom installation, set `ONETEAM_CODEX_COMMAND` to an executable path before launching OneTeam.
 
-The default Codex command is runtime managed:
+OneTeam checks login status before execution and opens login when needed. The CLI and, for npm-based installations, Node.js must be available on the app's PATH. A missing CLI is not replaced with a bundled copy or automatically installed. Developers can use `npm run codex:version` and `npm run codex:login` to invoke the terminal-installed CLI.
 
-```text
-node_modules/.bin/codex
-```
+OneTeam uses `codex app-server --listen stdio://` and retrieves every page of `model/list` before execution and model retries. It follows official successor metadata, current recommendations and newer listed Sol models, instead of permanently pinning automatic selection to one model name. See [Automatic Codex models](../README.md#automatic-codex-models) for selection, completed-work cost estimates, quality escalation and limitations.
 
-Agent jobs run Codex with:
+GPT-6.1 Sol is the reviewed baseline. A successful `thread/start` alone is insufficient: inference may still reject the model. An automatic access rejection is recorded and must not silently send work to the older GPT-5.6 Sol. Check the installed CLI version, login, account access and workspace model permissions, or explicitly select another model. Explicit selections are never silently replaced. Unlisted rejected probes have a ten-minute cooldown, bypassed by a fresh listing or explicit choice. Catalog failures stop work rather than using stale application data. Updating OneTeam does not update your CLI. Model access still depends on the client, account and rollout; future task completion cost cannot be guaranteed before execution.
 
-```text
-codex exec --json --dangerously-bypass-approvals-and-sandbox
-```
+## Chat
 
-The worker passes the target repository with `--cd`, writes a strict output schema
-with `--output-schema`, and reads the final response from `--output-last-message`.
-JSONL events emitted by Codex are saved as agent activity records.
+The Chat tab uses the same terminal-installed Codex CLI and login. Its conversations have separate persistent Codex threads and repository-local message histories. It uses the App Server's experimental dynamic-tool protocol to call OneTeam's existing project APIs, including Issue/PR operations, merge, Job restart, model settings, Loop control, knowledge and vulnerability operations. Use a recent Codex version that supports `dynamicTools` and `item/tool/call`.
 
-## Claude Code
+Each chat's model and reasoning controls apply to its next reply. Ask the assistant to inspect the current chat settings or to change development defaults, role-specific settings or a Job's model. Explicitly selected models are not silently replaced if access is denied. Automatic selection keeps the reviewed preference and fallback behavior described above. A Job's active model changes only when its execution is restarted; OneTeam waits for its previous execution and worktree lifecycle before requeueing it.
 
-Claude Code is treated as an external CLI adapter. Configure its command, model,
-permission mode, and max turns in Settings. Before a Claude Code job runs, one
-team checks `claude auth status` and can launch `claude auth login` when needed.
+The chat assistant is restricted to OneTeam's tools and read-only repository source inspection. Development Jobs keep the full command access described below. A stopped or interrupted response preserves completed operations and records incomplete work; OneTeam does not automatically replay it after restart. Conversation data is part of `.oneteam/data/oneteam.db` and should be included in repository workspace backups.
 
-Agent jobs run Claude Code in non-interactive print mode with stream JSON output
-and the same strict OneTeam output schema.
+## Command execution, Git and Docker
 
-## LM Studio
+OneTeam's development Agent jobs use `sandbox: "danger-full-access"` and `approvalPolicy: "never"`. Commands run with the permissions of the user running OneTeam, with filesystem and network access enabled and no per-command approval prompt. This applies to every development role, including requirements, review, command detection and retrospective. Each role still follows its task instructions, including instructions to inspect without changing source files. The background advisory-translation helper remains read-only.
 
-LM Studio is treated as an OpenAI-compatible local API provider. Configure its
-base URL, model, max tool rounds, and temperature in Settings. The default base
-URL is:
+Full access is needed because Git worktrees store their index, locks, objects and refs in the source repository's `.git/` directory, outside the job's worktree. Codex's `workspace-write` mode protects Git metadata even when the worktree itself is writable. It can therefore reject `git add` or `git commit` with `Unable to create .../.git/worktrees/.../index.lock: Operation not permitted`. Network access alone does not resolve this. OneTeam reapplies full access on thread start, thread resume and every turn so previously restricted jobs can continue.
 
-```text
-http://127.0.0.1:1234/v1
-```
+Commands such as `git`, `docker`, `jq`, `node`, package managers and build/test tools must be installed and available on the app's PATH. User caches, temporary directories and local daemon sockets are accessible under the current user's OS permissions. macOS privacy controls, administrator-enforced Codex policies and commands requiring administrator privileges still apply.
 
-Because LM Studio is not a code-editing CLI, OneTeam provides a small local tool
-loop for repository file reads/writes, file listing, and shell command execution.
+For Docker, start Docker Desktop and check that `docker version` succeeds in your terminal using the intended context. If OneTeam was already running, use a rebuilt app, quit and reopen it, then resume the failed Loop. Changing Git metadata or Docker socket file permissions, deleting lock files, or granting macOS Full Disk Access is not required for this sandbox-policy fix.

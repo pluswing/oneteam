@@ -131,7 +131,7 @@ export class LoopEngine {
   private async afterFailure(loop: DevelopmentLoopDto, job: AgentJobDto): Promise<void> {
     const message = job.error ?? String(job.output?.message ?? "Job failed.");
     // Infrastructure failures are not evidence that a more capable model is needed.
-    const infrastructure = /login|authenticat|connection|timed out|quota|rate.limit|model.*(unavailable|not found|not supported)|permission|ENOENT/i.test(message);
+    const infrastructure = /login|authenticat|connection|timed out|quota|rate.limit|model.*(unavailable|not found|not supported)|permission|ENOENT|GPT-[\d.]+ Solを利用できない|モデル.*(利用でき|使用でき|許可)/i.test(message);
     if (!infrastructure && loop.failures < 2 && loop.phase !== "reflecting") {
       if (loop.objectiveId) await this.repos.objectives.update(loop.projectId, loop.objectiveId, { status: "running", repeatedFailureCount: 0, stopReason: null });
       await this.repos.development.update(loop.projectId, loop.id, { currentJobId: null, failures: loop.failures + 1, status: "running", summary: `Retrying after: ${message}` });
@@ -161,6 +161,8 @@ export class LoopEngine {
       await this.repos.development.update(project.id, loop.id, { mergeCommit: result.mergeCommit, phase: "reflecting", nextAgent: "retrospective", currentJobId: null, status: "running", summary: "Merged. Preparing retrospective." });
     } else if (result.state === "requeued") {
       await this.repos.development.update(project.id, loop.id, { phase: "validating", nextAgent: "verifier", currentJobId: result.verifierJob.id, status: "running", summary: result.reason });
+    } else if (result.state === "blocked" && result.fixRequired) {
+      await this.repos.development.update(project.id, loop.id, { nextAgent: "fix", phase: "fixing", currentJobId: null, sourceCommit: null, targetCommit: null, status: "running", summary: result.reason });
     } else if ((await this.repos.pullRequests.get(project.id, pr.id))?.labels.some((label) => label.name === "resolving-conflicts")) {
       await this.repos.development.update(project.id, loop.id, { nextAgent: "fix", phase: "fixing", currentJobId: null, sourceCommit: null, targetCommit: null, status: "running", summary: result.reason });
     } else {

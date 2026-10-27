@@ -14,9 +14,9 @@ Download the macOS app from [GitHub Releases](https://github.com/pluswing/onetea
 2. Move **OneTeam.app** to **Applications** and launch it.
 3. Choose or drop your Git repository folder. Sign in to Codex if prompted when you start your first Issue.
 
-The app includes the Codex CLI. You do not need to clone or build OneTeam to use it. You need Git, a Codex login, and the tools required to build and test your own project.
+Install Codex CLI on your machine before using OneTeam. The app uses the same `codex` found on your terminal PATH and does not bundle, install or update the CLI. You also need Git, a Codex login, and the tools required to build and test your own project. See [local Codex setup](docs/09-local-codex-setup.md).
 
-Drop a Git repository folder onto the desktop app or choose a folder. The repository must already have its first commit. OneTeam initializes `.oneteam` when needed and opens an empty Issue list. **Initialization creates no Issue or Agent job.** Later launches reopen the last folder; the folder button opens another one.
+Drop a Git repository folder onto the desktop app or choose a folder. The repository must already have its first commit. OneTeam initializes `.oneteam` when needed and opens an empty Issue list. Vulnerability monitoring starts separately in its own tab. Later launches reopen the last folder; the folder button opens another one.
 
 Create an Issue describing the requested change and acceptance criteria. OneTeam queues it automatically. Loops execute one at a time in that folder. No project registration, provider selector, model selector or detailed settings screen is needed.
 
@@ -30,24 +30,113 @@ See the introduction and sample screenshots in [English](docs/index.html) or [�
 
 ## Development workflow
 
+- **Chat tab:** the leftmost tab opens a conversation list and assistant. Each conversation keeps its own history and Codex thread. Ask questions, plan an Issue, inspect current work, or instruct OneTeam to create/edit Issues and PRs, post comments, merge PRs, control Loops, restart the current Job, change models, manage knowledge and run vulnerability operations. Actions use the same APIs and checks as the rest of the app, and their actual results appear in the conversation.
 - **Issues / Pull Requests:** descriptions, comments and their edit history, review findings, Git diffs, line comments and commit history.
 - **Development Loop panel:** current phase, pause / resume / cancel, related PR and Agent jobs, retrospective and knowledge changes. A paused or failed Loop holds the queue until it is resumed or canceled.
-- **Agent tab:** progress, commands, changed files, test evidence and execution history. Each attempt records the selected model, model returned by Codex, reasoning effort, selection reason, thread / turn IDs, timestamps and available usage.
+- **Agent tab:** running and waiting tasks are shown by default. Enable **Show detailed logs and history** to include completed, failed, paused and canceled tasks, model selection, thread events, commands and execution history. The same toggle applies to Issue and PR conversations and Loop panels, and stays selected while navigating. Comments and result reports remain available. Each attempt records the selected model, model returned by Codex, reasoning effort, selection reason, thread / turn IDs, timestamps and available usage. Job details always show the latest activity, including completed Jobs. Status badges, messages, file lists, tests and evidence replace raw result JSON. **Show history** reveals earlier activities in newest-first order independently of the diagnostic toggle; history starts collapsed for each Job and after reload.
 - **Repository tab:** detected commands, working-tree status and commit history.
+- **Header status:** click the running, queued or waiting status to open the current Agent job, or its related Issue/PR while the Loop is between jobs.
+- **Vulnerabilities tab:** dependency advisories, scheduled and manual checks, an overall repair proposal with approval, repair progress and resolved history.
 
 Implementation and fixes use branch worktrees. Other roles use commit snapshots. OneTeam runs detected verification commands and checks the source and target commits again before merging. Changed commits require fresh verification; conflicts return to fixing. Missing evidence, execution errors or unresolved input stop the Loop with an explanation. Reply to an Agent's question in the Issue or PR to resume it.
 
+For an active Loop, **Merge pull request** queues the verified candidate for the same merge checks; workflow labels do not override its current verifier record. Canceling a Loop leaves its PR open and available for an explicit manual merge, which checks Git state and conflicts without restarting the canceled Loop. Merge errors remain visible beside the button across automatic refreshes.
+
 Closing an Issue before merge cancels its Loop. Reopening creates follow-up work while preserving earlier deliveries. A merge requested from the PR screen uses the same Loop engine and verification checks. Standalone local PRs can still be managed manually.
+
+## Conversations and model settings
+
+Open **Chat → New chat** to start an independent context. Rename or delete a conversation from its header. A stopped response keeps completed operations and their results; deleting a conversation does not undo changes to Issues, PRs or Jobs. Conversation history and settings are stored in the current repository's `.oneteam/data/oneteam.db`, and Codex threads resume after reopening the app. Interrupted responses are marked as interrupted rather than automatically repeating operations.
+
+For example, ask “Summarize the Jobs that need attention,” “Help me draft an Issue; ask questions before creating it,” “Create the Issue we agreed on,” “Restart Job #12 with GPT-6.1 Sol and high reasoning,” or “Merge PR #3.” Explicit instructions can run operations directly; questions and drafting help do not automatically create Issues. Queued work is reported as queued, and existing conflict, evidence and merge gates continue to apply. The chat assistant operates the current repository through OneTeam tools; it does not read other conversations or edit the database through shell commands.
+
+The conversation's model and reasoning controls affect its next response. Development Job settings can be changed through chat for the project, for an Agent role, or for a specific Job, in that order of increasing priority. Model and effort values must be supported by the current Codex catalog or the reviewed release candidate. A requested restart first pauses the current Job and waits for its execution and worktree handling to finish. Completed historical Loop jobs cannot be replayed over later work; create a follow-up Issue instead. Available models still depend on the signed-in Codex account.
+
+## Vulnerability monitoring and repair
+
+Opening a project starts a dependency check. While OneTeam is open, it checks again every 24 hours; use **Vulnerabilities → Update now** to refresh immediately. The tab can disable automatic checks and change the update interval. Repairs require approval of an overall proposal; checks never start a repair automatically, including in workspaces that previously enabled automatic repairs. Checks and their results persist in the folder database. Closing OneTeam stops checks; reopening catches up when a check is due. Service failures retain the last successful findings and schedule a retry instead of reporting a clean project.
+
+日本語表示では、確認範囲の注意事項・検査エラーと、脆弱性の概要・詳細を日本語で表示します。外部アドバイザリの翻訳には Codex へのログインが必要です。翻訳はバックグラウンドで行い、結果をキャッシュします。原文は展開して確認できます。翻訳待ち・翻訳失敗の状態を明示し、検査や承認済みの修正はそのまま続行します。
+
+結果は、更新するイメージ・環境・パッケージごとにまとめて表示します。親項目に現在のイメージ、対象サービス・設定ファイル、最大の深刻度と内訳件数を表示し、個別の CVE やサポート終了項目は展開して確認できます。例えば MySQL イメージ内の Go `stdlib` や OS パッケージは「mysql のコンテナイメージを更新」の子項目になります。個別パッケージの修正バージョンを、そのままイメージのタグとして扱うことはありません。同じイメージの更新では、修正バージョン未公開の子項目も再検査の対象に含めます。深刻度で絞り込んでも親項目には対象全体の最大リスクを表示し、対応時は同じ更新対象の未解決項目全体を確認します。
+
+サポート終了が判明した OS・言語ランタイム・ミドルウェアは、結果一覧に「OSアップデート」「言語・ランタイムのアップデート」「ミドルウェアのアップデート」として追加します。OS は Trivy の EOSL 情報、それ以外も含むサポート期限は [endoflife.date の公開カタログ](https://endoflife.date/docs/api/v1/) と検出した製品・バージョンから確認します。言語の許可リストは設けませんが、期限を判定するには製品の識別情報とカタログの対応データが必要です。更新先を確認できない場合も項目を残します。リポジトリのバージョン指定やイメージの更新を全体の対応案に含め、ユーザの承認後に実行します。再検査でサポート中と確認できた場合に解決済みにします。期限情報の取得失敗や対象の消失だけでは解決済みにしません。
+
+検査エラーは実際の診断内容から分類し、アプリ専用データベースの再取得、キャッシュの分離、一時的な通信障害の再試行、制限時間の延長、管理する検査ツールの再検証などを実施して再検査します。復旧処理と結果は画面に表示します。それでも失敗する場合は原因と試行内容を結果一覧に追加し、リポジトリ内の設定・依存関係ファイルなどの修正を全体の対応案に含めます。実行はユーザの承認後に開始します。検査が成功するまで完了とは扱いません。必要な認証情報や外部環境の変更が不足する場合は、その具体的な対応を表示します。証明書検証や検査対象を無効化して成功扱いにはしません。
+
+デプロイ先の検査失敗も、イメージ名・タグ・SBOM などの指定不備や検査設定の問題は全体の対応案の対象です。以前「外部での対応が必要」として保存した該当項目も、起動時に対応区分を見直します。認証不足や外部環境の操作が必要な問題は具体的な必要事項を表示し、稼働中の環境は変更しません。
+
+「確認範囲と注意事項」に残る問題も、「確認範囲の改善」として全体の対応案にまとめ、承認後に対応します。ロックファイル・解決済み依存関係一覧の不足、ビルド後の環境が未検査、未確定の環境設定、デプロイ先・ホストの未確認範囲、検査上限、サポート期限情報の不足などを改善タスクへ渡し、必要な検査入力や再現可能な設定を用意して再検査します。以前保存した注意事項も起動時に引き継ぎます。同じ対象の問題をまとめ、元のソースと対象を検査できた場合に解決済みにします。警告・宣言ファイル・対象を削除しただけでは完了にしません。ホストを別の SSH・rootfs・SBOM で検査する場合は、例えば `covers: ["docker-context:production#host"]` で対応付けられます。イメージ検査だけでホストを確認済みにはしません。既存の認証情報で対応できない範囲は、必要な情報や権限を具体的に示して入力待ちになります。
+
+OneTeam delegates dependency discovery to [Trivy](https://trivy.dev/docs/latest/coverage/language/), with no language allowlist in the application. PHP/Composer, Ruby/Bundler, Python/pip/Poetry/uv, Node.js, Java, Go, Rust, .NET and other formats supported by the scanner use the same workflow. Supply resolved dependency files, installed package metadata, or an SBOM so package versions can be identified. Support depends on the scanner's analyzers and available package information; an arbitrary source language alone does not establish vulnerability coverage. Missing inventories, unsupported formats, scanner failures, end-of-life operating systems and inspection limits remain visible as incomplete coverage.
+
+The pinned Trivy executable is downloaded from its official release on first use, verified against an embedded SHA-256 checksum, and cached under `~/.oneteam/tools/`; vulnerability databases are updated by the scanner and cached separately. Automatic setup supports macOS and Linux on Intel/AMD64 and ARM64. Set `ONETEAM_TRIVY_COMMAND` to an absolute path to use an installed executable on another platform or in a managed environment. First use requires network access and can take several minutes. Repository Trivy configuration and ignore files cannot suppress this check. Only vulnerability scanning is enabled. An OSV fallback can still report npm findings if the universal scanner is unavailable, but is marked incomplete and cannot resolve previously detected findings.
+
+`compose.yaml`, `compose.yml`, `docker-compose.yaml`, their overrides, Dockerfile base images and Kubernetes container image references are discovered automatically. Image inspection checks OS packages, middleware and application dependencies without starting containers or executing build steps. Compose `platform` is respected. A Dockerfile base-image scan does not cover packages installed by its build; local builds, templated image names and included environments stay unchecked until the current built image, root filesystem or SBOM is supplied. The tab separates application, container and deployment targets and shows the scanner, reference, inspection status and errors for each.
+
+Known deployment configuration files are also detected. A provider name or public URL cannot reveal installed OS and middleware versions. Configure inspectable deployment targets in the repository's local `.oneteam/vulnerability-targets.json`, for example:
+
+```json
+{
+  "targets": [
+    {
+      "name": "Production workloads",
+      "kind": "kubernetes",
+      "context": "production",
+      "namespace": "app"
+    },
+    {
+      "name": "Production Docker workloads",
+      "kind": "docker-context",
+      "context": "production"
+    },
+    {
+      "name": "Production host",
+      "kind": "ssh",
+      "host": "app.example.com",
+      "user": "inspector",
+      "port": 22
+    },
+    {
+      "name": "Current built service image",
+      "kind": "image",
+      "ref": "registry.example.com/app@sha256:REPLACE_WITH_ACTUAL_DIGEST",
+      "platform": "linux/amd64",
+      "covers": ["compose.yaml#services.web:build", "Dockerfile#build"]
+    },
+    {
+      "name": "Exported production inventory",
+      "kind": "sbom",
+      "path": "security/production.cdx.json",
+      "covers": ["vercel.json#deployment"]
+    }
+  ]
+}
+```
+
+Use only the entries relevant to your environment and replace the sample values. `kind: "rootfs"` with a repository-local directory is another option. SBOM files and root filesystems must be inside the repository and cannot be symlinks. Supply current artifacts: the app does not establish their freshness or deploy them. `covers` associates an explicitly supplied runtime artifact with an otherwise unresolved build or deployment definition, and only takes effect when that artifact is successfully scanned.
+
+Docker and Kubernetes inspections use the existing CLI credentials and query running container status. They scan the actual image digest and deployed platform, rather than assuming that a configured tag is running. Kubernetes requires access to pods and node OS/architecture metadata. Image checks do not inspect changes in container writable layers or the host/node OS; a separate notice records this boundary, and host/rootfs/SBOM inspections appear as additional targets. SSH uses existing noninteractive credentials and verified host keys to run an already installed Trivy against the destination root filesystem. It does not install remote tools or restart services. Missing tools, credentials, permissions, image digests or inventories leave the target unchecked. No remote inspection is initiated from a guessed URL.
+
+The tab prepares one overall remediation plan that requires resolving targeted Critical vulnerabilities and reduces High vulnerabilities wherever possible. It combines dependency, base-image and runtime updates with necessary lifecycle updates and inspection recovery. The plan shows the concrete artifacts and files to update, fixed-version candidates for dependencies, and the verification work. Findings are split into **Included in this plan** and **Excluded from this plan**, with a reason for every exclusion. Shared artifact updates include related findings, including lower severities and advisories without a published fix. Unfixable or external Critical/High findings remain visible as outstanding risks; the proposal does not promise to resolve them.
+
+Review the proposal and choose **Approve and execute plan** or **Do not execute now**. Approval starts one internal repair task. There are no individual finding or group repair buttons, and detail filters never narrow the approved scope. Changed inspection results require reviewing a fresh plan. Approved targets remain in the included list while work is active. An inaccessible deployment does not prevent repair of an independently verified application.
+
+Repair tasks also appear in the Issue list; the Vulnerabilities tab shows their progress, PR, Agent history and pause/resume/cancel controls. They share the existing development queue, branch worktrees, review, QA and merge gates, so an earlier paused or failed Loop still holds the queue. Repairs can update dependency files and repository-managed Dockerfile/Compose/Kubernetes image references. Repository repair does not deploy, update or restart a live environment. Failed repairs require an explicit resume. Findings without a known repair remain visible with the required investigation or external action.
+
+Before merging a repair, OneTeam independently checks the candidate's corresponding targets again. If a targeted advisory still affects the package, even at another version or workspace path, the Loop returns to fixing. Incomplete target checks and service errors stop progress with an explanation. A subsequent successful check of that target confirms resolution; an unavailable target retains its previous findings, and a merged PR alone never marks them resolved. These checks find known package vulnerabilities, not all vulnerabilities in application code or all configuration risks.
 
 ## Automatic Codex models
 
-OneTeam asks the bundled Codex App Server for its model catalog. A versioned internal policy chooses a model and supported reasoning effort from task scope, changed files, review findings and previous quality failures:
+OneTeam uses the terminal-installed Codex CLI for authentication, chat, Jobs and advisory translation. The default command is `codex`, resolved from PATH. On macOS, the desktop app loads the login shell's PATH for Finder launches. An explicit `ONETEAM_CODEX_COMMAND` executable path can select a custom installation. OneTeam does not bundle, install or update Codex; keep your terminal installation current when a model requires newer client support. Account access is still required.
 
-- Small documentation or wording changes prefer a lightweight model.
-- Normal development uses a standard coding model.
-- Architecture, data migration, security, concurrency or repeated quality failures prefer stronger reasoning.
+Before every execution and model retry, OneTeam retrieves the current [`model/list`](https://learn.chatgpt.com/docs/app-server#list-models-modellist) catalog and saves it with its retrieval time. The versioned policy starts with **GPT-6.1 Sol**, follows available official `upgrade`/`upgradeInfo` successor chains, a newly recommended model family, and newer Sol models actually returned by the catalog. It never constructs an unannounced future model ID. Future model prices and performance remain unknown until verified; a newer name alone is not proof of lower completion cost.
 
-Model availability also depends on the account. If a catalog entry is rejected before any tool work, OneTeam records the failed attempt and retries with another available model. Capacity limits use persisted waiting and retry, rather than treating them as code-quality failures. Codex model reroutes are recorded. Unknown historical models and missing usage remain unknown; token counts are not presented as billing costs.
+The reviewed October 27, 2026 standard API input/output rates per million tokens are $2/$10 for [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol), versus $4/$20 for [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol). These guide the current preference, not Codex subscription billing. Normal development uses medium reasoning, bounded wording changes low (or current GPT-6 Luna with high reasoning when available), and security/architecture/large changes or quality failures high, limited to the chosen model's supported efforts. Different effort names never force a downgrade to an older model. Focused command detection and small documentation/wording implementations can use available GPT-6 Luna; quality failures return to the balanced model. Two quality failures can escalate to an available Astra model, since repeatedly failing with a cheaper token price can cost more overall. Capacity failures do not trigger quality escalation. Turns explicitly use standard speed rather than inheriting a premium speed tier.
+
+For implementation and fix Jobs, historical selection considers whole workflow cost rather than a single successful response. It includes requirements, implementation, fixes, retries, review, QA and final verification. A successful sample requires a merged completed Loop and an independently successful verifier with `stopConditionMet`. Failed workflows with complete usage are charged against successful completions. Model comparisons require at least eight verified completions per candidate in the same task-complexity bucket, no worse observed completion rate, and at least a 20% estimated saving. Mixed implementation models, missing usage, unreviewed rates, long-context uncertainty and incomplete token counters are excluded. Estimates use reviewed API rates and are not bills or guarantees of future cost. New models without cost history initially follow catalog recommendations.
+
+When an older catalog omits GPT-6.1 Sol, OneTeam can probe this explicitly reviewed release. If access is denied before tool work, it records the rejection and refreshes the catalog. It **stops instead of automatically reverting from unavailable GPT-6.1 Sol to GPT-5.6/GPT-6 Sol**. The message directs the user to account/workspace model availability or an explicit model choice. Unlisted rejected probes have a ten-minute process-local cooldown; a refreshed listing or explicit model choice bypasses it. Explicit models are never silently replaced. Server-side model reroutes update both execution history and the displayed Job model; chat records the resolved model too. Unknown usage stays unknown, and catalog retrieval failure stops work instead of reusing a stale list.
 
 ## Knowledge and local data
 
