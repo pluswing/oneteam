@@ -199,6 +199,7 @@ writeFileSync(outputPath, JSON.stringify({
     expect(args.at(-1)).toBe("-");
     expect(metadataObjectSchema?.required).toEqual([
       "nextLabel",
+      "humanHandoff",
       "goalContract",
       "pullRequest",
       "review",

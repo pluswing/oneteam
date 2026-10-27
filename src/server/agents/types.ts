@@ -1,5 +1,6 @@
 import type { ActivityType, AgentJobDto, AgentJobStatus } from "../../shared/types";
 import type { ObjectiveEvidenceRequirement } from "../../shared/evidence-requirements";
+import type { HumanHandoff } from "./autonomy-policy";
 
 export type AgentActivityResult = {
   type: ActivityType;
@@ -42,6 +43,7 @@ export type AgentRunResult = {
   stopReason?: AgentStopReason | null;
   evidence?: AgentEvidenceResult[] | null;
   metadata?: {
+    humanHandoff?: HumanHandoff | null;
     nextLabel?: string | null;
     goalContract?: {
       evidenceRequired?: ObjectiveEvidenceRequirement[] | null;

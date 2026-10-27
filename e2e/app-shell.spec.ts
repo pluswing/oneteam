@@ -4,7 +4,7 @@ import type { IssueDto, ProjectDto } from "../src/shared/types";
 test("keeps the repository header and navigation fixed while scrolling and resizing", async ({ page }) => {
   const timestamp = "2026-10-27T00:00:00.000Z";
   const project: ProjectDto = {
-    id: "header-fixture", name: "tfg_doc_git", repoPath: "/workspace/tfg_doc_git", defaultBranch: "main",
+    id: "header-fixture", name: "example-project", repoPath: "/workspace/example-project", defaultBranch: "main",
     locale: "en", createdAt: timestamp, updatedAt: timestamp
   };
   const issues: IssueDto[] = Array.from({ length: 35 }, (_, index) => ({

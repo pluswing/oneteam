@@ -18,6 +18,6 @@ npm install
 npm run docs:screenshots
 ```
 
-The command builds OneTeam, creates temporary sample repositories, launches Electron with its worker disabled, captures eight PNGs, and removes its temporary workspaces. It does not run Codex tasks or modify the user's active workspace. A Codex connection label may reflect the local login status; sample model names do not assert account availability.
+The command builds OneTeam, creates temporary sample repositories, launches Electron with its worker disabled, captures the eight bilingual PNGs plus a repository view, and removes its temporary workspaces. It does not run Codex tasks or modify the user's active workspace. A Codex connection label may reflect the local login status; sample model names do not assert account availability.
 
-The older, unsuffixed images in this directory are retained for historical documentation and are not used by the current introduction pages.
+Display data replaces machine-local paths with `/workspace/field-notes`, `/workspace/docs-demo`, or `/home/demo` before capture. The repository view is recaptured with the same path redaction. The remaining older unsuffixed illustrations use fictional demo data and are retained for historical documentation; current introduction pages use the bilingual captures. The legacy `scripts/capture-docs-screenshots.mjs` entry point delegates to the same isolated workflow.

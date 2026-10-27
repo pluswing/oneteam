@@ -33,3 +33,7 @@ Full access is needed because Git worktrees store their index, locks, objects an
 Commands such as `git`, `docker`, `jq`, `node`, package managers and build/test tools must be installed and available on the app's PATH. User caches, temporary directories and local daemon sockets are accessible under the current user's OS permissions. macOS privacy controls, administrator-enforced Codex policies and commands requiring administrator privileges still apply.
 
 For Docker, start Docker Desktop and check that `docker version` succeeds in your terminal using the intended context. If OneTeam was already running, use a rebuilt app, quit and reopen it, then resume the failed Loop. Changing Git metadata or Docker socket file permissions, deleting lock files, or granting macOS Full Disk Access is not required for this sandbox-policy fix.
+
+## Autonomous development Loops
+
+Routine implementation choices and requests for permission to continue are resolved within the authorized task. A proposed human handoff is reconsidered once in the same worktree if it lacks a concrete indispensable blocker; the agent must explain attempted recovery and why user information or authority is necessary. Interactive question tools receive no fabricated answer. Managed verification/evidence failures go through bounded automatic repair and re-verification. Explicit pauses, cancellation, policy boundaries, budgets and genuine external blockers remain enforced. See [Automatic progress and human handoffs](../README.md#automatic-progress-and-human-handoffs).

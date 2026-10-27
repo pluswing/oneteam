@@ -10,6 +10,7 @@ import type {
   ProviderCapacityProbeResult
 } from "./types";
 import { unstructuredAdapterStopResult, validateAdapterStopResult } from "./adapter-guardrails";
+import { humanHandoffSchema } from "./autonomy-policy";
 
 export type CodexAdapterOptions = {
   command: string;
@@ -645,6 +646,7 @@ export const agentOutputSchema = {
             nextLabel: {
               type: ["string", "null"]
             },
+            humanHandoff: humanHandoffSchema,
             goalContract: {
               anyOf: [
                 {
@@ -941,7 +943,7 @@ export const agentOutputSchema = {
               ]
             }
           },
-          required: ["nextLabel", "goalContract", "pullRequest", "review", "fix", "qa", "verifier"],
+          required: ["nextLabel", "humanHandoff", "goalContract", "pullRequest", "review", "fix", "qa", "verifier"],
           additionalProperties: false
         },
         {

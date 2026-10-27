@@ -108,7 +108,7 @@ Response:
     {
       "id": "project_123",
       "name": "example-app",
-      "repoPath": "/Users/me/example-app",
+      "repoPath": "/path/to/example-app",
       "defaultBranch": "main",
       "locale": "en",
       "createdAt": "2026-05-20T10:00:00.000Z",
@@ -126,7 +126,7 @@ Request:
 {
   "mode": "import",
   "name": "example-app",
-  "repoPath": "/Users/me/example-app",
+  "repoPath": "/path/to/example-app",
   "defaultBranch": "main",
   "locale": "en"
 }
@@ -139,7 +139,7 @@ Response:
   "project": {
     "id": "project_123",
     "name": "example-app",
-    "repoPath": "/Users/me/example-app",
+    "repoPath": "/path/to/example-app",
     "defaultBranch": "main",
     "locale": "en"
   },

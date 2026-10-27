@@ -134,7 +134,10 @@ export class LoopEngine {
     const infrastructure = /login|authenticat|connection|timed out|quota|rate.limit|model.*(unavailable|not found|not supported)|permission|ENOENT|GPT-[\d.]+ Solを利用できない|モデル.*(利用でき|使用でき|許可)/i.test(message);
     if (!infrastructure && loop.failures < 2 && loop.phase !== "reflecting") {
       if (loop.objectiveId) await this.repos.objectives.update(loop.projectId, loop.objectiveId, { status: "running", repeatedFailureCount: 0, stopReason: null });
-      await this.repos.development.update(loop.projectId, loop.id, { currentJobId: null, failures: loop.failures + 1, status: "running", summary: `Retrying after: ${message}` });
+      const validation = (job.output?.metadata as AgentRunResult["metadata"])?.adapterValidation as { passed?: boolean } | undefined;
+      const repair = job.agentType === "verifier" && loop.pullRequestId && job.output?.stopReason !== "timeout" && validation?.passed !== false;
+      await this.repos.development.update(loop.projectId, loop.id, { currentJobId: null, failures: loop.failures + 1, status: "running",
+        ...(repair ? { nextAgent: "fix", phase: "fixing" } : {}), summary: `Retrying after: ${message}` });
     } else await this.repos.development.update(loop.projectId, loop.id, { status: "failed", summary: message });
   }
 

@@ -292,7 +292,7 @@ Pull Request detail の中心は `Files changed` とし、GitHub 相当以上に
 +--------------------------------------------------------------------------------+
 | Repository                                                                     |
 +--------------------------------------------------------------------------------+
-| Path        /Users/me/project                                                  |
+| Path        /path/to/project                                                  |
 | Default     main                                                               |
 | Current     oneteam/issue-24-add-build-command                                 |
 | Status      clean                                                              |

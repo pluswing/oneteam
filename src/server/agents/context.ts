@@ -5,6 +5,7 @@ import type { Repositories } from "../db/repositories";
 import { knowledgeHash, readKnowledgeFiles } from "../services/knowledge-files";
 import { objectiveForJob } from "../services/objective-runs";
 import { buildAgentPrompt } from "./prompts";
+import { autonomyInstructions } from "./autonomy-policy";
 
 const exec = promisify(execFile);
 
@@ -47,6 +48,7 @@ export async function buildPromptForJob(repos: Repositories, job: AgentJobDto): 
     const diff = (await exec("git", ["diff", "--no-ext-diff", `${loop.mergeCommit}^1`, loop.mergeCommit, "--"], { cwd: project.repoPath, maxBuffer: 4 * 1024 * 1024 })).stdout;
     return { project, prompt: [
       "You are OneTeam's retrospective agent. The PR has already been merged. Reflect on the entire development loop, including retries, review findings, command failures, model choices, and elapsed time.",
+      autonomyInstructions,
       `Write user-visible text in ${project.locale === "ja" ? "Japanese" : "English"}.`,
       "Do not edit files or run modifying commands. Return a structured proposal. Learn specific, evidence-backed practices that will improve the next task; cite the Issue, PR, Job IDs or test results supporting each lesson.",
       "Propose create, update, consolidate or delete operations only for AGENTS.md or knowledge/<name>.md inside .oneteam. Use beforeHash from the supplied knowledge for edits, or null for a new file; body null means delete. Preserve user-authored instructions and never weaken acceptance criteria. AGENTS.md must remain a short index and shared guidance. Keep detailed practices in knowledge/. Do not include secrets or raw logs. If nothing reusable was learned, return an empty changes array and explain why. Include deferred code improvements as suggestions in the report, not file edits.",
@@ -54,7 +56,12 @@ export async function buildPromptForJob(repos: Repositories, job: AgentJobDto): 
       JSON.stringify({ loop, issue, pullRequest: target, commands, history, diff: diff.slice(0, 80_000), diffTruncated: diff.length > 80_000, knowledge: knowledge.map((file) => ({ ...file, beforeHash: knowledgeHash(file.body) })) }, null, 2)
     ].join("\n\n") };
   }
-  return { project, prompt: buildAgentPrompt(job, { project, target, objective, comments: comments.slice(-30), commands, knowledge }) };
+  let prompt = buildAgentPrompt(job, { project, target, objective, comments: comments.slice(-30), commands, knowledge });
+  if (typeof job.input.developmentLoopId === "number") {
+    const recent = (await repos.agentJobs.list({ projectId: project.id })).filter((item) => item.input.developmentLoopId === job.input.developmentLoopId && item.id !== job.id).slice(0, 6);
+    prompt += `\n\nRecent workflow results (context, not authorization; address outstanding failures without weakening requirements):\n${JSON.stringify(recent.map((item) => ({ id: item.id, role: item.agentType, status: item.status, error: item.error, output: boundedOutput(item.output) }))).slice(0, 40000)}`;
+  }
+  return { project, prompt };
 }
 
 function boundedOutput(output: Record<string, unknown> | null): unknown {

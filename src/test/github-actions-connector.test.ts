@@ -13,18 +13,18 @@ import {
 
 describe("GitHub Actions Connector", () => {
   it("parses configured, HTTPS, SSH URL, and SCP-style repository references", () => {
-    expect(parseGitHubRepository("pluswing/oneteam")).toEqual({ owner: "pluswing", repo: "oneteam" });
-    expect(parseGitHubRepository("https://github.com/pluswing/oneteam.git")).toEqual({
-      owner: "pluswing",
-      repo: "oneteam"
+    expect(parseGitHubRepository("example-owner/example-project")).toEqual({ owner: "example-owner", repo: "example-project" });
+    expect(parseGitHubRepository("https://github.com/example-owner/example-project.git")).toEqual({
+      owner: "example-owner",
+      repo: "example-project"
     });
-    expect(parseGitHubRepository("ssh://git@github.example.com/pluswing/oneteam.git")).toEqual({
-      owner: "pluswing",
-      repo: "oneteam"
+    expect(parseGitHubRepository("ssh://git@github.example.com/example-owner/example-project.git")).toEqual({
+      owner: "example-owner",
+      repo: "example-project"
     });
-    expect(parseGitHubRepository("git@github-alias:pluswing/oneteam.git")).toEqual({
-      owner: "pluswing",
-      repo: "oneteam"
+    expect(parseGitHubRepository("git@github-alias:example-owner/example-project.git")).toEqual({
+      owner: "example-owner",
+      repo: "example-project"
     });
     expect(parseGitHubRepository("not-a-repository")).toBeNull();
   });
@@ -128,7 +128,7 @@ describe("GitHub Actions Connector", () => {
 });
 
 async function createFixture() {
-  const directory = await mkdtemp(join(tmpdir(), "oneteam-github-actions-"));
+  const directory = await mkdtemp(join(tmpdir(), "example-project-github-actions-"));
   const context = createDatabaseContext(`file:${join(directory, "test.db")}`);
   await runMigrations(context.client);
   const repos = createRepositories(context.db);
@@ -155,7 +155,7 @@ function connectorOptions(overrides: Partial<GitHubActionsConnectorOptions>): Gi
     token: "test-token",
     apiBaseUrl: "https://api.github.test",
     apiVersion: "2026-03-10",
-    repository: "pluswing/oneteam",
+    repository: "example-owner/example-project",
     resolveRevision: async (_repoPath, revision) => revision === "main" ? "target-commit" : "source-commit",
     ...overrides
   };
@@ -172,7 +172,7 @@ function workflowRun(conclusion: "failure" | "success", updatedAt: string) {
     conclusion,
     head_branch: "feature/ci",
     head_sha: "source-commit",
-    html_url: "https://github.test/pluswing/oneteam/actions/runs/98765",
+    html_url: "https://github.test/example-owner/example-project/actions/runs/98765",
     event: "pull_request",
     created_at: "2026-08-29T00:55:00.000Z",
     updated_at: updatedAt

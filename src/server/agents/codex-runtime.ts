@@ -3,6 +3,7 @@ import { agentOutputSchema, classifyCodexRateLimitSnapshot, extractAgentRunResul
 import { CodexRpc, listCodexModels, type CodexModel, type RpcMessage } from "./codex-rpc";
 import { assertAutomaticModelFallback, modelSelectionCandidates, selectTaskModel } from "./model-router";
 import { requestedJobModel } from "../services/model-settings";
+import { autonomyInstructions, humanHandoffSchema, type HumanHandoff } from "./autonomy-policy";
 import type { AgentAdapter, AgentActivityResult, AgentRunResult, ProviderCapacityProbeResult } from "./types";
 
 export type ModelSelection = { model: string; effort: string | null; reason: string; policyVersion: string };
@@ -107,6 +108,8 @@ export class CodexRuntime implements AgentAdapter {
 
       let finalText = "";
       let questions: string[] = [];
+      let routineInputRequests = 0;
+      let requiredApproval: HumanHandoff | null = null;
       let finished = false;
       let interrupting = false;
       let finish!: (result: { status: string; error?: { message?: string } }) => void;
@@ -166,6 +169,18 @@ export class CodexRuntime implements AgentAdapter {
           emit({ type: "thinking", title: "Codex thinking summary", body: String(params.delta ?? "") });
         }
         if (message.id !== undefined && message.method) {
+          if (/requestApproval|execCommandApproval|applyPatchApproval/.test(message.method)) requiredApproval = {
+            reason: "external_access", blocker: `The configured execution policy requires approval for ${message.method}.`,
+            attemptedResolution: "The approval request was canceled without granting consent or bypassing the execution policy.",
+            whyHumanRequired: "Only the user or policy administrator can grant this required permission."
+          };
+          if (message.method === "item/tool/requestUserInput" && input.job.input.developmentLoopId && routineInputRequests++ < 2) {
+            // No option is selected or consent invented. Ask the agent to use its
+            // existing autonomy instructions and return a justified structured stop.
+            rpc.respond(message.id, { answers: {} });
+            emit({ type: "system", title: "Interactive question deferred", body: "No user answer was supplied. Continue ordinary work or explain an indispensable blocker in the structured result." });
+            return;
+          }
           questions = Array.isArray(params.questions)
             ? params.questions.map((question) => String(asRecord(question).question ?? "Input required"))
             : [`Codex requires input: ${message.method}`];
@@ -179,7 +194,7 @@ export class CodexRuntime implements AgentAdapter {
         }
       });
       const turn = await rpc.request<{ turn: { id: string } }>("turn/start", {
-        threadId, model: selection.model, input: [{ type: "text", text: input.prompt }], effort: selection.effort,
+        threadId, model: selection.model, input: [{ type: "text", text: `${input.prompt}\n\n${autonomyInstructions}` }], effort: selection.effort,
         serviceTierForTurn: "default",
         // Reapply for resumed threads so older filesystem/network restrictions do not persist.
         approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" },
@@ -199,7 +214,7 @@ export class CodexRuntime implements AgentAdapter {
       if (activityError) throw activityError;
       if (completed.status === "failed" && !performedWork && isUnavailableModel(completed.error?.message ?? "")) throw new Error(completed.error?.message);
       const result: AgentRunResult = questions.length
-        ? { status: "waiting_human", message: questions.join("\n"), questions, stopReason: "waiting_human" }
+        ? { status: "waiting_human", message: questions.join("\n"), questions, stopReason: "waiting_human", ...(requiredApproval ? { metadata: { humanHandoff: requiredApproval } } : {}) }
         : completed.status === "interrupted"
           ? Date.now() >= deadline
             ? { status: "failed", message: "Codex execution timed out.", stopReason: "timeout" }
@@ -255,7 +270,8 @@ function activityForItem(item: Record<string, unknown>, completed: boolean): Age
 const retrospectiveOutputSchema = {
   type: "object", additionalProperties: false, required: ["status", "message", "metadata"], properties: {
     status: { type: "string", enum: ["succeeded", "failed", "waiting_human"] }, message: { type: "string" },
-    metadata: { type: "object", additionalProperties: false, required: ["retrospective"], properties: {
+    metadata: { type: "object", additionalProperties: false, required: ["retrospective", "humanHandoff"], properties: {
+      humanHandoff: humanHandoffSchema,
       retrospective: { type: "object", additionalProperties: false, required: ["body", "changes"], properties: {
         body: { type: "string" }, changes: { type: "array", items: {
           type: "object", additionalProperties: false, required: ["path", "beforeHash", "body", "reason"], properties: {

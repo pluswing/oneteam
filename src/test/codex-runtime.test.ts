@@ -7,6 +7,43 @@ const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0)) await cleanup(); });
 const models: CodexModel[] = ["gpt-5.4-mini", "gpt-5.5"].map((model) => ({ model, id: model, isDefault: model === "gpt-5.5", hidden: false, displayName: model, defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "medium" }] }));
 
+it.each(["item/tool/requestUserInput", "item/commandExecution/requestApproval"])("handles %s without fabricating user answers or approval", async (method) => {
+  const { repos, project, dir, cleanup } = await developmentFixture(); cleanups.push(cleanup);
+  const job = await repos.agentJobs.create({ projectId: project.id, agentType: "requirements", targetType: "issue", targetId: 1, triggerType: "test", input: { developmentLoopId: 1 } });
+  let listener: (message: RpcMessage) => void = () => {};
+  const responses: unknown[] = [];
+  const runtime = new CodexRuntime({ command: "unused", repos, createRpc: () => ({
+    async initialize() {}, async closeAndDrain() {}, subscribe(callback: typeof listener) { listener = callback; return () => {}; },
+    respond(_id: number, response: unknown) {
+      responses.push(response);
+      queueMicrotask(() => {
+        listener({ method: "item/completed", params: { threadId: "question-thread", item: { type: "agentMessage", text: '{"status":"succeeded","message":"Used the repository convention."}' } } });
+        listener({ method: "turn/completed", params: { threadId: "question-thread", turn: { status: method === "item/tool/requestUserInput" ? "completed" : "interrupted" } } });
+      });
+    },
+    async request(request: string, input: Record<string, unknown>) {
+      if (request === "model/list") return { data: models, nextCursor: null };
+      if (request === "thread/start") return { thread: { id: "question-thread" }, model: input.model };
+      if (request === "turn/start") {
+        expect(JSON.stringify(input.input)).toContain("Do not ask for routine approval");
+        queueMicrotask(() => listener({ id: 100, method, params: { threadId: "question-thread", questions: [{ id: "choice", question: "Choose a convention", options: [{ label: "Existing convention" }, { label: "New convention" }] }] } }));
+        return { turn: { id: "question-turn" } };
+      }
+      if (request === "turn/interrupt") return {};
+      throw new Error(request);
+    }
+  }) as unknown as CodexRpc });
+  const result = await runtime.run({ job, repoPath: dir, prompt: "Complete the task autonomously" });
+  if (method === "item/tool/requestUserInput") {
+    expect(responses).toEqual([{ answers: {} }]);
+    expect(result.status).toBe("succeeded");
+  } else {
+    expect(responses).toEqual([{ decision: "cancel" }]);
+    expect(result.status).toBe("waiting_human");
+    expect(result.metadata?.humanHandoff).toMatchObject({ reason: "external_access", whyHumanRequired: expect.stringContaining("Only the user") });
+  }
+});
+
 it.each([
   "implementation", "fix", "qa", "verifier", "requirements", "review", "command_detection", "retrospective"
 ] as const)("allows %s commands outside the worktree for both new and resumed jobs", async (agentType) => {

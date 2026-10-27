@@ -212,7 +212,8 @@ export async function applyObjectiveHardGate(
     return gateFailureResult(result, {
       message: "Implementation cannot finish without evidence from changed files, commands, tests, or risk checks.",
       title: "Implementation evidence missing",
-      objectiveRunId: objective.id
+      objectiveRunId: objective.id,
+      automaticRepair: Boolean(job.input.developmentLoopId)
     });
   }
 
@@ -222,7 +223,8 @@ export async function applyObjectiveHardGate(
       return gateFailureResult(result, {
         message: "Requirements cannot finish without at least one valid required Evidence Required rule.",
         title: "Goal Contract evidence rules missing",
-        objectiveRunId: objective.id
+        objectiveRunId: objective.id,
+        automaticRepair: Boolean(job.input.developmentLoopId)
       });
     }
   }
@@ -234,7 +236,8 @@ export async function applyObjectiveHardGate(
       return gateFailureResult(result, {
         message: "Verifier cannot mark the objective passed without a met stop condition and collected evidence.",
         title: "Verifier gate blocked",
-        objectiveRunId: objective.id
+        objectiveRunId: objective.id,
+        automaticRepair: Boolean(job.input.developmentLoopId)
       });
     }
     const evidenceContext = await resolveEvidenceContext(repos, job, objective);
@@ -262,6 +265,7 @@ export async function applyObjectiveHardGate(
         message: `Evidence Required is not satisfied: ${missing}.`,
         title: "Evidence Required gate blocked",
         objectiveRunId: objective.id,
+        automaticRepair: Boolean(job.input.developmentLoopId),
         evidenceGate
       });
     }
@@ -269,7 +273,8 @@ export async function applyObjectiveHardGate(
       return gateFailureResult(result, {
         message: "Verifier cannot mark the objective passed without a met stop condition and collected evidence.",
         title: "Verifier gate blocked",
-        objectiveRunId: objective.id
+        objectiveRunId: objective.id,
+        automaticRepair: Boolean(job.input.developmentLoopId)
       });
     }
     return {
@@ -575,18 +580,20 @@ function gateFailureResult(
     message: string;
     title: string;
     objectiveRunId: number;
+    automaticRepair?: boolean;
     evidenceGate?: EvidenceGateEvaluation;
   }
 ): AgentRunResult {
   return {
     ...result,
-    status: "waiting_human",
+    status: input.automaticRepair ? "failed" : "waiting_human",
     message: `${result.message}\n\nHard verification gate: ${input.message}`,
-    questions: [input.message],
-    stopReason: "waiting_human",
+    questions: input.automaticRepair ? null : [input.message],
+    stopReason: input.automaticRepair ? "failed" : "waiting_human",
     metadata: {
       ...(result.metadata ?? {}),
-      nextLabel: null
+      nextLabel: null,
+      ...(input.automaticRepair ? { automaticRepair: true } : {})
     },
     evidence: [
       ...(result.evidence ?? []),

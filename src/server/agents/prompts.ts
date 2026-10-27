@@ -10,6 +10,7 @@ import type {
 } from "../../shared/types";
 import { localeLanguageName } from "../../shared/locales";
 import { workflowLabelNames } from "../../shared/workflow-labels";
+import { autonomyInstructions } from "./autonomy-policy";
 
 export type AgentPromptContext = {
   project: ProjectDto;
@@ -32,6 +33,7 @@ const outputSchema = `Return only JSON with this shape:
   "stopReason": "passed" | "failed" | "waiting_human" | "timeout" | "max_rounds_exceeded" | "budget_exceeded" | "risk_detected" | "rollback_required" | "canceled" | null,
   "evidence": [{ "type": "test | screenshot", "title": "short title", "summary": "what this proves", "payload": {} | { "artifact": { "kind": "image", "path": "relative/path.png", "caption": "optional caption" | null } } }] | null,
   "metadata": {
+    "humanHandoff": { "reason": "missing_information | external_access | irreversible_action | requirements_conflict | explicit_user_request", "blocker": "specific blocker", "attemptedResolution": "what was inspected or tried", "whyHumanRequired": "why no authorized default or recovery suffices" } | null,
     "nextLabel": "optional system label" | null,
     "goalContract": {
       "evidenceRequired": [{
@@ -69,8 +71,7 @@ activities.
 Do not expose raw hidden chain-of-thought. When an activity needs reasoning,
 write a concise thinking summary that is safe and useful for the user.
 
-If you need human input to proceed safely, stop and return waiting_human with
-clear questions. Otherwise continue until the assigned job is complete.
+${autonomyInstructions}
 
 Treat each job as one step in a local AI development loop. Return explicit
 stopReason and evidence so the user can verify why the job stopped.
@@ -100,12 +101,12 @@ Tasks:
 2. Inspect the repository only as much as needed to identify constraints.
 3. Identify ambiguity, contradictions, missing acceptance criteria, missing tests,
    and conflicts with the existing codebase.
-4. If human input is required, return waiting_human and provide concise questions.
+4. Resolve ordinary ambiguity using repository conventions and reasonable reversible defaults. Ask only for indispensable user information or decisions under the autonomy policy.
 5. If human input is not required, write a requirements definition comment.
 6. For a new repository, include install/dev/build/test/lint command requirements.
 7. Infer loop scope, risk policy, evidence, and stop conditions from the issue
    and repository. Ask the user only when those choices change the acceptance
-   criteria, safety boundary, or implementation feasibility.
+   criteria or safety boundary in a consequential way that cannot be resolved from existing context. Investigate implementation feasibility yourself first.
 
 The requirements definition must include a Goal Contract, Stop Condition,
 Evidence Required, and Human Handoff Conditions.
@@ -172,7 +173,7 @@ Tasks:
 1. Inspect the target, comments, agent job context, and available command results.
 2. Compare the work against the Goal Contract, Stop Condition, and Evidence Required.
 3. If the Stop Condition is met, return succeeded with stopReason "passed".
-4. If required evidence is missing or ambiguous, return waiting_human with stopReason "waiting_human" and concise questions.
+4. If evidence is missing or ambiguous, inspect the source and run available non-modifying checks to collect it. If code or test changes are needed, return failed with missingEvidence and actionable diagnostics for the Fix Agent. Missing evidence alone is not a human handoff. Never mark unverified work as passed.
 5. If evidence proves the result failed, return failed with stopReason "failed".
 6. Return metadata.verifier with verdict, stopConditionMet, missingEvidence, and notes.
 7. For a pull request whose Stop Condition is met, set metadata.nextLabel to "${workflowLabelNames.readyToMerge}".

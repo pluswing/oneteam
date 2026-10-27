@@ -53,6 +53,7 @@ import { verifyMarkdownReferences } from "../services/verified-markdown-referenc
 import type { AgentAdapter, AgentActivityResult, AgentEvidenceResult, AgentRunResult, AgentStopReason } from "./types";
 import { buildPromptForJob } from "./context";
 import { trackJobWork } from "../services/job-execution-state";
+import { runWithAutonomy } from "./autonomy-policy";
 
 export type AgentWorkerOptions = {
   pollIntervalMs: number;
@@ -198,31 +199,32 @@ export class AgentWorker {
       if (worktree) {
         await recordIssueImplementationStarted(this.repos, runningJob, worktree);
       }
-      const result = await this.adapter.run({
-        job: runningJob,
-        repoPath: executionRepoPath,
-        prompt,
-        deadlineAt: timing.deadlineAt,
-        isCanceled: async () => {
-          const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
-          return this.stopping || current?.status === "canceled" || current?.status === "paused" || agentDeadlineReached(timing);
-        },
-        onActivity: async (activity) => {
-          const target = normalizeActivityTarget(runningJob);
-          if (!target) {
-            return;
-          }
-          await this.repos.activities.create({
-            projectId: runningJob.projectId,
-            agentJobId: runningJob.id,
-            targetType: target.targetType,
-            targetId: target.targetId,
-            activityType: activity.type,
-            title: activity.title,
-            body: activity.body ?? undefined,
-            payload: activity.payload ?? undefined
-          });
+      const isCanceled = async () => {
+        const current = await this.repos.agentJobs.get(runningJob.projectId, runningJob.id);
+        return this.stopping || current?.status === "canceled" || current?.status === "paused" || agentDeadlineReached(timing);
+      };
+      const onActivity = async (activity: AgentActivityResult) => {
+        const target = normalizeActivityTarget(runningJob);
+        if (!target) {
+          return;
         }
+        await this.repos.activities.create({
+          projectId: runningJob.projectId,
+          agentJobId: runningJob.id,
+          targetType: target.targetType,
+          targetId: target.targetId,
+          activityType: activity.type,
+          title: activity.title,
+          body: activity.body ?? undefined,
+          payload: activity.payload ?? undefined
+        });
+      };
+      const result = await runWithAutonomy({
+        job: runningJob, prompt, isCanceled, onActivity,
+        run: (nextPrompt) => this.adapter.run({
+          job: runningJob, repoPath: executionRepoPath, prompt: nextPrompt,
+          deadlineAt: timing.deadlineAt, isCanceled, onActivity
+        })
       });
 
       if (this.stopping) {
@@ -258,7 +260,7 @@ export class AgentWorker {
           project,
           worktree,
           agentTimeoutResult(runningJob, timing, result),
-          "waiting_human"
+          runningJob.input.developmentLoopId ? "failed" : "waiting_human"
         );
         await this.applyResult(runningJob, timeoutResult!);
         return;
@@ -284,7 +286,7 @@ export class AgentWorker {
           project,
           worktree,
           agentTimeoutResult(runningJob, timing, finalizedResult),
-          "waiting_human"
+          runningJob.input.developmentLoopId ? "failed" : "waiting_human"
         );
         await this.applyResult(runningJob, timeoutResult!);
         return;
@@ -322,7 +324,7 @@ export class AgentWorker {
           project,
           worktree,
           agentTimeoutResult(runningJob, timing, null, message),
-          "waiting_human"
+          runningJob.input.developmentLoopId ? "failed" : "waiting_human"
         );
         await this.applyResult(runningJob, timeoutResult!);
         return;
@@ -1283,10 +1285,10 @@ function agentTimeoutResult(
   const message = `Agent job #${job.id} reached its ${budgetLabel} execution deadline.`;
   return {
     ...(previous ?? {}),
-    status: "waiting_human",
+    status: job.input.developmentLoopId ? "failed" : "waiting_human",
     message,
     comment: null,
-    questions: [job.input.developmentLoopId ? "Review the partial result and resume the Loop to continue with a new execution window." : "Review the partial result and raise the Agent time budget before resuming if more work is required."],
+    questions: job.input.developmentLoopId ? null : ["Review the partial result and raise the Agent time budget before resuming if more work is required."],
     activities: [
       ...(previous?.activities ?? []),
       {

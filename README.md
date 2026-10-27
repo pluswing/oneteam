@@ -126,6 +126,14 @@ Repair tasks also appear in the Issue list; the Vulnerabilities tab shows their 
 
 Before merging a repair, OneTeam independently checks the candidate's corresponding targets again. If a targeted advisory still affects the package, even at another version or workspace path, the Loop returns to fixing. Incomplete target checks and service errors stop progress with an explanation. A subsequent successful check of that target confirms resolution; an unavailable target retains its previous findings, and a merged PR alone never marks them resolved. These checks find known package vulnerabilities, not all vulnerabilities in application code or all configuration risks.
 
+## Automatic progress and human handoffs
+
+Development Loops proceed automatically through ordinary repository decisions, implementation, tests, review, repairs and verification. Agents use the request, repository conventions and existing behavior to resolve reversible choices, and report material assumptions instead of asking for routine permission to continue.
+
+A model-proposed `waiting_human` must identify an indispensable blocker, explain what it inspected or tried, state why no authorized default suffices, and ask an actionable question. Reasons are missing user information, unavailable external credentials/permissions, an irreversible action outside the authorized scope, irreconcilable requirements, or an explicit user request for a decision. Unsupported handoffs are reconsidered once in the same worktree and execution time window. No answer or consent is fabricated. Unsubstantiated repeated handoffs become incomplete/failed work for bounded repair, never unverified success.
+
+Missing evidence or invalid requirement evidence rules in managed Loops return a failed verification result for automatic repair, while evidence requirements and merge gates remain enforced. A verifier failure routes to a Fix Job, then review, QA and independent verification. Execution deadlines retain partial work and use bounded retry instead of routinely asking the user to resume. Repeated failures eventually stop; round, time and budget limits are not automatically raised. Explicit pause/cancel, protected-policy risks and real external blockers remain stopping conditions. Existing paused or waiting Loops are not automatically resumed by upgrading the app.
+
 ## Automatic Codex models
 
 OneTeam uses the terminal-installed Codex CLI for authentication, chat, Jobs and advisory translation. The default command is `codex`, resolved from PATH. On macOS, the desktop app loads the login shell's PATH for Finder launches. An explicit `ONETEAM_CODEX_COMMAND` executable path can select a custom installation. OneTeam does not bundle, install or update Codex; keep your terminal installation current when a model requires newer client support. Account access is still required.

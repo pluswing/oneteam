@@ -1,8 +1,9 @@
 /** Capture real Electron screens with isolated, illustrative data. No LLM calls. */
-import { _electron as electron, expect } from "@playwright/test";
+import { _electron as electron, expect, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { createDatabaseContext } from "../src/server/db/client";
 import { runMigrations } from "../src/server/db/migrations";
@@ -93,6 +94,7 @@ async function capture(locale: "en" | "ja") {
   const git = async (...args: string[]) => (await exec("git", args, { cwd: repoPath })).stdout.trim();
   const t = (en: string, ja: string) => locale === "ja" ? ja : en;
   let desktop: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  let capturedPage: Page | undefined;
   let context: ReturnType<typeof createDatabaseContext> | undefined;
   try {
     await mkdir(join(repoPath, "src"), { recursive: true });
@@ -191,14 +193,29 @@ async function capture(locale: "en" | "ja") {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && key !== "ELECTRON_RUN_AS_NODE")) as Record<string, string>;
     desktop = await electron.launch({ args: [resolve(".")], env: { ...env, ONETEAM_HOME: appHome, ONETEAM_DATABASE_URL: databaseUrl, ONETEAM_AGENT_WORKER: "false", ONETEAM_CODEX_AUTO_LOGIN: "false" } });
     const page = await desktop.firstWindow();
+    capturedPage = page;
+    // Redact display data only. Server-side Git still uses the real sample path.
+    const displayPaths = [[repoPath, "/workspace/field-notes"], [root, "/workspace/docs-demo"], [resolve("."), "/workspace/oneteam"], [homedir(), "/home/demo"]];
+    await page.route("**/api/**", async (route) => {
+      const response = await route.fetch();
+      if (!(response.headers()["content-type"] ?? "").includes("application/json")) return route.fulfill({ response });
+      let body = await response.text();
+      for (const [path, replacement] of displayPaths) body = body.replaceAll(path, replacement);
+      await route.fulfill({ response, body });
+    });
     await desktop.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setContentSize(1440, 1040); });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page.locator(".work-item-list")).toBeVisible();
     const origin = new URL(page.url()).origin;
+    const assertPrivatePathsHidden = async () => {
+      const text = await page.locator("body").innerText();
+      for (const [path] of displayPaths) expect(text).not.toContain(path);
+    };
     const shot = async (name: string, fullPage = false) => {
       await expect(page.locator(".error-banner, .async-state-error")).toHaveCount(0);
       await page.locator(".header-brand").click();
       await page.evaluate(() => window.scrollTo(0, 0));
+      await assertPrivatePathsHidden();
       await page.screenshot({ path: join(output, `${name}-${locale}.png`), animations: "disabled", fullPage });
       console.log(`Captured ${name}-${locale}.png`);
     };
@@ -211,22 +228,36 @@ async function capture(locale: "en" | "ja") {
     await expect(page.locator(".diff-table")).toBeVisible();
     await shot("pull-request", true);
     await page.goto(`${origin}/jobs/${review.id}`);
+    await page.getByLabel(t("Show detailed logs and history", "詳細ログと履歴を表示")).check();
     await expect(page.locator(".execution-record")).toContainText("gpt-5.5");
+    await page.getByRole("button", { name: new RegExp(t("Show history", "履歴を表示")) }).click();
     await expect(page.locator(".activity-item")).toHaveCount(3);
+    await assertPrivatePathsHidden();
     await page.locator(".agent-job-main-content").screenshot({ path: join(output, `agent-${locale}.png`), animations: "disabled" });
     console.log(`Captured agent-${locale}.png`);
     await page.goto(`${origin}/jobs`);
+    await page.getByLabel(t("Show detailed logs and history", "詳細ログと履歴を表示")).check();
     const loopCard = page.locator(".development-loop-card").filter({ has: page.locator('header a[href="/issues/1"]') });
     await loopCard.locator(":scope > details > summary").click();
     await expect(loopCard.locator(".knowledge-revision")).toHaveCount(3);
     const revision = loopCard.locator(".knowledge-revision").filter({ has: page.locator("summary", { hasText: /^AGENTS\.md/ }) });
     await revision.locator("summary").click();
     await expect(revision.locator("pre")).toHaveCount(2);
+    await assertPrivatePathsHidden();
     await loopCard.screenshot({ path: join(output, `retrospective-${locale}.png`), animations: "disabled" });
     console.log(`Captured retrospective-${locale}.png`);
     // Confirm the screenshots display the same knowledge actually persisted on disk.
     expect(await readFile(join(repoPath, ".oneteam/AGENTS.md"), "utf8")).toBe(knowledgeAfter);
+    if (locale === "en") {
+      await page.goto(`${origin}/repository`);
+      await expect(page.getByRole("heading", { name: "Repository", exact: true })).toBeVisible();
+      await expect(page.locator(".repository-facts").getByText("/workspace/field-notes", { exact: true })).toBeVisible();
+      await assertPrivatePathsHidden();
+      await page.screenshot({ path: join(output, "repository.png"), animations: "disabled" });
+      console.log("Captured repository.png");
+    }
   } finally {
+    await capturedPage?.unrouteAll({ behavior: "ignoreErrors" });
     await desktop?.close();
     context?.client.close();
     await rm(root, { recursive: true, force: true });
