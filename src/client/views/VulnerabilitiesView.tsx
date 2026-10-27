@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentJobDto, ProjectDto } from "../../shared/types";
 import type { ScanFailureDiagnosis, VulnerabilityDashboard, VulnerabilityRecord, VulnerabilityRemediation, VulnerabilityScanState, VulnerabilityScanTarget, VulnerabilityScope, VulnerabilitySettings, VulnerabilitySeverity } from "../../shared/vulnerabilities";
 import { groupVulnerabilityFindings } from "../../shared/vulnerability-groups";
-import { buildVulnerabilityRemediationPlan, type VulnerabilityPlanExclusionReason } from "../../shared/vulnerability-plan";
+import { buildVulnerabilityRemediationPlan, type VulnerabilityPlanExclusionReason, type VulnerabilityRemediationPlan } from "../../shared/vulnerability-plan";
 import { api } from "../api";
 import { AsyncState } from "../components/AsyncState";
 import { formatDateTime } from "../formatters";
@@ -32,7 +32,7 @@ function sourceLinks(finding: VulnerabilityRecord): string[] {
 
 function itemLabel(finding: VulnerabilityRecord): string {
   return t(finding.kind === "coverage_gap" ? "vulnerabilities.coverageGapItem" : finding.kind === "scan_failure" ? "vulnerabilities.scanFailureItem"
-    : finding.kind === "support_end" ? `vulnerabilities.update_${finding.lifecycle?.componentKind ?? "os"}`
+    : finding.kind === "support_end" || finding.kind === "platform_update" ? `vulnerabilities.update_${finding.lifecycle?.componentKind ?? "os"}`
       : "vulnerabilities.vulnerabilityItem");
 }
 
@@ -46,6 +46,13 @@ function synthesizedCopy(finding: VulnerabilityRecord): { summary: string; detai
     return {
       summary: t("vulnerabilities.supportEndSummary").replace("{product}", product),
       details: t("vulnerabilities.supportEndDetails").replace("{product}", product)
+    };
+  }
+  if (finding.kind === "platform_update" && finding.lifecycle) {
+    const product = `${finding.lifecycle.product} ${finding.installedVersion}`.trim();
+    return {
+      summary: t("vulnerabilities.platformUpdateSummary").replace("{product}", product),
+      details: t("vulnerabilities.platformUpdateDetails")
     };
   }
   if (finding.kind === "scan_failure" && finding.scanFailure) return {
@@ -104,7 +111,7 @@ export function VulnerabilityFindings(props: {
         const useJapaneseLifecycle = finding.kind === "support_end" && japanese && sourceJapanese;
         const summary = useJapaneseLifecycle ? finding.summary : synthesized?.summary ?? (translated ? translation.summary : waiting ? t("vulnerabilities.translationSummary").replace("{package}", finding.packageName) : finding.summary);
         const details = useJapaneseLifecycle ? finding.details : synthesized?.details ?? (translated ? translation.details : waiting ? "" : finding.details);
-        const synthetic = finding.kind === "support_end" || finding.kind === "scan_failure" || finding.kind === "coverage_gap";
+        const synthetic = finding.kind === "support_end" || finding.kind === "platform_update" || finding.kind === "scan_failure" || finding.kind === "coverage_gap";
         return <tr key={finding.id} data-finding-id={finding.id} data-finding-kind={finding.kind ?? "vulnerability"}>
           <td>{synthetic ? <span className={`vulnerability-severity finding-kind-${finding.kind}`}>{itemLabel(finding)}</span>
             : <span className={`vulnerability-severity severity-${finding.severity}`}>{t(`vulnerabilities.${finding.severity}`)}</span>}</td>
@@ -132,7 +139,7 @@ export function VulnerabilityFindings(props: {
             </details>
           </td>
           <td className="vulnerability-dependency"><strong>{finding.packageName}</strong><code>{finding.installedVersion}</code><span>{finding.ecosystem}</span><code>{finding.manifestPath}</code><span>{t(`vulnerabilities.scope_${finding.scope ?? "application"}`)}</span>{finding.targetLabel ? <code>{localizeVulnerabilityTargetLabel(finding.targetLabel, locale)}</code> : null}</td>
-          <td>{finding.fixedVersions.length ? <span className="vulnerability-versions">{finding.fixedVersions.join(", ")}</span> : <span className="muted-text">{t(finding.kind === "coverage_gap" ? "vulnerabilities.coverageGapItem" : finding.kind === "support_end" ? "vulnerabilities.supportedVersionRequired" : finding.kind === "scan_failure" ? "vulnerabilities.scannerRecoveryRequired" : "vulnerabilities.noFix")}</span>}</td>
+          <td>{finding.fixedVersions.length ? <span className="vulnerability-versions">{finding.fixedVersions.join(", ")}</span> : <span className="muted-text">{t(finding.kind === "coverage_gap" ? "vulnerabilities.coverageGapItem" : finding.kind === "support_end" || finding.kind === "platform_update" ? "vulnerabilities.supportedVersionRequired" : finding.kind === "scan_failure" ? "vulnerabilities.scannerRecoveryRequired" : "vulnerabilities.noFix")}</span>}</td>
           <td>
             <div className="vulnerability-response">
               {finding.status === "resolved" ? <span className="vulnerability-resolved"><CheckCircle2 aria-hidden="true" size={15} />{t("vulnerabilities.resolved")}</span>
@@ -158,6 +165,7 @@ export function VulnerabilityGroups(props: Parameters<typeof VulnerabilityFindin
     const children = group.findings.filter((finding) => visibleIds.has(finding.id));
     const vulnerabilities = group.findings.filter((finding) => !finding.kind || finding.kind === "vulnerability");
     const eol = group.findings.filter((finding) => finding.kind === "support_end").length;
+    const platformUpdates = group.findings.filter((finding) => finding.kind === "platform_update").length;
     const resolved = group.findings.every((finding) => finding.status === "resolved");
     const active = group.findings.map((finding) => latestRemediation(finding, props.remediations)).find((remediation) => remediation && !terminalStatuses.has(remediation.status));
     const title = t(`vulnerabilities.groupTitle_${group.kind}`).replace("{name}", localizeVulnerabilityTargetLabel(group.name, props.locale ?? getLocale()));
@@ -165,6 +173,7 @@ export function VulnerabilityGroups(props: Parameters<typeof VulnerabilityFindin
       <header className="vulnerability-group-header"><div>
         <div className="vulnerability-group-risk">{vulnerabilities.length ? <span className={`vulnerability-severity severity-${group.severity}`}>{t("vulnerabilities.highestSeverity")} {t(`vulnerabilities.${group.severity}`)}</span> : null}
           {eol ? <span className="vulnerability-severity finding-kind-support_end">{t("vulnerabilities.supportEndCount").replace("{count}", String(eol))}</span> : null}
+          {platformUpdates ? <span className="vulnerability-severity finding-kind-platform_update">{t("vulnerabilities.platformUpdateCount").replace("{count}", String(platformUpdates))}</span> : null}
           {group.kind === "scan_failure" ? <span className="vulnerability-severity finding-kind-scan_failure">{t("vulnerabilities.scanFailureItem")}</span> : null}
           {group.kind === "coverage_gap" ? <span className="vulnerability-severity finding-kind-coverage_gap">{t("vulnerabilities.coverageGapItem")}</span> : null}
         </div>
@@ -176,7 +185,7 @@ export function VulnerabilityGroups(props: Parameters<typeof VulnerabilityFindin
             : active ? <span>{t(`development.${active.status}`)}</span>
               : props.planDisposition === "included" ? <span>{t("vulnerabilities.includedInPlan")}</span> : null}
       </div></header>
-      <p className="vulnerability-group-explanation">{t(group.kind === "coverage_gap" ? "vulnerabilities.coverageGroupHint" : group.kind === "image" ? "vulnerabilities.imageGroupHint" : group.kind === "environment" ? "vulnerabilities.environmentGroupHint" : group.kind === "scan_failure" ? "vulnerabilities.scannerGroupHint" : "vulnerabilities.dependencyGroupHint")}</p>
+      <p className="vulnerability-group-explanation">{t(group.kind === "coverage_gap" ? "vulnerabilities.coverageGroupHint" : group.kind === "image" ? "vulnerabilities.imageGroupHint" : group.kind === "environment" ? "vulnerabilities.environmentGroupHint" : group.kind === "scan_failure" ? "vulnerabilities.scannerGroupHint" : group.kind === "support_end" || group.kind === "platform_update" ? "vulnerabilities.platformGroupHint" : "vulnerabilities.dependencyGroupHint")}</p>
       <ul className="vulnerability-group-targets">{[...new Set(group.findings.map((finding) => `${finding.manifestPath}${finding.targetLabel ? ` · ${localizeVulnerabilityTargetLabel(finding.targetLabel, props.locale ?? getLocale())}` : ""}`))].map((target) => <li key={target}><code>{target}</code></li>)}</ul>
       <div className="vulnerability-group-counts">{severityOrder.map((severity) => {
         const count = vulnerabilities.filter((finding) => finding.severity === severity).length;
@@ -190,6 +199,32 @@ export function VulnerabilityGroups(props: Parameters<typeof VulnerabilityFindin
   })}</div>;
 }
 
+export function VulnerabilityAssessment(props: { plan: VulnerabilityRemediationPlan; locale?: string }) {
+  const { assessment } = props.plan;
+  return <section className="vulnerability-assessment" data-testid="vulnerability-assessment" aria-labelledby="vulnerability-assessment-title">
+    <header className="vulnerability-assessment-header"><h3 id="vulnerability-assessment-title">{t("vulnerabilities.assessmentTitle")}</h3>
+      <span className={`vulnerability-assessment-status assessment-${assessment.status}`}>{t(`vulnerabilities.assessment_${assessment.status}`)}</span>
+    </header>
+    <p>{t(`vulnerabilities.assessmentRecommendation_${assessment.status}`)}</p>
+    {assessment.components.length ? <div className="vulnerability-table-scroll"><table className="vulnerability-table vulnerability-assessment-table">
+      <thead><tr><th scope="col">{t("vulnerabilities.platformComponent")}</th><th scope="col">{t("vulnerabilities.currentVersion")}</th><th scope="col">{t("vulnerabilities.maintenanceStatus")}</th><th scope="col">{t("vulnerabilities.latestSupportedVersion")}</th><th scope="col">{t("vulnerabilities.assessmentSource")}</th></tr></thead>
+      <tbody>{assessment.components.map((component, index) => {
+        let source: string | null = null;
+        try { if (component.sourceUrl && ["https:", "http:"].includes(new URL(component.sourceUrl).protocol)) source = component.sourceUrl; } catch { /* Ignore unsafe or malformed source links. */ }
+        return <tr key={`${component.targetId}:${component.product}:${index}`}>
+          <th scope="row"><strong>{component.product}</strong><span>{t(`vulnerabilities.component_${component.componentKind}`)}</span></th>
+          <td><code>{component.version || t("vulnerabilities.versionUnknown")}</code></td>
+          <td><span className={`vulnerability-assessment-status maintenance-${component.status}`}>{t(`vulnerabilities.maintenance_${component.status}`)}</span></td>
+          <td>{component.latestSupportedVersion ? <code>{component.latestSupportedVersion}</code> : <span className="muted-text">{t("vulnerabilities.versionUnknown")}</span>}</td>
+          <td>{source ? <a href={source} target="_blank" rel="noopener noreferrer">{t("vulnerabilities.assessmentSource")}<ExternalLink aria-hidden="true" size={12} /></a> : <span className="muted-text">{t("vulnerabilities.sourceUnknown")}</span>}</td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <p className="muted-text">{t("vulnerabilities.assessmentNoComponents")}</p>}
+    {assessment.reasons.length ? <ul className="vulnerability-assessment-reasons">{assessment.reasons.map((reason, index) => <li key={index}><VulnerabilityMessage message={reason} locale={props.locale} /></li>)}</ul> : null}
+    {assessment.status === "unknown" ? <p className="vulnerability-assessment-caution" role="note">{t("vulnerabilities.assessmentUnknownCaution")}</p> : null}
+  </section>;
+}
+
 export function VulnerabilityPlan(props: {
   dashboard: VulnerabilityDashboard;
   busy: boolean;
@@ -201,9 +236,28 @@ export function VulnerabilityPlan(props: {
   const plan = props.dashboard.remediationPlan ?? buildVulnerabilityRemediationPlan(props.dashboard);
   const locale = props.locale ?? getLocale();
   const scanning = ["never", "scanning"].includes(props.dashboard.scan.status);
-  return <section className="vulnerability-plan" data-testid="vulnerability-plan" aria-labelledby="vulnerability-plan-title">
+  const executable = plan.phaseStatus === "ready";
+  const platformFirst = ["outdated_platform", "urgent_platform"].includes(plan.assessment.status);
+  const minimalVerified = props.dashboard.remediations.some((remediation) => remediation.stage === "minimal_dependencies" && remediation.verifiedAt);
+  const stages = platformFirst ? ["modernization", "minimal_dependencies"] as const : ["minimal_dependencies", "modernization"] as const;
+  return <section className="vulnerability-plan" data-testid="vulnerability-plan" data-stage={plan.stage} data-phase-status={plan.phaseStatus} aria-labelledby="vulnerability-plan-title">
     <h2 id="vulnerability-plan-title">{t("vulnerabilities.planTitle")}</h2>
     <p>{t("vulnerabilities.planPolicy")}</p>
+    <VulnerabilityAssessment plan={plan} locale={locale} />
+    <ol className="vulnerability-stage-list" aria-label={t("vulnerabilities.stagedWorkflow")}>
+      {stages.map((stage, index) => {
+        const skipped = platformFirst && stage === "minimal_dependencies";
+        const complete = !skipped && (stage === "minimal_dependencies" ? plan.prerequisiteComplete && plan.stage !== stage : plan.stage === stage && plan.phaseStatus === "complete");
+        const current = !skipped && plan.stage === stage;
+        const caption = skipped ? "vulnerabilities.stageBypassed" : complete ? stage === "minimal_dependencies" && !minimalVerified ? "vulnerabilities.stageNoMinimalRepairs" : "vulnerabilities.stageVerified" : current ? `vulnerabilities.phase_${plan.phaseStatus}`
+          : stage === "modernization" ? "vulnerabilities.stageRequiresVerification" : "vulnerabilities.stageAfterAssessment";
+        return <li key={stage} className={skipped ? "stage-skipped" : complete ? "stage-complete" : current ? "stage-current" : "stage-pending"} aria-current={current ? "step" : undefined}>
+          <span className="vulnerability-stage-number" aria-hidden="true">{complete ? <CheckCircle2 size={18} /> : skipped ? "—" : index + 1}</span><div><strong>{t(`vulnerabilities.stage_${stage}`)}</strong><p>{t(`vulnerabilities.stageDescription_${stage}`)}</p><span className="vulnerability-stage-caption">{t(caption)}</span></div>
+        </li>;
+      })}
+    </ol>
+    <div className="vulnerability-current-stage"><h3>{t("vulnerabilities.currentStage")} {t(`vulnerabilities.stage_${plan.stage}`)}</h3><span className={`vulnerability-assessment-status phase-${plan.phaseStatus}`}>{t(`vulnerabilities.phase_${plan.phaseStatus}`)}</span></div>
+    <p>{t(platformFirst && plan.stage === "modernization" ? "vulnerabilities.planPolicy_platform_first" : plan.stage === "modernization" && !minimalVerified ? "vulnerabilities.planPolicy_modernization_no_minimal" : `vulnerabilities.planPolicy_${plan.stage}`)}</p>
     <p className="vulnerability-plan-counts">{t("vulnerabilities.planCounts").replace("{critical}", String(plan.criticalCount)).replace("{high}", String(plan.highCount)).replace("{included}", String(plan.findingIds.length)).replace("{excluded}", String(plan.excluded.length))}</p>
     {plan.excludedCriticalCount || plan.excludedHighCount ? <div className="vulnerability-plan-blockers" role="note">
       <strong>{t("vulnerabilities.planRemainingRisk").replace("{critical}", String(plan.excludedCriticalCount)).replace("{high}", String(plan.excludedHighCount))}</strong>
@@ -215,20 +269,28 @@ export function VulnerabilityPlan(props: {
     {plan.actions.length ? <ol className="vulnerability-plan-actions">{plan.actions.map((action) => <li key={action.id}>
       <strong>{t(`vulnerabilities.groupTitle_${action.kind}`).replace("{name}", localizeVulnerabilityTargetLabel(action.name, locale))}</strong>
       <p>{t(`vulnerabilities.planAction_${action.kind}`)}</p>
+      <p className="vulnerability-action-strategy">{t(`vulnerabilities.planStrategy_${action.strategy}`)}</p>
       {action.reference ? <p><code>{action.reference}</code></p> : null}
-      {action.kind === "dependency" ? <ul>{action.packageUpdates.map((update) => <li key={update.packageName}><code>{update.packageName}</code>{" "}<code>{update.installedVersions.join(", ")}</code>{" → "}{update.fixedVersions.length ? <>{t("vulnerabilities.planVersionCandidates")}{" "}<code>{update.fixedVersions.join(", ")}</code></> : t("vulnerabilities.planInvestigateVersion")}</li>)}</ul> : null}
+      {action.kind === "dependency" ? <ul className="vulnerability-package-updates">{action.packageUpdates.map((update) => <li key={update.packageName}>
+        <div><code>{update.packageName}</code>{" "}<code>{update.installedVersions.join(", ")}</code>{" → "}
+          {update.recommendedVersion ? <><span>{t("vulnerabilities.planRecommendedVersion")}{" "}</span><strong><code>{update.recommendedVersion}</code></strong></>
+            : update.fixedVersions.length ? <>{t("vulnerabilities.planVersionCandidates")}{" "}<code>{update.fixedVersions.join(", ")}</code></> : t("vulnerabilities.planInvestigateVersion")}
+          {update.compatibility ? <span className={`vulnerability-version-change version-${update.compatibility}`}>{t(`vulnerabilities.compatibility_${update.compatibility}`)}</span> : null}
+        </div>
+        {update.needsVerification ? <p className="vulnerability-plan-files">{t("vulnerabilities.planVersionNeedsVerification")}</p> : null}
+      </li>)}</ul> : null}
       <p className="vulnerability-plan-files">{t("vulnerabilities.planFiles")}{" "}{action.files.map((file, index) => <span key={file}>{index ? " · " : ""}<code>{file}</code></span>)}</p>
       {action.targetLabels.length ? <p className="vulnerability-plan-files">{action.targetLabels.map((label) => localizeVulnerabilityTargetLabel(label, locale)).join(" · ")}</p> : null}
     </li>)}<li><strong>{t("vulnerabilities.planVerificationTitle")}</strong><p>{t("vulnerabilities.planVerification")}</p></li></ol>
-      : <p className="muted-text">{t(scanning ? "vulnerabilities.planScanRequired" : "vulnerabilities.planNoActions")}</p>}
+      : <p className="muted-text">{t(scanning ? "vulnerabilities.planScanRequired" : plan.phaseStatus === "complete" ? "vulnerabilities.planComplete" : "vulnerabilities.planNoActions")}</p>}
     <p className="muted-text">{t("vulnerabilities.planScopeHint")}</p>
     {plan.activeRemediationId ? <p role="status">{t("vulnerabilities.planActive")}</p> : null}
     {props.deferred && !plan.activeRemediationId ? <p className="vulnerability-plan-deferred" role="status">{t("vulnerabilities.planDeferred")}</p> : null}
     <div className="vulnerability-plan-confirmation">
       <p><strong>{t("vulnerabilities.planConfirm")}</strong></p>
       <div className="action-row">
-        <button className="primary-button" disabled={props.busy || scanning || !plan.actions.length || Boolean(plan.activeRemediationId)} onClick={props.onApprove} type="button"><ShieldAlert aria-hidden="true" size={16} />{t("vulnerabilities.planApprove")}</button>
-        <button className="secondary-button" disabled={props.busy || !plan.actions.length || props.deferred || Boolean(plan.activeRemediationId)} onClick={props.onDefer} type="button">{t("vulnerabilities.planDefer")}</button>
+        <button className="primary-button" disabled={props.busy || scanning || !executable || !plan.actions.length || Boolean(plan.activeRemediationId)} onClick={props.onApprove} type="button"><ShieldAlert aria-hidden="true" size={16} />{t("vulnerabilities.planApprove")}</button>
+        <button className="secondary-button" disabled={props.busy || !executable || !plan.actions.length || props.deferred || Boolean(plan.activeRemediationId)} onClick={props.onDefer} type="button">{t("vulnerabilities.planDefer")}</button>
       </div>
     </div>
   </section>;
@@ -386,6 +448,7 @@ export function VulnerabilitiesView(props: { project: ProjectDto; onOpenPullRequ
   const emptyMessage = filtersActive ? "vulnerabilities.noMatches" : status === "resolved" ? "vulnerabilities.noResolved"
     : open.length ? "vulnerabilities.noMatches"
       : dashboard?.scan.status === "never" ? "vulnerabilities.unscanned"
+        : plan?.assessment.status === "unknown" ? "vulnerabilities.assessmentUnknownEmpty"
         : dashboard?.scan.coverage === "unsupported" ? "vulnerabilities.noCoverage"
           : dashboard?.scan.coverage === "partial" ? "vulnerabilities.partialNoFindings"
           : "vulnerabilities.noFindings";

@@ -36,7 +36,7 @@ See the introduction and sample screenshots in [English](docs/index.html) or [�
 - **Agent tab:** running and waiting tasks are shown by default. Enable **Show detailed logs and history** to include completed, failed, paused and canceled tasks, model selection, thread events, commands and execution history. The same toggle applies to Issue and PR conversations and Loop panels, and stays selected while navigating. Comments and result reports remain available. Each attempt records the selected model, model returned by Codex, reasoning effort, selection reason, thread / turn IDs, timestamps and available usage. Job details always show the latest activity, including completed Jobs. Status badges, messages, file lists, tests and evidence replace raw result JSON. **Show history** reveals earlier activities in newest-first order independently of the diagnostic toggle; history starts collapsed for each Job and after reload.
 - **Repository tab:** detected commands, working-tree status and commit history.
 - **Header status:** click the running, queued or waiting status to open the current Agent job, or its related Issue/PR while the Loop is between jobs.
-- **Vulnerabilities tab:** dependency advisories, scheduled and manual checks, an overall repair proposal with approval, repair progress and resolved history.
+- **Vulnerabilities tab:** platform maintenance assessment, dependency advisories, scheduled and manual checks, staged repair proposals with approval, repair progress and resolved history.
 
 Implementation and fixes use branch worktrees. Other roles use commit snapshots. OneTeam runs detected verification commands and checks the source and target commits again before merging. Changed commits require fresh verification; conflicts return to fixing. Missing evidence, execution errors or unresolved input stop the Loop with an explanation. Reply to an Agent's question in the Issue or PR to resume it.
 
@@ -54,13 +54,13 @@ The conversation's model and reasoning controls affect its next response. Develo
 
 ## Vulnerability monitoring and repair
 
-Opening a project starts a dependency check. While OneTeam is open, it checks again every 24 hours; use **Vulnerabilities → Update now** to refresh immediately. The tab can disable automatic checks and change the update interval. Repairs require approval of an overall proposal; checks never start a repair automatically, including in workspaces that previously enabled automatic repairs. Checks and their results persist in the folder database. Closing OneTeam stops checks; reopening catches up when a check is due. Service failures retain the last successful findings and schedule a retry instead of reporting a clean project.
+Opening a project starts a vulnerability and platform lifecycle check. While OneTeam is open, it checks again every 24 hours; use **Vulnerabilities → Update now** to refresh immediately. The tab can disable automatic checks and change the update interval. Each repair stage requires the user's instruction to create and execute its Issue; checks never start a repair automatically, including in workspaces that previously enabled automatic repairs. Checks and their results persist in the folder database. Closing OneTeam stops checks; reopening catches up when a check is due. Service failures retain the last successful findings and schedule a retry instead of reporting a clean project.
 
 日本語表示では、確認範囲の注意事項・検査エラーと、脆弱性の概要・詳細を日本語で表示します。外部アドバイザリの翻訳には Codex へのログインが必要です。翻訳はバックグラウンドで行い、結果をキャッシュします。原文は展開して確認できます。翻訳待ち・翻訳失敗の状態を明示し、検査や承認済みの修正はそのまま続行します。
 
 結果は、更新するイメージ・環境・パッケージごとにまとめて表示します。親項目に現在のイメージ、対象サービス・設定ファイル、最大の深刻度と内訳件数を表示し、個別の CVE やサポート終了項目は展開して確認できます。例えば MySQL イメージ内の Go `stdlib` や OS パッケージは「mysql のコンテナイメージを更新」の子項目になります。個別パッケージの修正バージョンを、そのままイメージのタグとして扱うことはありません。同じイメージの更新では、修正バージョン未公開の子項目も再検査の対象に含めます。深刻度で絞り込んでも親項目には対象全体の最大リスクを表示し、対応時は同じ更新対象の未解決項目全体を確認します。
 
-サポート終了が判明した OS・言語ランタイム・ミドルウェアは、結果一覧に「OSアップデート」「言語・ランタイムのアップデート」「ミドルウェアのアップデート」として追加します。OS は Trivy の EOSL 情報、それ以外も含むサポート期限は [endoflife.date の公開カタログ](https://endoflife.date/docs/api/v1/) と検出した製品・バージョンから確認します。言語の許可リストは設けませんが、期限を判定するには製品の識別情報とカタログの対応データが必要です。更新先を確認できない場合も項目を残します。リポジトリのバージョン指定やイメージの更新を全体の対応案に含め、ユーザの承認後に実行します。再検査でサポート中と確認できた場合に解決済みにします。期限情報の取得失敗や対象の消失だけでは解決済みにしません。
+最初に OS・言語ランタイム・ミドルウェア・データベースのバージョンと保守状況を評価し、基盤の更新が必要かを示します。OS は Trivy の EOSL 情報、それ以外も含むサポート期限は [endoflife.date の公開カタログ](https://endoflife.date/docs/api/v1/) と検出した製品・バージョンから確認します。サポート終了や更新対象の基盤は、結果一覧にも更新項目として表示します。言語の許可リストは設けませんが、期限を判定するには製品の識別情報とカタログの対応データが必要です。バージョンや期限を確認できない場合は不明とし、検査の復旧・不足情報の調査を先に提案します。期限情報の取得失敗や対象の消失だけで保守中・安全・解決済みとは扱いません。
 
 検査エラーは実際の診断内容から分類し、アプリ専用データベースの再取得、キャッシュの分離、一時的な通信障害の再試行、制限時間の延長、管理する検査ツールの再検証などを実施して再検査します。復旧処理と結果は画面に表示します。それでも失敗する場合は原因と試行内容を結果一覧に追加し、リポジトリ内の設定・依存関係ファイルなどの修正を全体の対応案に含めます。実行はユーザの承認後に開始します。検査が成功するまで完了とは扱いません。必要な認証情報や外部環境の変更が不足する場合は、その具体的な対応を表示します。証明書検証や検査対象を無効化して成功扱いにはしません。
 
@@ -118,13 +118,20 @@ Use only the entries relevant to your environment and replace the sample values.
 
 Docker and Kubernetes inspections use the existing CLI credentials and query running container status. They scan the actual image digest and deployed platform, rather than assuming that a configured tag is running. Kubernetes requires access to pods and node OS/architecture metadata. Image checks do not inspect changes in container writable layers or the host/node OS; a separate notice records this boundary, and host/rootfs/SBOM inspections appear as additional targets. SSH uses existing noninteractive credentials and verified host keys to run an already installed Trivy against the destination root filesystem. It does not install remote tools or restart services. Missing tools, credentials, permissions, image digests or inventories leave the target unchecked. No remote inspection is initiated from a guessed URL.
 
-The tab prepares one overall remediation plan that requires resolving targeted Critical vulnerabilities and reduces High vulnerabilities wherever possible. It combines dependency, base-image and runtime updates with necessary lifecycle updates and inspection recovery. The plan shows the concrete artifacts and files to update, fixed-version candidates for dependencies, and the verification work. Findings are split into **Included in this plan** and **Excluded from this plan**, with a reason for every exclusion. Shared artifact updates include related findings, including lower severities and advisories without a published fix. Unfixable or external Critical/High findings remain visible as outstanding risks; the proposal does not promise to resolve them.
+対応案は保守状況に応じて段階を分けます。
 
-Review the proposal and choose **Approve and execute plan** or **Do not execute now**. Approval starts one internal repair task. There are no individual finding or group repair buttons, and detail filters never narrow the approved scope. Changed inspection results require reviewing a fresh plan. Approved targets remain in the included list while work is active. An inaccessible deployment does not prevent repair of an independently verified application.
+「十分新しい」の判定は、保守中で、より新しい保守サイクルが2つ未満、かつ保守期限が判明している場合は終了まで180日超を基準にします。最新パッチとの差だけでは基盤移行を優先しません。判定に使ったバージョン・保守状態・情報源と理由を画面に表示します。
 
-Repair tasks also appear in the Issue list; the Vulnerabilities tab shows their progress, PR, Agent history and pause/resume/cancel controls. They share the existing development queue, branch worktrees, review, QA and merge gates, so an earlier paused or failed Loop still holds the queue. Repairs can update dependency files and repository-managed Dockerfile/Compose/Kubernetes image references. Repository repair does not deploy, update or restart a live environment. Failed repairs require an explicit resume. Findings without a known repair remain visible with the required investigation or external action.
+1. 基盤が十分新しく保守中であれば、まず npm・PyPI・Composer などの依存関係について、全該当 advisory の修正条件を満たす最寄りの patch・minor 更新候補を提案します。短期間で対応でき、コードへの影響が小さい修正を優先します。メジャー更新や比較できないバージョンはこの段階へ混ぜません。修正済みバージョンの一覧は候補の境界情報であり、公開済みの全バージョン一覧や安全性の保証ではありません。依存制約・公開状況・コード影響を調べ、更新後のテストと再検査で確認します。
+2. この短期対応が実際の検査で完了した後、OS・言語・ミドルウェア・データベースを、脆弱性と保守状況を確認したできるだけ新しい適切なバージョンへ移行し、依存関係も同じ基準で更新する次の対応案を示します。この段階では必要なコード修正や移行を含めます。基盤がサポート終了または更新が必要な古い状態なら、短期の依存更新に先行して、この基盤移行を最初から提案します。
 
-Before merging a repair, OneTeam independently checks the candidate's corresponding targets again. If a targeted advisory still affects the package, even at another version or workspace path, the Loop returns to fixing. Incomplete target checks and service errors stop progress with an explanation. A subsequent successful check of that target confirms resolution; an unavailable target retains its previous findings, and a merged PR alone never marks them resolved. These checks find known package vulnerabilities, not all vulnerabilities in application code or all configuration risks.
+各段階の対応案には、更新する具体的な成果物・設定ファイル、バージョン候補、検証内容を示します。「対応案に含む」「今回含まない」を理由付きで表示し、次の段階を待つ項目と修正未公開・外部対応が必要な項目を区別します。同じイメージの更新では、修正未公開の項目や軽微な項目も再検査します。対応できない問題は未解決リスクとして残し、対象すべての解消を保証する表示にはしません。
+
+内容を確認し、画面の承認操作またはチャットで課題化・実行を指示すると、現在の対応案の ID に結び付く課題を一つ作成して開発ループを開始します。質問や相談、検査だけでは課題を作成しません。チャットでも最初に最新の対応案を取得し、その段階と対象を説明します。検査結果が変わった場合や次の段階へ進む場合は、新しい対応案を確認して指示してください。個別項目の修正ボタンはなく、画面の絞り込みで承認対象が縮小することもありません。実行中は承認済みの対象と進捗を表示します。
+
+課題と開発ループは、依存ファイルや Dockerfile・Compose・Kubernetes のリポジトリ内の設定を修正し、テスト・レビュー・QA・独立検査を経てプルリクエストを作成します。脆弱性タブから進捗・ジョブ履歴・一時停止／再開／中止を確認できます。通常の開発と同じキューを使うため、先に停止・失敗したループがあればその解消が必要です。リポジトリの修正で稼働中の環境を自動的にデプロイ・更新・再起動することはありません。
+
+マージ前には、OneTeam が修正候補の対象を独立して再検査します。同じ advisory が別バージョン・別パスで残る場合も修正へ戻します。不完全な検査やサービス障害は理由を表示し、完了を認めません。ジョブ完了やマージだけでは段階を完了せず、対象の検査が成功し、承認した修正の完了を確認した場合にだけ次の対応案へ進みます。未確認の対象は以前の問題を保持します。検査は既知のパッケージ脆弱性と保守状況を確認するもので、アプリケーションコードや設定にあるすべての問題の検出を保証しません。
 
 ## Automatic progress and human handoffs
 

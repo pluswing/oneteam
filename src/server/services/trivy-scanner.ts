@@ -188,7 +188,7 @@ export async function scanFilesystemWithTrivy(
   const scan = await parseTrivyReportWithLifecycle(result.stdout, { scope: "application", targetId: "application", targetLabel: "Application dependencies", repoPath: root }, { signal: options.signal, fetch: options.lifecycleFetch });
   if (result.recovery) scan.recoveries = [result.recovery];
   const inventory = await inspectVulnerabilityInventoryCoverage(root, scan.manifests, { signal: options.signal });
-  scan.inspectionSources = [...new Set([".", ...inventory.sources, ...scan.manifests])];
+  scan.inspectionSources = [...new Set([".", ...(scan.inspectionSources ?? []), ...inventory.sources, ...scan.manifests])];
   const inventoryWarnings = inventory.warnings;
   if (inventoryWarnings.length) {
     scan.warnings.push(...inventoryWarnings);

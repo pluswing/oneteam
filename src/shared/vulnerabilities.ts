@@ -18,6 +18,15 @@ export type VulnerabilityLifecycleCheck = {
   cycle: string;
   status: "supported" | "end_of_life";
   componentKind?: "os" | "runtime" | "middleware";
+  installedVersion?: string;
+  latestSupportedVersion?: string;
+  newerSupportedCycles?: number;
+  supportEndsAt?: string | null;
+  manifestPath?: string;
+  sourceUrl?: string;
+  scope?: VulnerabilityScope;
+  targetLabel?: string;
+  remediationMode?: "repository" | "external";
 };
 export type VulnerabilityScanTarget = {
   id: string;
@@ -41,7 +50,7 @@ export type VulnerabilityFinding = {
     name: string;
     reference: string;
   };
-  kind?: "vulnerability" | "support_end" | "scan_failure" | "coverage_gap";
+  kind?: "vulnerability" | "support_end" | "platform_update" | "scan_failure" | "coverage_gap";
   coverageGap?: {
     category: "inventory" | "build" | "configuration" | "deployment" | "access" | "scanner" | "limit" | "lifecycle" | "other";
     warnings: string[];
@@ -123,6 +132,10 @@ export type VulnerabilityScanState = {
   coverage: "complete" | "partial" | "unsupported";
 };
 export type VulnerabilityRemediation = {
+  stage?: VulnerabilityRemediationPlan["stage"];
+  policyVersion?: number;
+  verifiedAt?: string;
+  verification?: { status: "passed" | "failed"; checkedAt: string; summary: string };
   id: string;
   findingIds: string[];
   issueId: number;
@@ -165,7 +178,7 @@ export function canRemediateVulnerabilityFinding(
     return !scan.targets ? scan.status === "failed" : scan.targets.some((target) => target.id === (finding.targetId ?? "application")
       && target.scope === (finding.scope ?? "application") && (["failed", "unavailable"].includes(target.status) || Boolean(target.diagnosis && target.diagnosis.recoveryStatus !== "recovered")));
   }
-  if (finding.kind === "support_end") {
+  if (finding.kind === "support_end" || finding.kind === "platform_update") {
     return scan.status === "succeeded" && Boolean(finding.lifecycle)
       && (!scan.targets || scan.targets.some((target) => target.id === (finding.targetId ?? "application")
         && target.scope === (finding.scope ?? "application") && ["scanned", "unsupported"].includes(target.status)));
@@ -191,10 +204,15 @@ export function hasVulnerabilityResolutionEvidence(
     }
     return targets.length > 0 && targets.every((target) => target.status === "scanned" && target.coverage === "complete" && !target.coverageWarnings?.length);
   }
-  if (finding.kind === "support_end") {
+  if (finding.kind === "support_end" || finding.kind === "platform_update") {
     const checks = scan.lifecycleChecks?.filter((check) => check.targetId === (finding.targetId ?? "application")
       && (check.product === finding.lifecycle?.product || (finding.lifecycle?.componentKind === "os" && check.componentKind === "os"))) ?? [];
-    return Boolean(finding.lifecycle && checks.some((check) => check.status === "supported") && !checks.some((check) => check.status === "end_of_life"));
+    const supported = checks.filter((check) => check.status === "supported");
+    if (!finding.lifecycle || !supported.length || checks.some((check) => check.status === "end_of_life")) return false;
+    // A supported cycle alone cannot prove that a proposed version update happened.
+    return finding.kind !== "platform_update" || supported.every((check) => Boolean(check.installedVersion && check.latestSupportedVersion)
+      && platformVersionAtLeast(check.installedVersion!, check.latestSupportedVersion!, false, check.componentKind === "os" ? check.cycle : undefined)
+      && (check.product !== finding.lifecycle!.product || platformVersionAtLeast(check.installedVersion!, finding.installedVersion, true)));
   }
   if (finding.kind === "scan_failure") {
     return scan.targets?.some((target) => target.id === (finding.targetId ?? "application")
@@ -202,4 +220,21 @@ export function hasVulnerabilityResolutionEvidence(
       && (!target.diagnosis || target.diagnosis.recoveryStatus === "recovered")) ?? scan.coverage === "complete";
   }
   return hasCompleteVulnerabilityTarget(scan, finding);
+}
+
+/** Distro revisions do not make a current upstream version look outdated. Unknown formats are never proof. */
+function platformVersionAtLeast(actual: string, required: string, strictly = false, osCycle?: string): boolean {
+  const parse = (value: string) => value.replace(/^\d+:/, "").replace(/^(?:v|go)(?=\d)/, "")
+    .match(/^(\d+(?:\.\d+)*)(?:$|-(?=\d|r\d)|[+~_]|\.(?=[a-z]))/i)?.[1].split(".").map(Number);
+  const left = parse(actual);
+  let right = parse(required);
+  if (!left || !right) return false;
+  const cycle = osCycle ? parse(osCycle) : undefined;
+  // Trivy may identify only an OS cycle, while the catalog latest names installation media.
+  if (cycle && cycle.length === left.length && cycle.every((part, index) => part === left[index])) right = right.slice(0, left.length);
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference) return difference > 0;
+  }
+  return !strictly;
 }

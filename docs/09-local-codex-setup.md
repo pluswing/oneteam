@@ -24,6 +24,10 @@ Each chat's model and reasoning controls apply to its next reply. Ask the assist
 
 The chat assistant is restricted to OneTeam's tools and read-only repository source inspection. Development Jobs keep the full command access described below. A stopped or interrupted response preserves completed operations and records incomplete work; OneTeam does not automatically replay it after restart. Conversation data is part of `.oneteam/data/oneteam.db` and should be included in repository workspace backups.
 
+脆弱性について相談すると、チャットは最新の検査結果と対応案を取得し、OS・言語・ミドルウェア・データベースの保守状況から説明します。基盤が十分新しく保守中なら、最寄りの修正済み patch・minor 版への短期の依存更新を先に提案し、独立検査による完了後に基盤と依存関係の新しい保守版への移行を提案します。サポート終了や古い基盤では、必要なコード移行を含む基盤更新を優先します。情報不足なら先に検査復旧を提案し、安全とは断定しません。
+
+「この対応案を課題にして修正してください」など、ユーザの指示があった場合にだけ、現在の対応案 ID を指定して課題と開発ループを作成します。検査や相談だけでは作成しません。次の段階や変更後の対応案は別途確認と指示が必要です。チャットは実行待ち・実行中・検証済みを区別し、テストと独立した再検査を通過したことを確認します。詳しくは [Vulnerability monitoring and repair](../README.md#vulnerability-monitoring-and-repair) を参照してください。
+
 ## Command execution, Git and Docker
 
 OneTeam's development Agent jobs use `sandbox: "danger-full-access"` and `approvalPolicy: "never"`. Commands run with the permissions of the user running OneTeam, with filesystem and network access enabled and no per-command approval prompt. This applies to every development role, including requirements, review, command detection and retrospective. Each role still follows its task instructions, including instructions to inspect without changing source files. The background advisory-translation helper remains read-only.

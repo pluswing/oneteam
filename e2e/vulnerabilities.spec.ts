@@ -23,7 +23,8 @@ function dashboard(): VulnerabilityDashboard {
   return {
     projectId, settings: { autoRefresh: true, autoRemediate: false, intervalHours: 24 },
     scan: { status: "succeeded", startedAt: timestamp, completedAt: timestamp, nextScanAt: "2026-10-24T05:00:00.000Z", error: null,
-      inventoryHash: "fixture-inventory", dependenciesScanned: 81, manifests: ["packages/web/package-lock.json"], warnings: [], coverage: "complete" },
+      inventoryHash: "fixture-inventory", dependenciesScanned: 81, manifests: ["packages/web/package-lock.json"], warnings: [], coverage: "complete",
+      lifecycleChecks: [{ targetId: "application", product: "nodejs", cycle: "24", installedVersion: "24.0.0", componentKind: "runtime", status: "supported", newerSupportedCycles: 0, latestSupportedVersion: "24.10.0", sourceUrl: "https://endoflife.date/nodejs" }] },
     findings: [finding({}), finding({ id: "finding-medium", advisoryId: "GHSA-fixture-0002", packageName: "second-library", summary: "A medium dependency vulnerability", severity: "medium" }),
       finding({ id: "finding-resolved", advisoryId: "GHSA-fixture-0003", packageName: "resolved-library", summary: "A previously resolved vulnerability", status: "resolved", resolvedAt: timestamp })],
     remediations: []
@@ -48,8 +49,9 @@ async function mockSecurityApi(page: Page, initial = dashboard(), locale = "en")
       fixture.dashboard.scan = { ...fixture.dashboard.scan, status: "scanning", error: null };
       response = fixture.dashboard;
     } else if (path === `${projectPath}/vulnerabilities/remediate`) {
+      const plan = buildVulnerabilityRemediationPlan(fixture.dashboard);
       const remediation: VulnerabilityRemediation = {
-        id: "remediation-1", findingIds: buildVulnerabilityRemediationPlan(fixture.dashboard).findingIds, issueId: 8, loopId: 9,
+        id: "remediation-1", findingIds: plan.findingIds, issueId: 8, loopId: 9, stage: plan.stage, policyVersion: plan.policyVersion,
         status: "queued", phase: "planning", pullRequestId: 17, summary: "Preparing a dependency update.", createdAt: timestamp, updatedAt: timestamp
       };
       fixture.dashboard.remediations = [remediation];
@@ -82,11 +84,11 @@ function repairRequests(fixture: Awaited<ReturnType<typeof mockSecurityApi>>) {
 }
 
 async function approvePlan(page: Page, japanese = true) {
-  await page.getByRole("button", { name: japanese ? "承認して実行" : "Approve and execute plan", exact: true }).click();
+  await page.getByRole("button", { name: japanese ? "課題を作成して修正を開始" : "Create Issue and start repairs", exact: true }).click();
   await expect(page.locator(".vulnerability-remediation")).toBeVisible();
 }
 
-test("presents one critical/high proposal and separate detailed included and excluded lists before approval", async ({ page }) => {
+test("assesses maintained platforms before proposing nearest safe updates across severities and explicit Issue creation", async ({ page }) => {
   const initial = dashboard();
   initial.findings.push(
     finding({ id: "finding-high", advisoryId: "GHSA-fixture-high", packageName: "high-library", severity: "high", fixedVersions: ["1.0.2"] }),
@@ -102,9 +104,13 @@ test("presents one critical/high proposal and separate detailed included and exc
   await expect(plan).toBeVisible();
   await expect(plan).toContainText("緊急");
   await expect(plan).toContainText("高");
+  await expect(page.getByTestId("vulnerability-assessment")).toContainText("メンテナンス継続中");
+  await expect(plan).toHaveAttribute("data-stage", "minimal_dependencies");
+  await expect(plan).toContainText("第1段階の修正・再検査が完了してから");
+  await expect(plan).toContainText("推奨する更新先: 1.0.1");
   await expect(included).toContainText("fixture-library");
   await expect(included).toContainText("high-library");
-  await expect(excluded).toContainText("second-library");
+  await expect(included).toContainText("second-library");
   await expect(excluded).toContainText("blocked-library");
   await expect(excluded).toContainText("external-library");
   await expect(page.getByLabel("自動で修正", { exact: true })).toHaveCount(0);
@@ -128,7 +134,7 @@ test("declining an overall proposal starts no repair", async ({ page }) => {
   expect(repairRequests(fixture)).toEqual([]);
   await expect(page.locator(".vulnerability-remediation")).toHaveCount(0);
   await expect(page.getByTestId("vulnerability-plan-included")).toContainText("fixture-library");
-  await expect(page.getByTestId("vulnerability-plan-excluded")).toContainText("second-library");
+  await expect(page.getByTestId("vulnerability-plan-included")).toContainText("second-library");
 });
 
 test("includes warning-only inventory and build gaps in the proposal and retains diagnostic details", async ({ page }) => {
@@ -145,6 +151,8 @@ test("includes warning-only inventory and build gaps in the proposal and retains
   const expectedPlan = buildVulnerabilityRemediationPlan(initial);
   const fixture = await mockSecurityApi(page, initial, "ja");
   await page.goto("/vulnerabilities");
+  await expect(page.getByTestId("vulnerability-plan")).toHaveAttribute("data-stage", "assessment");
+  await expect(page.getByTestId("vulnerability-assessment")).toContainText("脆弱性が未検出でも安全と判断しません");
   await expect(page.locator('.vulnerability-group[data-remediation-kind="coverage_gap"]')).toHaveCount(2);
   await expect(page.getByRole("button", { name: "確認範囲を改善", exact: true })).toHaveCount(0);
   await openUpdateDetails(page, ".");
@@ -163,6 +171,7 @@ test("summarizes image updates together and includes their bundled findings in o
   const initial = dashboard();
   const mysql: VulnerabilityScanTarget = { id: "compose:mysql_tfg", kind: "image", scope: "container", label: "docker-compose.yaml: mysql_tfg", ref: "mysql:5.7", sourcePath: "docker-compose.yaml", status: "scanned", scanner: "trivy", coverage: "complete", dependenciesScanned: 150, error: null, checkedAt: timestamp };
   initial.scan.targets = [mysql, { ...mysql, id: "compose:redis", label: "docker-compose.yaml: redis", ref: "redis:6" }];
+  initial.scan.lifecycleChecks!.push({ targetId: mysql.id, product: "mysql", cycle: "5.7", installedVersion: "5.7", componentKind: "middleware", status: "end_of_life", latestSupportedVersion: "8.4" });
   initial.scan.manifests = ["docker-compose.yaml"];
   initial.findings = [
     finding({ id: "go-critical", packageName: "stdlib", ecosystem: "Go", installedVersion: "v1.13.10", manifestPath: mysql.sourcePath, scope: "container", targetId: mysql.id, targetLabel: mysql.label }),
@@ -177,6 +186,8 @@ test("summarizes image updates together and includes their bundled findings in o
   await expect(plan).toContainText("mysql:5.7");
   await expect(plan).toContainText("redis:6");
   await expect(plan).toContainText("docker-compose.yaml");
+  await expect(plan).toHaveAttribute("data-stage", "modernization");
+  await expect(plan).toContainText("環境の更新を優先するため短期修正は見送り");
   const group = updateGroup(page, "mysql:5.7");
   await expect(page.locator(".vulnerability-group")).toHaveCount(2);
   await expect(group.getByRole("heading", { name: "mysql のコンテナイメージを更新", exact: true })).toBeVisible();
@@ -230,7 +241,7 @@ test("Japanese vulnerability tab preserves result filters and manual refresh wit
   expect(repairRequests(fixture)).toEqual([]);
 });
 
-test("keeps support-end and scanner recovery prerequisites in the aggregate proposal", async ({ page }) => {
+test("prioritizes an end-of-support platform even without major CVEs and retains scanner recovery", async ({ page }) => {
   const initial = dashboard();
   initial.scan.coverage = "partial";
   initial.scan.manifests = ["compose.yaml"];
@@ -244,6 +255,9 @@ test("keeps support-end and scanner recovery prerequisites in the aggregate prop
   ];
   const fixture = await mockSecurityApi(page, initial, "ja");
   await page.goto("/vulnerabilities");
+  await expect(page.getByTestId("vulnerability-plan")).toHaveAttribute("data-stage", "modernization");
+  await expect(page.getByTestId("vulnerability-assessment")).toContainText("保守終了または重大な脆弱性のある環境");
+  await expect(page.getByTestId("vulnerability-plan")).toContainText("広範なコード修正と全体の検証");
   await expect(page.getByTestId("vulnerability-plan-included")).toContainText("debian:10");
   await expect(page.getByTestId("vulnerability-plan-included")).toContainText("postgres:12");
   await openUpdateDetails(page, "debian:10");
@@ -331,7 +345,7 @@ test("approved repairs retain PR, activity and pause/resume/cancel controls", as
   await expect(response).toContainText("Queued");
   await expect(page.getByTestId("vulnerability-plan-included")).toContainText("fixture-library");
   await expect(response.getByRole("link", { name: "View pull request #17" })).toHaveAttribute("href", "/pulls/17");
-  await expect(page.getByRole("button", { name: "Approve and execute plan", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Create Issue and start repairs", exact: true })).toBeDisabled();
   await response.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(response).toContainText("Paused");
   await response.getByRole("button", { name: "Resume", exact: true }).click();
@@ -364,6 +378,7 @@ test("unverified targets and deployment-side findings remain excluded with their
   };
   initial.scan.coverage = "partial";
   initial.scan.targets = [application, container, deployment, liveDeployment];
+  initial.scan.lifecycleChecks!.push({ targetId: container.id, product: "debian", cycle: "10", installedVersion: "10", componentKind: "os", status: "end_of_life", latestSupportedVersion: "13" });
   initial.scan.warnings = [deployment.error!];
   initial.scan.manifests = ["uv.lock", "compose.yaml", ".oneteam/vulnerability-targets.json"];
   initial.findings = [
